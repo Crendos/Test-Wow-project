@@ -1,0 +1,32 @@
+[
+  {
+    "title": "Ядра 7.3.5–12.x: ID SmartAI не переносимы",
+    "text": "Базовые действия SmartAI (TALK=1, CAST=11, SUMMON_CREATURE=12, ADD_AURA=75, WP_START=53, MOVE_TO_POS=69, SET_RUN=59, TELEPORT=62, EVADE=24, FOLLOW=29, SET_PHASE/RANDOM_PHASE=30, ATTACK_START=49) совпадают между Nordrassil 7.3.5 и TrinityCore master. НО расширенные диапазоны и часть событий различаются: DISTANCE_CREATURE = 79 в 7.3.5 и 75 в master; COUNTER_SET = 80 в 7.3.5 и 77 в master. В 7.3.5 событие 2% HP называется с опечаткой SMART_EVENT_HEALT_PCT, в master исправлено на HEALTH_PCT (ID тот же 2). В Nordrassil есть кастомные действия 161-234 (SET_POWER_TYPE, CAST_SPELL_OFFSET, STORE_VARIABLE_DECIMAL, PLAY_SPELL_VISUAL_KIT), которых нет в master. Никогда не копируй smart_scripts между ветками без сверки ID по SmartScriptMgr.h конкретного ядра.",
+    "tags": "smartai smart_scripts id core 7.3.5 master retail несовместимость nordrassil trinitycore"
+  },
+  {
+    "title": "TrinityCore master (retail 11.x/12.x): профиль",
+    "text": "TrinityCore master — retail-ветка (11.x/12.x), moving target. Базы: auth, characters, world, hotfixes. Реалм = bnetserver. SmartAI: 92 события (макс 91), 161 действие (макс 160), 32 цели. Команд .reload = 98. Перезагрузка путей: .reload waypoint_path (не waypoint_data). Есть scene_template, criteria_data, rbac, quest_greeting, quest_locale, item_random_bonus_list_template, creature_movement_override. Локали квестов: quest_locale (не quest_template_locale). Официальных веток 7.3.5/8.x/9.x/10.x в репозитории TrinityCore нет — только 3.3.5, cata_classic, wotlk_classic, master.",
+    "tags": "trinitycore master retail 11.x 12.x waypoint_path scene_template quest_locale reload"
+  },
+  {
+    "title": "Nordrassil Core 7.3.5: профиль и отличия лута",
+    "text": "Nordrassil — Legion-форк TrinityCore под клиент 7.3.5.26972. Базы: auth, characters, world, hotfixes. Реалм = bnetserver (1119), ядро = worldserver (8085/8086). SmartAI: 82 события (макс 80), 163 действия (макс 234), 33 цели. Команд .reload = 117. Лут КАСТОМНЫЙ (LootMgr.cpp): groupid>0 = ровно один предмет из группы (поведения groupid>8 НЕТ); shared=1 в creature_loot_template = доп. проверка 0.5% (не 'общий на группу'); отрицательный item = валюта; shared есть только у creature_loot_template. Есть zone/world/luck/personal_loot_template, waypoint_data, waypoint_scripts, script_waypoint, creature_template_outfits, phasedefinitions, eventobject. Тексты квестов в quest_template_locale (12 локалей, ruRU есть). Статы предметов в hotfixes.item_sparse.",
+    "tags": "nordrassil 7.3.5 legion loot groupid shared zone_loot personal_loot quest_template_locale item_sparse"
+  },
+  {
+    "title": "reload-команды: 7.3.5 vs master",
+    "text": "Только в 7.3.5: zone_loot_template, world_loot_template, luck_loot_template, waypoint_data, waypoint_scripts, script_waypoint, creature_template_outfits, phasedefinitions, scenario_data, conversation, creature_area. Только в master: waypoint_path, creature_movement_override, item_random_bonus_list_template, quest_greeting, quest_locale, scene_template, criteria_data, rbac, support, trainer, spell_script_names, *_locale таблицы. Общие: creature_loot_template, reference_loot_template, gameobject_loot_template, item_loot_template, conditions, quest_template, creature_queststarter/questender, creature_template, creature_text, gossip_menu, smart_scripts, creature_summon_groups, spell_proc, spell_linked_spell, spell_target_position, access_requirement, item. В 7.3.5 .reload quest_template через LoadQuests() тянет сразу quest_objectives, quest_template_addon, quest_details, quest_offer_reward, quest_request_items. Тексты — отдельной .reload locales_quest (7.3.5) / quest_locale (master).",
+    "tags": "reload waypoint_path waypoint_data quest_locale locales_quest zone_loot_template master 7.3.5"
+  },
+  {
+    "title": "Legion: новый предмет/спелл требует патч клиента",
+    "text": "В Legion (7.3.5) и retail данные предметов и спеллов размазаны: серверная часть в world (item_template, creature_template_spell), а имя/ItemLevel/статы/сокеты — в hotfixes (item_sparse, item_bonus, item_effect, scaling_stat_distribution, curve). В дампе Nordrassil item_bonus/scaling_stat_distribution/curve ПУСТЫЕ — основной объём клиент берёт из своего DB2/DBCache. Вывод: новый предмет или спелл нельзя сделать одним SQL — нужна правка БД (world + hotfixes) И патч клиентских DB2 (item.db2, item-sparse.db2, spell.db2, spell-effect.db2) или DBCache. Для ПРАВКИ существующего предмета часто достаточно item_template + item_sparse.",
+    "tags": "legion item spell hotfixes item_sparse db2 dbcache client patch новый предмет спелл"
+  },
+  {
+    "title": "Схемы БД: квесты и пути по веткам",
+    "text": "Квесты: 7.3.5 = quest_template + quest_objectives + quest_template_locale; master = quest_template + quest_objectives + quest_locale + quest_greeting. Типы целей quest_objectives.Type (QuestDef.h): 0=MONSTER, 1=ITEM, 2=GAMEOBJECT, 3=TALKTO, 4=CURRENCY, 5=LEARNSPELL, 8=MONEY, 9=PLAYERKILLS, 10=AREATRIGGER, 14=COMPLETE_CRITERIA_TREE, 15=TASK_IN_ZONE. Флаги: 0x01 TRACKED_ON_MINIMAP, 0x02 SEQUENCED, 0x04 OPTIONAL, 0x08 HIDDEN. Пути: 7.3.5 = waypoints (path ID) + waypoint_data (GUID) + script_waypoint (entry); master = waypoint_path. Привязка пути: creature_addon.path_id / creature_template_addon.path_id. MovementType: 0=нет, 1=блуждание, 2=путь.",
+    "tags": "quest_template quest_objectives quest_locale waypoint_path waypoint_data path_id movementtype схема"
+  }
+]
