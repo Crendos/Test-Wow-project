@@ -3289,226 +3289,682 @@ void MainWindow::persistErrorLog(const QString &category, const QString &title, 
 }
 
 // ---------------------------------------------------------------------------
-// Вкладка «Патч WoW.exe» (метод Arctium Launcher)
+// Вкладка «Патч Wow.exe» — режим Firestorm: самостоятельный exe на диске
 // ---------------------------------------------------------------------------
 void MainWindow::buildWowPatchTab(QTabWidget *tabs) {
     auto *page = new QWidget;
     auto *lay = new QVBoxLayout(page);
     lay->addWidget(wrapLabel(ClientPatchService::methodSummary()));
 
-    auto *form = new QFormLayout;
-    wowExePath = new QLineEdit; wowExePath->setPlaceholderText(R"(C:\Games\World of Warcraft\_retail_\Wow.exe)");
-    wowPortal = new QLineEdit; wowPortal->setPlaceholderText("host:port (например 127.0.0.1:1119)");
-    wowPort = new QSpinBox; wowPort->setRange(1, 65535); wowPort->setValue(1119);
-    wowCopyOutput = new QLineEdit; wowCopyOutput->setPlaceholderText("Куда сохранить пропатченную копию (режим «Копия»)");
-    wowVersionUrl = new QLineEdit; wowVersionUrl->setPlaceholderText("http://my.cdn/wow/versions");
-    wowCdnsUrl = new QLineEdit; wowCdnsUrl->setPlaceholderText("http://my.cdn/wow/cdns");
-    wowExtraArgs = new QLineEdit; wowExtraArgs->setPlaceholderText("Доп. аргументы Wow.exe (необязательно)");
+    // -----------------------------------------------------------------------
+    // 1. Клиент
+    // -----------------------------------------------------------------------
+    auto *clientBox = new QGroupBox(QStringLiteral("1. Клиент"));
+    auto *clientForm = new QFormLayout(clientBox);
 
-    auto *chooseExe = button("Выбрать Wow.exe…");
-    auto *readPortal = button("Взять из WTF/Config.wtf");
-    auto *checkTls = button("Проверить TLS сервера");
-    form->addRow("Wow.exe:", wowExePath);
-    form->addRow("", chooseExe);
-    wowDataInfo = wrapLabel("Папка Data берётся из каталога самого Wow.exe (например new\\wow\\Data) — укажите Wow.exe, и путь покажется здесь.");
-    form->addRow("Папка Data:", wowDataInfo);
-    form->addRow("Портал (host:port):", wowPortal);
-    form->addRow("", readPortal);
-    form->addRow("Порт (по умолчанию 1119):", wowPort);
-    form->addRow("Копия для сохранения:", wowCopyOutput);
+    wowExePath = new QLineEdit;
+    wowExePath->setPlaceholderText(R"(C:\Games\World of Warcraft\_retail_\Wow.exe)");
+    auto *chooseExe = button(QStringLiteral("Выбрать Wow.exe…"));
+    auto *exeRow = new QHBoxLayout;
+    exeRow->addWidget(wowExePath, 1);
+    exeRow->addWidget(chooseExe);
+    clientForm->addRow(QStringLiteral("Wow.exe:"), exeRow);
 
-    auto *opts = new QGroupBox("Опции патча");
-    auto *optsLayout = new QVBoxLayout(opts);
-    wowAutoDetect = new QCheckBox("Автоопределение профиля (ветка по пути, версия, набор сигнатур)"); wowAutoDetect->setChecked(true);
-    wowBypassCert = new QCheckBox("Обход проверки сертификата (фаза B, runtime, для локального/своего IP)"); wowBypassCert->setChecked(true);
-    wowWriteConfigWtf = new QCheckBox("Записать SET portal в WTF/Config.wtf перед запуском"); wowWriteConfigWtf->setChecked(true);
-    wowExpandPortal = new QCheckBox("Память: расширять окно под строкой портала (до 128 Б) — только если проверен расклад строк билда");
-    wowLegacyRsa = new QCheckBox("Патчить GameCrypto RsaModulus (старые клиенты, может отсутствовать)"); wowLegacyRsa->setChecked(true);
-    wowVersionUrls = new QCheckBox("Патчить version/CDN URL (свой CDN или старый патч)");
-    wowCheckTls = new QCheckBox("Проверить TLS-сертификат сервера перед запуском");
-    wowWaitUnpackMs = new QSpinBox; wowWaitUnpackMs->setRange(1000, 60000); wowWaitUnpackMs->setValue(6000);
-    wowWaitUnpackMs->setSuffix(" мс");
-    optsLayout->addWidget(wowAutoDetect);
-    optsLayout->addWidget(wowBypassCert);
-    optsLayout->addWidget(wowWriteConfigWtf);
-    optsLayout->addWidget(wowExpandPortal);
-    optsLayout->addWidget(wowLegacyRsa);
-    optsLayout->addWidget(wowVersionUrls);
-    optsLayout->addWidget(wowCheckTls);
+    wowDataInfo = wrapLabel(QStringLiteral("Папка Data ищется рядом с Wow.exe и уровнем выше. Выберите файл — результат появится здесь."));
+    clientForm->addRow(QStringLiteral("Папка Data:"), wowDataInfo);
+
+    wowOutputExe = new QLineEdit;
+    wowOutputExe->setPlaceholderText(QStringLiteral("Пусто = писать поверх выбранного Wow.exe (оригинал сохранится в Wow.exe.orig)"));
+    auto *chooseOut = button(QStringLiteral("Сохранить как…"));
+    auto *likeFirestorm = button(QStringLiteral("Как у Firestorm: рядом и с тем же именем"));
+    auto *outRow = new QHBoxLayout;
+    outRow->addWidget(wowOutputExe, 1);
+    outRow->addWidget(chooseOut);
+    outRow->addWidget(likeFirestorm);
+    clientForm->addRow(QStringLiteral("Результат:"), outRow);
+
+    auto *diagRow = new QHBoxLayout;
+    auto *diagnose = button(QStringLiteral("Диагностика файла"));
+    auto *readPortal = button(QStringLiteral("Портал из Config.wtf"));
+    auto *checkTls = button(QStringLiteral("Проверить TLS сервера"));
+    auto *selfTest = button(QStringLiteral("Самопроверка ключей"));
+    diagRow->addWidget(diagnose);
+    diagRow->addWidget(readPortal);
+    diagRow->addWidget(checkTls);
+    diagRow->addWidget(selfTest);
+    diagRow->addStretch();
+    clientForm->addRow(QStringLiteral("Проверки:"), diagRow);
+    lay->addWidget(clientBox);
+
+    // -----------------------------------------------------------------------
+    // 2. Портал и сервер
+    // -----------------------------------------------------------------------
+    auto *portalBox = new QGroupBox(QStringLiteral("2. Портал (адрес вашего сервера)"));
+    auto *portalForm = new QFormLayout(portalBox);
+    wowPortal = new QLineEdit;
+    wowPortal->setPlaceholderText(QStringLiteral("127.0.0.1:1119  или  logon.ваш-домен.ru"));
+    portalForm->addRow(QStringLiteral("Портал:"), wowPortal);
+    wowPort = new QSpinBox;
+    wowPort->setRange(1, 65535);
+    wowPort->setValue(1119);
+    portalForm->addRow(QStringLiteral("Порт (если не указан в портале):"), wowPort);
+
+    wowWriteConfigWtf = new QCheckBox(QStringLiteral("Записать SET portal в WTF/Config.wtf — ОСНОВНОЙ способ задать адрес"));
+    wowWriteConfigWtf->setChecked(true);
+    wowPortalSuffix = new QCheckBox(QStringLiteral("Править суффикс .actual.battle.net -> .actual.<домен ≤10 байт> (страховка: без Config.wtf клиент не уйдёт на Blizzard)"));
+    wowPortalSuffix->setChecked(true);
+    wowPortalWhole = new QCheckBox(QStringLiteral("Legacy: писать host:port во всё окно суффикса — клиент склеит префикс региона, результат может быть нерабочим"));
+    auto *portalOpts = new QVBoxLayout;
+    portalOpts->addWidget(wowWriteConfigWtf);
+    portalOpts->addWidget(wowPortalSuffix);
+    portalOpts->addWidget(wowPortalWhole);
+    portalForm->addRow(portalOpts);
+    lay->addWidget(portalBox);
+
+    // -----------------------------------------------------------------------
+    // 3. Ключи
+    // -----------------------------------------------------------------------
+    auto *keysBox = new QGroupBox(QStringLiteral("3. Ключи TrinityCore (по умолчанию вшиты правильные — менять не нужно)"));
+    auto *keysLayout = new QVBoxLayout(keysBox);
+    wowAutoDetect = new QCheckBox(QStringLiteral("Автоопределение профиля по версии и пути (1.13.x / 1.14+ / 2.5.x / 3.4.x / 6.x-8.x / 9.x-10.x / 11.x / 12.x)"));
+    wowAutoDetect->setChecked(true);
+    wowRequireEd = new QCheckBox(QStringLiteral("Ed25519 обязателен (11.x/12.x): без него вход в мир обрывается на переходе к шифрованию"));
+    wowRequireEd->setChecked(true);
+    wowLegacyRsa = new QCheckBox(QStringLiteral("Патчить Signature/GameCrypto RSA (legacy-клиенты 2.5.x/3.4.x/9.x-10.x)"));
+    wowLegacyRsa->setChecked(true);
+    wowKeysBe = new QCheckBox(QStringLiteral("Ключи в hex заданы в big-endian (формат openssl) — развернуть в little-endian"));
+    keysLayout->addWidget(wowAutoDetect);
+    keysLayout->addWidget(wowRequireEd);
+    keysLayout->addWidget(wowLegacyRsa);
+    keysLayout->addWidget(wowKeysBe);
+
+    wowRsaPem = new QLineEdit;
+    wowRsaPem->setPlaceholderText(QStringLiteral("Необязательно: PEM с RSA-ключом/сертификатом bnetserver (PKCS#1, PKCS#8, SPKI)"));
+    auto *pickRsa = button(QStringLiteral("…"));
+    auto *rsaRow = new QHBoxLayout;
+    rsaRow->addWidget(wowRsaPem, 1);
+    rsaRow->addWidget(pickRsa);
+    keysLayout->addWidget(wrapLabel(QStringLiteral("Свой RSA-модуль (PEM):")));
+    keysLayout->addLayout(rsaRow);
+
+    wowEdPem = new QLineEdit;
+    wowEdPem->setPlaceholderText(QStringLiteral("Необязательно: PEM с ПУБЛИЧНЫМ ключом Ed25519 (PUBLIC KEY или сертификат)"));
+    auto *pickEd = button(QStringLiteral("…"));
+    auto *edRow = new QHBoxLayout;
+    edRow->addWidget(wowEdPem, 1);
+    edRow->addWidget(pickEd);
+    keysLayout->addWidget(wrapLabel(QStringLiteral("Свой Ed25519 (PEM):")));
+    keysLayout->addLayout(edRow);
+
+    wowVersionUrls = new QCheckBox(QStringLiteral("Патчить version/CDN URL (свой CDN)"));
+    keysLayout->addWidget(wowVersionUrls);
+    wowVersionUrl = new QLineEdit;
+    wowVersionUrl->setPlaceholderText(QStringLiteral("http://my.cdn/wow/versions"));
+    wowCdnsUrl = new QLineEdit;
+    wowCdnsUrl->setPlaceholderText(QStringLiteral("http://my.cdn/wow/cdns"));
+    keysLayout->addWidget(wrapLabel(QStringLiteral("Version URL:")));
+    keysLayout->addWidget(wowVersionUrl);
+    keysLayout->addWidget(wrapLabel(QStringLiteral("CDNs URL:")));
+    keysLayout->addWidget(wowCdnsUrl);
+
+    wowLauncherReg = new QCheckBox(QStringLiteral("Подменить ключ реестра лаунчера (Battle.net -> свой лаунчер)"));
+    keysLayout->addWidget(wowLauncherReg);
+    wowCertBundleUrl = new QLineEdit;
+    wowCertBundleUrl->setPlaceholderText(QStringLiteral("Свой URL cert-bundle (bgs-key-fingerprint)"));
+    keysLayout->addWidget(wowCertBundleUrl);
+    wowCertBundleFile = new QLineEdit;
+    wowCertBundleFile->setPlaceholderText(QStringLiteral("Подписанный bundle ({\"Created\":…) — влезает в слот 32761 байт"));
+    auto *pickBundle = button(QStringLiteral("…"));
+    auto *bundleRow = new QHBoxLayout;
+    bundleRow->addWidget(wowCertBundleFile, 1);
+    bundleRow->addWidget(pickBundle);
+    keysLayout->addLayout(bundleRow);
+    lay->addWidget(keysBox);
+
+    // -----------------------------------------------------------------------
+    // 4. Рецепты (перенос чужого патча, например Firestorm 11.2.5 -> 12.1.0)
+    // -----------------------------------------------------------------------
+    auto *recipeBox = new QGroupBox(QStringLiteral("4. Рецепты — перенос чужого патча на свой билд"));
+    auto *recipeForm = new QFormLayout(recipeBox);
+    wowRecipeOriginal = new QLineEdit;
+    wowRecipeOriginal->setPlaceholderText(QStringLiteral("Чистый Wow.exe того же билда, что и пропатченный"));
+    auto *pickRecipeOrig = button(QStringLiteral("…"));
+    auto *roRow = new QHBoxLayout;
+    roRow->addWidget(wowRecipeOriginal, 1);
+    roRow->addWidget(pickRecipeOrig);
+    recipeForm->addRow(QStringLiteral("Оригинал:"), roRow);
+
+    wowRecipePatched = new QLineEdit;
+    wowRecipePatched->setPlaceholderText(QStringLiteral("Например «WoW 11.2.5 - Firestorm.exe»"));
+    auto *pickRecipePatched = button(QStringLiteral("…"));
+    auto *rpRow = new QHBoxLayout;
+    rpRow->addWidget(wowRecipePatched, 1);
+    rpRow->addWidget(pickRecipePatched);
+    recipeForm->addRow(QStringLiteral("Пропатченный:"), rpRow);
+
+    wowRecipeOut = new QLineEdit;
+    wowRecipeOut->setPlaceholderText(QStringLiteral("Куда сохранить JSON-рецепт"));
+    auto *pickRecipeOut = button(QStringLiteral("…"));
+    auto *buildRecipe = button(QStringLiteral("Снять рецепт"));
+    auto *ro2Row = new QHBoxLayout;
+    ro2Row->addWidget(wowRecipeOut, 1);
+    ro2Row->addWidget(pickRecipeOut);
+    ro2Row->addWidget(buildRecipe);
+    recipeForm->addRow(QStringLiteral("Рецепт:"), ro2Row);
+
+    wowRecipeApply = new QLineEdit;
+    wowRecipeApply->setPlaceholderText(QStringLiteral("JSON-рецепты через «;» — применяются ДО сигнатурных патчей"));
+    auto *pickRecipeApply = button(QStringLiteral("…"));
+    auto *applyRecipe = button(QStringLiteral("Применить только рецепт"));
+    auto *raRow = new QHBoxLayout;
+    raRow->addWidget(wowRecipeApply, 1);
+    raRow->addWidget(pickRecipeApply);
+    raRow->addWidget(applyRecipe);
+    recipeForm->addRow(QStringLiteral("Применить:"), raRow);
+    lay->addWidget(recipeBox);
+
+    // -----------------------------------------------------------------------
+    // 5. Что сделать и как сохранить
+    // -----------------------------------------------------------------------
+    auto *runBox = new QGroupBox(QStringLiteral("5. Патч"));
+    auto *runLayout = new QVBoxLayout(runBox);
+    auto *actions = new QHBoxLayout;
+    auto *patchDisk = button(QStringLiteral("Пропатчить на диске (Firestorm-стиль)"));
+    auto *patchMemory = button(QStringLiteral("Пропатчить и запустить (память, Arctium)"));
+    auto *launchOnly = button(QStringLiteral("Просто запустить результат"));
+    actions->addWidget(patchDisk);
+    actions->addWidget(patchMemory);
+    actions->addWidget(launchOnly);
+    actions->addStretch();
+    runLayout->addLayout(actions);
+
+    wowBackup = new QCheckBox(QStringLiteral("Делать резервную копию (.orig при записи поверх, .bak при записи в другой файл)"));
+    wowBackup->setChecked(true);
+    wowVerify = new QCheckBox(QStringLiteral("Перепроверить результат: перечитать файл с диска и подтвердить каждый патч"));
+    wowVerify->setChecked(true);
+    wowFixChecksum = new QCheckBox(QStringLiteral("Пересчитать PE CheckSum (Windows его не проверяет, но заголовок станет «чистым»)"));
+    wowStripSig = new QCheckBox(QStringLiteral("Снять Authenticode-подпись (после правки байт она всё равно невалидна)"));
+    wowLaunchAfter = new QCheckBox(QStringLiteral("Запустить клиент сразу после патча"));
+    wowCheckTls = new QCheckBox(QStringLiteral("Проверить TLS-сертификат сервера перед запуском (режим «память»)"));
+    wowBypassCert = new QCheckBox(QStringLiteral("Обход проверки сертификата в памяти (фаза B, для legacy-профилей)"));
+    wowBypassCert->setChecked(true);
+    wowExpandPortal = new QCheckBox(QStringLiteral("Память: расширять окно под строкой портала (до 128 Б) — только если проверен расклад строк билда"));
+    runLayout->addWidget(wowBackup);
+    runLayout->addWidget(wowVerify);
+    runLayout->addWidget(wowFixChecksum);
+    runLayout->addWidget(wowStripSig);
+    runLayout->addWidget(wowLaunchAfter);
+    runLayout->addWidget(wowCheckTls);
+    runLayout->addWidget(wowBypassCert);
+    runLayout->addWidget(wowExpandPortal);
+
     auto *waitRow = new QHBoxLayout;
-    waitRow->addWidget(wrapLabel("Ожидание расшифровки .text (фаза B):"));
+    wowWaitUnpackMs = new QSpinBox;
+    wowWaitUnpackMs->setRange(1000, 60000);
+    wowWaitUnpackMs->setValue(6000);
+    wowWaitUnpackMs->setSuffix(QStringLiteral(" мс"));
+    waitRow->addWidget(wrapLabel(QStringLiteral("Ожидание расшифровки .text (режим «память», фаза B):")));
     waitRow->addWidget(wowWaitUnpackMs);
     waitRow->addStretch();
-    optsLayout->addLayout(waitRow);
-    optsLayout->addWidget(wrapLabel("Version URL:"));
-    optsLayout->addWidget(wowVersionUrl);
-    optsLayout->addWidget(wrapLabel("CDNs URL:"));
-    optsLayout->addWidget(wowCdnsUrl);
-    optsLayout->addWidget(wrapLabel("Аргументы игры:"));
-    optsLayout->addWidget(wowExtraArgs);
-    form->addRow(opts);
+    runLayout->addLayout(waitRow);
 
-    auto *actions = new QHBoxLayout;
-    auto *patchFile = button("Пропатчить копию (диск)");
-    auto *patchMemory = button("Пропатчить и запустить (память)");
-    actions->addWidget(patchFile);
-    actions->addWidget(patchMemory);
-    actions->addStretch();
+    wowExtraArgs = new QLineEdit;
+    wowExtraArgs->setPlaceholderText(QStringLiteral("Дополнительные аргументы Wow.exe (необязательно)"));
+    runLayout->addWidget(wrapLabel(QStringLiteral("Аргументы игры:")));
+    runLayout->addWidget(wowExtraArgs);
+    lay->addWidget(runBox);
 
-    wowLog = new QTextEdit; wowLog->setReadOnly(true);
-    wowLog->setPlaceholderText("Здесь будет подробный лог патча (сигнатуры, адреса, результат).");
+    wowModeHint = wrapLabel(QStringLiteral(
+        "Порядок действий: (1) выберите _retail_\\Wow.exe — вкладка покажет версию, профиль, папку Data и все сайты патча; "
+        "(2) укажите портал (IP:порт или домен) — он попадёт в SET portal в WTF/Config.wtf; "
+        "(3) нажмите «Пропатчить на диске». Результат — самостоятельный exe: запускается двойным щелчком, лаунчер не нужен. "
+        "Оригинал сохраняется рядом как Wow.exe.orig. Правки идут ТОЛЬКО в секции данных (.rdata/.data): код у ретейла "
+        "упакован и восстанавливается при запуске, поэтому .text на диске не трогается."));
+    lay->addWidget(wowModeHint);
 
-    lay->addLayout(form);
-    lay->addLayout(actions);
-    lay->addWidget(wrapLabel("Режим «Копия»: читает исходный EXE, находит сигнатуры и создаёт пропатченную копию (строки — та же длина, ключи — полное значение) — оригинал не изменяется. "
-                             "Режим «Память»: как Arctium — процесс создаётся приостановленным, патчи пишутся в память (фаза A), после расшифровки .text — обход проверки сертификата (фаза B), затем клиент запускается. "
-                             "Автоопределение выбирает набор сигнатур по ветке и версии (1.13.x / 1.14+ / 2.5.x / 3.4.x / 4.4.x / 9.x-10.x / 11.x+). "
-                             "Для локального запуска или своего IP используйте 127.0.0.1:1119 / IP:порт — это влезает в слот портала, при необходимости включите расширение окна и/или обход сертификата."));
+    wowLog = new QTextEdit;
+    wowLog->setReadOnly(true);
+    wowLog->setPlaceholderText(QStringLiteral("Здесь будет подробный лог: профиль, PE, секции, каждый патч со смещением и RVA, проверка результата."));
     lay->addWidget(wowLog, 1);
-    tabs->addTab(scrollWrap(page), "Патч WoW.exe");
+    tabs->addTab(scrollWrap(page), QStringLiteral("Патч Wow.exe"));
 
     connect(chooseExe, &QPushButton::clicked, this, &MainWindow::wowChooseExe);
+    connect(chooseOut, &QPushButton::clicked, this, [this] {
+        wowPickFile(wowOutputExe, QStringLiteral("Куда сохранить пропатченный Wow.exe"),
+                    QStringLiteral("Executable (*.exe);;All files (*)"), /*saveMode=*/true);
+    });
+    connect(likeFirestorm, &QPushButton::clicked, this, &MainWindow::wowSetOutputLikeFirestorm);
+    connect(diagnose, &QPushButton::clicked, this, &MainWindow::wowDiagnose);
     connect(readPortal, &QPushButton::clicked, this, &MainWindow::wowReadPortal);
     connect(checkTls, &QPushButton::clicked, this, &MainWindow::wowRunTlsCheck);
-    connect(patchFile, &QPushButton::clicked, this, &MainWindow::wowPatchFile);
+    connect(selfTest, &QPushButton::clicked, this, &MainWindow::wowKeysSelfTest);
+    connect(pickRsa, &QPushButton::clicked, this, [this] {
+        wowPickFile(wowRsaPem, QStringLiteral("PEM с RSA-ключом или сертификатом"),
+                    QStringLiteral("PEM (*.pem *.key *.crt *.cer);;All files (*)"), false);
+    });
+    connect(pickEd, &QPushButton::clicked, this, [this] {
+        wowPickFile(wowEdPem, QStringLiteral("PEM с публичным ключом Ed25519"),
+                    QStringLiteral("PEM (*.pem *.key *.crt *.cer);;All files (*)"), false);
+    });
+    connect(pickBundle, &QPushButton::clicked, this, [this] {
+        wowPickFile(wowCertBundleFile, QStringLiteral("Подписанный cert-bundle"),
+                    QStringLiteral("JSON (*.json);;All files (*)"), false);
+    });
+    connect(pickRecipeOrig, &QPushButton::clicked, this, [this] {
+        wowPickFile(wowRecipeOriginal, QStringLiteral("Чистый оригинал того же билда"),
+                    QStringLiteral("Executable (*.exe);;All files (*)"), false);
+    });
+    connect(pickRecipePatched, &QPushButton::clicked, this, [this] {
+        wowPickFile(wowRecipePatched, QStringLiteral("Уже пропатченный клиент"),
+                    QStringLiteral("Executable (*.exe);;All files (*)"), false);
+    });
+    connect(pickRecipeOut, &QPushButton::clicked, this, [this] {
+        wowPickFile(wowRecipeOut, QStringLiteral("Куда сохранить рецепт"),
+                    QStringLiteral("JSON (*.json);;All files (*)"), true);
+    });
+    connect(pickRecipeApply, &QPushButton::clicked, this, [this] {
+        wowPickFile(wowRecipeApply, QStringLiteral("JSON-рецепт"),
+                    QStringLiteral("JSON (*.json);;All files (*)"), false);
+    });
+    connect(buildRecipe, &QPushButton::clicked, this, &MainWindow::wowBuildRecipe);
+    connect(applyRecipe, &QPushButton::clicked, this, &MainWindow::wowApplyRecipe);
+    connect(patchDisk, &QPushButton::clicked, this, &MainWindow::wowPatchFile);
     connect(patchMemory, &QPushButton::clicked, this, &MainWindow::wowPatchMemory);
+    connect(launchOnly, &QPushButton::clicked, this, &MainWindow::wowLaunchResult);
 }
 
-void MainWindow::wowChooseExe() {
-    const QString f = QFileDialog::getOpenFileName(this, "Выберите Wow.exe", {},
-                                                   "Executable (*.exe);;All files (*)");
-    if (f.isEmpty()) return;
-    wowExePath->setText(f);
-    if (wowCopyOutput->text().isEmpty())
-        wowCopyOutput->setText(f + ".patched.exe");
-    QString err;
-    const QString portal = ClientPatchService::readPortalFromConfigWtf(f, &err);
-    if (!portal.isEmpty()) wowPortal->setText(portal);
-    const QString ver = ClientPatchService::clientVersion(f);
-    if (!ver.isEmpty()) wowLog->append("Версия клиента: " + ver);
-    const WowDetection det = ClientPatchService::detectProfile(f);
-    wowLog->append(QStringLiteral("Профиль: [%1] ветка %2%3")
-                   .arg(det.profile, det.branch,
-                        det.note.isEmpty() ? QString() : QStringLiteral(" — ") + det.note));
-    bool hasData = false;
-    const QString dataDir = QDir::toNativeSeparators(ClientPatchService::clientDataDir(f, &hasData));
-    wowDataInfo->setText(QStringLiteral("Data: %1 — %2")
-                         .arg(dataDir, hasData ? QStringLiteral("найдена") : QStringLiteral("НЕ НАЙДЕНА (нужна рядом с Wow.exe)")));
-    wowLog->append(QStringLiteral("Папка Data: %1%2").arg(dataDir,
-                   hasData ? QStringLiteral(" — найдена") : QStringLiteral(" — НЕ НАЙДЕНА")));
-    if (!err.isEmpty()) wowLog->append("Config.wtf: " + err);
-}
-
-void MainWindow::wowReadPortal() {
-    const QString exe = wowExePath->text().trimmed();
-    if (exe.isEmpty()) { QMessageBox::warning(this, "Патч WoW.exe", "Сначала выберите Wow.exe."); return; }
-    QString err;
-    const QString portal = ClientPatchService::readPortalFromConfigWtf(exe, &err);
-    if (portal.isEmpty()) { QMessageBox::warning(this, "Патч WoW.exe", err); return; }
-    wowPortal->setText(portal);
-    wowLog->append("Портал из Config.wtf: " + portal);
-}
-
-void MainWindow::wowRunTlsCheck() {
-    QString portal = wowPortal->text().trimmed();
-    QString host = portal; int port = wowPort->value();
-    if (int i = portal.lastIndexOf(':'); i > 0) {
-        host = portal.left(i);
-        bool ok = false; int p = portal.mid(i + 1).toInt(&ok);
-        if (ok) port = p;
-    }
-    if (host.isEmpty()) { QMessageBox::warning(this, "Патч WoW.exe", "Укажите портал."); return; }
-    QStringList lines;
-    const bool ok = ClientPatchService::checkPortalTls(host, port, &lines);
-    for (const QString &l : lines) wowLog->append(l);
-    if (!ok) QMessageBox::warning(this, "TLS-проверка", "Сервер недоступен или сертификат не прошёл проверку.\n" + lines.join('\n'));
-}
-
-void MainWindow::wowPatchFile() {
-    const QString exe = wowExePath->text().trimmed();
-    if (exe.isEmpty()) { QMessageBox::warning(this, "Патч WoW.exe", "Сначала выберите Wow.exe."); return; }
-    QString out = wowCopyOutput->text().trimmed();
-    if (out.isEmpty()) out = exe + ".patched.exe";
-    if (QFileInfo::exists(out)) {
-        const auto r = QMessageBox::question(this, "Патч WoW.exe",
-            QStringLiteral("Файл %1 уже существует — перезаписать?").arg(out));
-        if (r != QMessageBox::Yes) return;
-    }
-    WowPatchOptions opts;
-    opts.portal = wowPortal->text().trimmed();
-    opts.port = wowPort->value();
-    opts.autoDetect = wowAutoDetect->isChecked();
-    opts.bypassCertValidation = wowBypassCert->isChecked();
-    opts.writeConfigWtf = false; // копия на диск: Config.wtf не трогаем
-    opts.patchLegacyGameCryptoRsa = wowLegacyRsa->isChecked();
-    opts.patchVersionUrls = wowVersionUrls->isChecked();
-    opts.versionUrl = wowVersionUrl->text().trimmed();
-    opts.cdnsUrl = wowCdnsUrl->text().trimmed();
-    if (opts.portal.isEmpty()) { QMessageBox::warning(this, "Патч WoW.exe", "Укажите портал."); return; }
-
-    QStringList l; QString e;
-    wowLog->clear();
-    const bool ok = ClientPatchService::patchFileCopy(exe, out, opts, &l, &e);
-    for (const QString &s : l) wowLog->append(s);
-    if (!ok) QMessageBox::critical(this, "Патч WoW.exe", e);
-    else QMessageBox::information(this, "Патч WoW.exe", "Готово: " + out + "\nОригинал не изменён.");
-}
-
-void MainWindow::wowPatchMemory() {
+// ---------------------------------------------------------------------------
+// Фоновый запуск тяжёлых операций: лог и ошибка возвращаются в UI-поток.
+// ---------------------------------------------------------------------------
+void MainWindow::wowRunBackground(const QString &title, const QString &okText,
+                                  const std::function<bool (QStringList *, QString *)> &job,
+                                  const std::function<void ()> &after) {
     if (m_wowPatchBusy) {
-        QMessageBox::information(this, "Патч WoW.exe", "Патч уже выполняется — подождите, окно должно оставаться отзывчивым.");
+        QMessageBox::information(this, title,
+            QStringLiteral("Предыдущая операция ещё выполняется — дождитесь её завершения."));
         return;
     }
-    const QString exe = wowExePath->text().trimmed();
-    if (exe.isEmpty()) { QMessageBox::warning(this, "Патч WoW.exe", "Сначала выберите Wow.exe."); return; }
-    if (wowPortal->text().trimmed().isEmpty()) { QMessageBox::warning(this, "Патч WoW.exe", "Укажите портал."); return; }
-
-    WowPatchOptions opts;
-    opts.portal = wowPortal->text().trimmed();
-    opts.port = wowPort->value();
-    opts.autoDetect = wowAutoDetect->isChecked();
-    opts.bypassCertValidation = wowBypassCert->isChecked();
-    opts.writeConfigWtf = wowWriteConfigWtf->isChecked();
-    opts.waitUnpackMs = wowWaitUnpackMs->value();
-    opts.expandPortalBuffer = wowExpandPortal->isChecked();
-    opts.patchLegacyGameCryptoRsa = wowLegacyRsa->isChecked();
-    opts.patchVersionUrls = wowVersionUrls->isChecked();
-    opts.versionUrl = wowVersionUrl->text().trimmed();
-    opts.cdnsUrl = wowCdnsUrl->text().trimmed();
-    opts.extraArgs = wowExtraArgs->text().trimmed();
-    opts.checkTlsBeforeLaunch = wowCheckTls->isChecked();
-
-    wowLog->clear();
-    if (opts.checkTlsBeforeLaunch) {
-        QStringList l;
-        QString host = opts.portal; int port = opts.port;
-        if (int i = host.lastIndexOf(':'); i > 0) {
-            const QString h = host.left(i); bool ok = false; const int p = host.mid(i + 1).toInt(&ok);
-            if (ok) { host = h; port = p; }
-        }
-        const bool tlsOk = ClientPatchService::checkPortalTls(host, port, &l);
-        for (const QString &s : l) wowLog->append(s);
-        if (!tlsOk) {
-            QMessageBox::warning(this, "Патч WoW.exe", "TLS-проверка не пройдена — запуск отменён.");
-            return;
-        }
-    }
-
     m_wowPatchBusy = true;
-    wowLog->append(QStringLiteral("Патч в памяти запущен в фоне (12.x не должен вешать Studio). Не закрывайте окно…"));
-    auto *worker = QThread::create([this, exe, opts]() {
-        QStringList l;
-        QString e;
-        const bool ok = ClientPatchService::patchAndLaunch(exe, opts, &l, &e);
-        QMetaObject::invokeMethod(this, [this, ok, l, e]() {
+    wowLog->append(QStringLiteral("=== %1 ===").arg(title));
+    auto *worker = QThread::create([this, title, okText, job, after]() {
+        QStringList lines;
+        QString err;
+        const bool ok = job(&lines, &err);
+        QMetaObject::invokeMethod(this, [this, ok, lines, err, title, okText, after]() {
             m_wowPatchBusy = false;
-            for (const QString &s : l) wowLog->append(s);
-            if (!ok) QMessageBox::critical(this, "Патч WoW.exe", e);
-            else QMessageBox::information(this, "Патч WoW.exe", "Клиент запущен с патчами. Файл на диске не изменён.");
+            for (const QString &s : lines) wowLog->append(s);
+            if (!ok) {
+                const QString body = err.isEmpty() ? lines.join(QLatin1Char('\n')) : err;
+                QMessageBox::critical(this, title,
+                    err.isEmpty() ? QStringLiteral("Операция не выполнена. Подробности в логе ниже.") : err);
+                persistErrorLog(QStringLiteral("wowpatch"), title, body);
+            } else if (!okText.isEmpty()) {
+                QMessageBox::information(this, title, okText);
+            }
+            if (after) after();
         }, Qt::QueuedConnection);
     });
     connect(worker, &QThread::finished, worker, &QObject::deleteLater);
     worker->start();
+}
+
+// ---------------------------------------------------------------------------
+// Сбор опций из полей вкладки
+// ---------------------------------------------------------------------------
+WowPatchOptions MainWindow::wowCollectOptions() const {
+    WowPatchOptions o;
+    o.portal = wowPortal->text().trimmed();
+    o.port = wowPort->value();
+    o.writeConfigWtf = wowWriteConfigWtf->isChecked();
+    o.patchPortalSuffix = wowPortalSuffix->isChecked();
+    o.patchPortalWholeSlot = wowPortalWhole->isChecked();
+    o.expandPortalBuffer = wowExpandPortal->isChecked();
+    o.autoDetect = wowAutoDetect->isChecked();
+    o.requireEd25519 = wowRequireEd->isChecked();
+    o.patchLegacyGameCryptoRsa = wowLegacyRsa->isChecked();
+    o.keysAssumeBigEndian = wowKeysBe->isChecked();
+    o.rsaPrivatePemPath = QDir::fromNativeSeparators(wowRsaPem->text().trimmed());
+    o.ed25519PemPath = QDir::fromNativeSeparators(wowEdPem->text().trimmed());
+    o.patchVersionUrls = wowVersionUrls->isChecked();
+    o.versionUrl = wowVersionUrl->text().trimmed();
+    o.cdnsUrl = wowCdnsUrl->text().trimmed();
+    o.patchLauncherRegistry = wowLauncherReg->isChecked();
+    o.certBundleUrl = wowCertBundleUrl->text().trimmed();
+    o.certBundlePath = QDir::fromNativeSeparators(wowCertBundleFile->text().trimmed());
+    o.makeBackup = wowBackup->isChecked();
+    o.verifyAfterWrite = wowVerify->isChecked();
+    o.fixChecksum = wowFixChecksum->isChecked();
+    o.stripSignature = wowStripSig->isChecked();
+    o.launchAfterPatch = wowLaunchAfter->isChecked();
+    o.bypassCertValidation = wowBypassCert->isChecked();
+    o.checkTlsBeforeLaunch = wowCheckTls->isChecked();
+    o.waitUnpackMs = wowWaitUnpackMs->value();
+    o.extraArgs = wowExtraArgs->text().trimmed();
+    const QStringList recipes = wowRecipeApply->text().split(QLatin1Char(';'), Qt::SkipEmptyParts);
+    for (const QString &r : recipes) {
+        const QString path = QDir::fromNativeSeparators(r.trimmed());
+        if (!path.isEmpty()) o.recipePaths << path;
+    }
+    return o;
+}
+
+void MainWindow::wowPickFile(QLineEdit *target, const QString &title, const QString &filter, bool saveMode) {
+    if (!target) return;
+    QString start = target->text().trimmed();
+    if (start.isEmpty()) start = wowExePath->text().trimmed();
+    const QString dir = start.isEmpty() ? QString() : QFileInfo(QDir::fromNativeSeparators(start)).absolutePath();
+    const QString picked = saveMode ? QFileDialog::getSaveFileName(this, title, dir, filter)
+                                    : QFileDialog::getOpenFileName(this, title, dir, filter);
+    if (!picked.isEmpty()) target->setText(QDir::toNativeSeparators(picked));
+}
+
+void MainWindow::wowSetOutputLikeFirestorm() {
+    const QString exe = QDir::fromNativeSeparators(wowExePath->text().trimmed());
+    if (exe.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), QStringLiteral("Сначала выберите Wow.exe."));
+        return;
+    }
+    wowOutputExe->setText(QDir::toNativeSeparators(ClientPatchService::defaultOutputPath(exe)));
+    wowLog->append(QStringLiteral("Результат будет записан поверх %1 (оригинал сохранится в %2). "
+                                  "Именно так сделан «WoW 11.2.5 - Firestorm.exe»: тот же размер, то же имя, "
+                                  "та же папка — поэтому клиент находит свои Data и WTF.")
+                       .arg(QDir::toNativeSeparators(exe), QDir::toNativeSeparators(exe + QStringLiteral(".orig"))));
+}
+
+// ---------------------------------------------------------------------------
+// Выбор клиента
+// ---------------------------------------------------------------------------
+void MainWindow::wowChooseExe() {
+    const QString f = QFileDialog::getOpenFileName(this, QStringLiteral("Выберите Wow.exe"), {},
+                                                   QStringLiteral("Executable (*.exe);;All files (*)"));
+    if (f.isEmpty()) return;
+    wowExePath->setText(QDir::toNativeSeparators(f));
+    if (wowOutputExe->text().isEmpty())
+        wowOutputExe->setText(QDir::toNativeSeparators(ClientPatchService::defaultOutputPath(f)));
+    if (wowRecipeOriginal->text().isEmpty())
+        wowRecipeOriginal->setText(QDir::toNativeSeparators(f));
+
+    wowLog->clear();
+    QString err;
+    const QString portal = ClientPatchService::readPortalFromConfigWtf(f, &err);
+    if (!portal.isEmpty() && wowPortal->text().trimmed().isEmpty()) wowPortal->setText(portal);
+    const WowDetection det = ClientPatchService::detectProfile(f);
+    wowLog->append(QStringLiteral("Версия клиента: %1   профиль [%2], ветка %3")
+                       .arg(det.version.isEmpty() ? QStringLiteral("?") : det.version, det.profile, det.branch));
+    if (!det.note.isEmpty()) wowLog->append(QStringLiteral("  %1").arg(det.note));
+    bool hasData = false;
+    const QString dataDir = QDir::toNativeSeparators(ClientPatchService::clientDataDir(f, &hasData));
+    wowDataInfo->setText(QStringLiteral("Data: %1 — %2").arg(dataDir,
+        hasData ? QStringLiteral("найдена") : QStringLiteral("НЕ НАЙДЕНА (нужна рядом с Wow.exe)")));
+    wowLog->append(QStringLiteral("Папка Data: %1%2").arg(dataDir,
+                   hasData ? QStringLiteral(" — найдена") : QStringLiteral(" — НЕ НАЙДЕНА")));
+    if (!portal.isEmpty()) wowLog->append(QStringLiteral("SET portal в Config.wtf: %1").arg(portal));
+    else if (!err.isEmpty()) wowLog->append(QStringLiteral("Config.wtf: %1").arg(err));
+    wowLog->append(QStringLiteral("Нажмите «Диагностика файла», чтобы увидеть секции PE и все сайты патча."));
+}
+
+// ---------------------------------------------------------------------------
+// Диагностика
+// ---------------------------------------------------------------------------
+void MainWindow::wowDiagnose() {
+    const QString exe = QDir::fromNativeSeparators(wowExePath->text().trimmed());
+    if (exe.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), QStringLiteral("Сначала выберите Wow.exe."));
+        return;
+    }
+    if (!QFileInfo::exists(exe)) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), QStringLiteral("Файл не найден: %1").arg(exe));
+        return;
+    }
+    auto result = std::make_shared<WowInspect>();
+    wowLog->clear();
+    wowRunBackground(QStringLiteral("Диагностика Wow.exe"), QString(),
+        [exe, result](QStringList *lines, QString *error) {
+            *result = ClientPatchService::inspectExecutable(exe);
+            if (lines) *lines = result->lines;
+            if (!result->ok && error) *error = result->error;
+            return result->ok;
+        },
+        [this, result, exe]() {
+            bool hasData = result->dataDirFound;
+            wowDataInfo->setText(QStringLiteral("Data: %1 — %2").arg(QDir::toNativeSeparators(result->dataDir),
+                hasData ? QStringLiteral("найдена") : QStringLiteral("НЕ НАЙДЕНА (нужна рядом с Wow.exe)")));
+            if (!result->configPortal.isEmpty() && wowPortal->text().trimmed().isEmpty())
+                wowPortal->setText(result->configPortal);
+            if (wowOutputExe->text().trimmed().isEmpty())
+                wowOutputExe->setText(QDir::toNativeSeparators(ClientPatchService::defaultOutputPath(exe)));
+            const QString state = result->trinityRsaFound
+                ? QStringLiteral("файл УЖЕ пропатчен (ключ TrinityCore на месте)")
+                : (result->blizzardRsaFound ? QStringLiteral("стоит родной ключ Blizzard — файл не пропатчен")
+                                            : QStringLiteral("родной ключ Blizzard не найден — проверьте, тот ли это Wow.exe"));
+            wowLog->append(QStringLiteral("Вывод: %1.").arg(state));
+        });
+}
+
+void MainWindow::wowKeysSelfTest() {
+    QStringList lines;
+    const bool ok = ClientPatchService::keysSelfTest(&lines);
+    for (const QString &s : lines) wowLog->append(s);
+    if (!ok)
+        QMessageBox::warning(this, QStringLiteral("Ключи TrinityCore"),
+                             QStringLiteral("Встроенные ключи НЕ совпали с константами TrinityCore. Смотрите строки [!!] в логе."));
+}
+
+void MainWindow::wowReadPortal() {
+    const QString exe = QDir::fromNativeSeparators(wowExePath->text().trimmed());
+    if (exe.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), QStringLiteral("Сначала выберите Wow.exe."));
+        return;
+    }
+    QString err;
+    const QString portal = ClientPatchService::readPortalFromConfigWtf(exe, &err);
+    if (portal.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), err);
+        return;
+    }
+    wowPortal->setText(portal);
+    wowLog->append(QStringLiteral("Портал из Config.wtf: %1").arg(portal));
+}
+
+void MainWindow::wowRunTlsCheck() {
+    QString portal = wowPortal->text().trimmed();
+    QString host = portal;
+    int port = wowPort->value();
+    if (int i = portal.lastIndexOf(QLatin1Char(':')); i > 0) {
+        host = portal.left(i);
+        bool ok = false;
+        const int p = portal.mid(i + 1).toInt(&ok);
+        if (ok) port = p;
+    }
+    if (host.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), QStringLiteral("Укажите портал."));
+        return;
+    }
+    QStringList lines;
+    const bool ok = ClientPatchService::checkPortalTls(host, port, &lines);
+    for (const QString &l : lines) wowLog->append(l);
+    if (!ok)
+        QMessageBox::warning(this, QStringLiteral("TLS-проверка"),
+                             QStringLiteral("Сервер недоступен или сертификат не прошёл проверку.\n%1").arg(lines.join(QLatin1Char('\n'))));
+}
+
+// ---------------------------------------------------------------------------
+// ОСНОВНОЙ РЕЖИМ: патч на диске (Firestorm-стиль)
+// ---------------------------------------------------------------------------
+void MainWindow::wowPatchFile() {
+    const QString exe = QDir::fromNativeSeparators(wowExePath->text().trimmed());
+    if (exe.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), QStringLiteral("Сначала выберите Wow.exe."));
+        return;
+    }
+    if (!QFileInfo::exists(exe)) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), QStringLiteral("Файл не найден: %1").arg(exe));
+        return;
+    }
+    const WowPatchOptions opts = wowCollectOptions();
+    if (opts.portal.isEmpty() && opts.recipePaths.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"),
+            QStringLiteral("Укажите портал (адрес сервера) или рецепт. Без адреса патчить нечего."));
+        return;
+    }
+    QString out = QDir::fromNativeSeparators(wowOutputExe->text().trimmed());
+    if (out.isEmpty()) out = ClientPatchService::defaultOutputPath(exe);
+    const bool inPlace = QDir::cleanPath(out) == QDir::cleanPath(exe);
+
+    if (inPlace) {
+        const QString bak = out + QStringLiteral(".orig");
+        const auto r = QMessageBox::question(this, QStringLiteral("Патч Wow.exe"),
+            QStringLiteral("Патчим %1 ПО ВЕРХ оригинала.\n%2\n\n%3\n\nПродолжить?")
+                .arg(QDir::toNativeSeparators(out),
+                     opts.makeBackup ? QStringLiteral("Оригинал будет сохранён как %1.").arg(QDir::toNativeSeparators(bak))
+                                     : QStringLiteral("ВНИМАНИЕ: резервная копия отключена — оригинал будет потерян."),
+                     QFileInfo::exists(bak) ? QStringLiteral("Бэкап %1 уже есть — он НЕ будет перезаписан.")
+                                            : QString()));
+        if (r != QMessageBox::Yes) return;
+    } else if (QFileInfo::exists(out)) {
+        const auto r = QMessageBox::question(this, QStringLiteral("Патч Wow.exe"),
+            QStringLiteral("Файл %1 уже существует — перезаписать?").arg(QDir::toNativeSeparators(out)));
+        if (r != QMessageBox::Yes) return;
+    }
+
+    wowLog->clear();
+    const QString okText = QStringLiteral("Готово: %1\n\nЭто самостоятельный exe — запускается двойным щелчком, "
+                                          "лаунчер не нужен. Адрес сервера берётся из SET portal в Config.wtf рядом с ним.")
+                               .arg(QDir::toNativeSeparators(out));
+    wowRunBackground(QStringLiteral("Патч на диске (Firestorm-стиль)"), okText,
+        [exe, out, opts](QStringList *lines, QString *error) {
+            const WowPatchReport rep = ClientPatchService::patchStandalone(exe, out, opts, lines);
+            if (!rep.ok && error) *error = rep.error;
+            return rep.ok;
+        });
+}
+
+// ---------------------------------------------------------------------------
+// Режим «память» (Arctium): файл не меняется
+// ---------------------------------------------------------------------------
+void MainWindow::wowPatchMemory() {
+    const QString exe = QDir::fromNativeSeparators(wowExePath->text().trimmed());
+    if (exe.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), QStringLiteral("Сначала выберите Wow.exe."));
+        return;
+    }
+    const WowPatchOptions opts = wowCollectOptions();
+    if (opts.portal.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), QStringLiteral("Укажите портал."));
+        return;
+    }
+    if (m_wowPatchBusy) {
+        QMessageBox::information(this, QStringLiteral("Патч Wow.exe"),
+                                 QStringLiteral("Патч уже выполняется — подождите, окно должно оставаться отзывчивым."));
+        return;
+    }
+
+    wowLog->clear();
+    if (opts.checkTlsBeforeLaunch) {
+        QStringList lines;
+        QString host = opts.portal;
+        int port = opts.port;
+        if (int i = host.lastIndexOf(QLatin1Char(':')); i > 0) {
+            const QString h = host.left(i);
+            bool ok = false;
+            const int p = host.mid(i + 1).toInt(&ok);
+            if (ok) { host = h; port = p; }
+        }
+        const bool tlsOk = ClientPatchService::checkPortalTls(host, port, &lines);
+        for (const QString &s : lines) wowLog->append(s);
+        if (!tlsOk) {
+            QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"),
+                                 QStringLiteral("TLS-проверка не пройдена — запуск отменён."));
+            return;
+        }
+    }
+
+    wowLog->append(QStringLiteral("Патч в памяти запущен в фоне (12.x не должен вешать Studio). Не закрывайте окно…"));
+    wowRunBackground(QStringLiteral("Патч в памяти (Arctium)"),
+        QStringLiteral("Клиент запущен с патчами. Файл на диске не изменён."),
+        [exe, opts](QStringList *lines, QString *error) {
+            return ClientPatchService::patchAndLaunch(exe, opts, lines, error);
+        });
+}
+
+// ---------------------------------------------------------------------------
+// Рецепты
+// ---------------------------------------------------------------------------
+void MainWindow::wowBuildRecipe() {
+    const QString orig = QDir::fromNativeSeparators(wowRecipeOriginal->text().trimmed());
+    const QString patched = QDir::fromNativeSeparators(wowRecipePatched->text().trimmed());
+    if (orig.isEmpty() || patched.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Рецепт"),
+            QStringLiteral("Нужны ОБА файла: чистый оригинал того же билда и уже пропатченный клиент."));
+        return;
+    }
+    QString out = QDir::fromNativeSeparators(wowRecipeOut->text().trimmed());
+    if (out.isEmpty()) {
+        out = QFileInfo(patched).absolutePath() + QDir::separator() +
+              QStringLiteral("recipe-") + QFileInfo(patched).completeBaseName() + QStringLiteral(".json");
+        wowRecipeOut->setText(QDir::toNativeSeparators(out));
+    }
+    wowLog->clear();
+    const QString okText = QStringLiteral("Рецепт сохранён: %1\n\nТеперь укажите его в поле «Применить» — hunks "
+                                          "будут перенесены на ваш билд поиском по контексту.")
+                               .arg(QDir::toNativeSeparators(out));
+    wowRunBackground(QStringLiteral("Извлечение рецепта"), okText,
+        [this, orig, patched, out](QStringList *lines, QString *error) {
+            const WowPatchOptions opts;
+            const bool ok = ClientPatchService::buildRecipe(orig, patched, out, opts, lines, error);
+            return ok;
+        },
+        [this, out]() {
+            const QString current = wowRecipeApply->text().trimmed();
+            const QString native = QDir::toNativeSeparators(out);
+            if (current.isEmpty()) wowRecipeApply->setText(native);
+            else if (!current.contains(native)) wowRecipeApply->setText(current + QLatin1Char(';') + native);
+        });
+}
+
+void MainWindow::wowApplyRecipe() {
+    const QString exe = QDir::fromNativeSeparators(wowExePath->text().trimmed());
+    if (exe.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Рецепт"),
+            QStringLiteral("Сначала выберите Wow.exe, к которому применять рецепт."));
+        return;
+    }
+    const WowPatchOptions opts = wowCollectOptions();
+    if (opts.recipePaths.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("Рецепт"),
+            QStringLiteral("Укажите хотя бы один JSON-рецепт в поле «Применить»."));
+        return;
+    }
+    QString out = QDir::fromNativeSeparators(wowOutputExe->text().trimmed());
+    if (out.isEmpty()) out = ClientPatchService::defaultOutputPath(exe);
+
+    WowPatchOptions only = opts;
+    only.applySignaturePatches = false;   // переносим ровно чужие hunks
+    only.writeConfigWtf = false;
+
+    wowLog->clear();
+    wowRunBackground(QStringLiteral("Применение рецепта"),
+        QStringLiteral("Рецепт перенесён: %1").arg(QDir::toNativeSeparators(out)),
+        [exe, out, only](QStringList *lines, QString *error) {
+            const WowPatchReport rep = ClientPatchService::patchStandalone(exe, out, only, lines);
+            if (!rep.ok && error) *error = rep.error;
+            return rep.ok;
+        });
+}
+
+void MainWindow::wowLaunchResult() {
+    QString exe = QDir::fromNativeSeparators(wowOutputExe->text().trimmed());
+    if (exe.isEmpty()) exe = QDir::fromNativeSeparators(wowExePath->text().trimmed());
+    if (exe.isEmpty() || !QFileInfo::exists(exe)) {
+        QMessageBox::warning(this, QStringLiteral("Запуск клиента"),
+                             QStringLiteral("Не найден exe для запуска. Сначала пропатчите клиент."));
+        return;
+    }
+    QStringList lines;
+    QString err;
+    const bool ok = ClientPatchService::launchClient(exe, wowExtraArgs->text().trimmed(), &lines, &err);
+    for (const QString &s : lines) wowLog->append(s);
+    if (!ok) QMessageBox::critical(this, QStringLiteral("Запуск клиента"), err);
 }
 void MainWindow::refreshTables(){
     tables->clear();

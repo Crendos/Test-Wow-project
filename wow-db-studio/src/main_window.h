@@ -22,6 +22,9 @@
 #include "qa_sniff_source.h"
 #include "retail_reference_service.h"
 #include "retail_community_reference_service.h"
+#include "client_patch_service.h"
+
+#include <functional>
 class QLineEdit; class QSpinBox; class QComboBox; class QTextEdit; class QListWidget; class QPushButton; class QLabel; class QTableWidget; class QFormLayout; class QCheckBox; class QTreeWidget; class QTabWidget; class QWidget; class QGroupBox;
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -124,23 +127,47 @@ private:
     // Console tab (универсальная консоль + пакетный SQL)
     QTextEdit *consoleInput = nullptr, *consoleOutput = nullptr;
     void buildConsoleTab(QTabWidget *tabs);
-    // Вкладка «Патч WoW.exe» (метод Arctium Launcher)
+    // -----------------------------------------------------------------------
+    // Вкладка «Патч Wow.exe» — режим Firestorm: самостоятельный exe на диске
+    // -----------------------------------------------------------------------
     QLineEdit *wowExePath = nullptr, *wowPortal = nullptr,
               *wowVersionUrl = nullptr, *wowCdnsUrl = nullptr, *wowExtraArgs = nullptr,
               *wowCopyOutput = nullptr;
+    QLineEdit *wowOutputExe = nullptr;      // куда сохранить пропатченный exe
+    QLineEdit *wowRsaPem = nullptr, *wowEdPem = nullptr;
+    QLineEdit *wowCertBundleUrl = nullptr, *wowCertBundleFile = nullptr;
+    QLineEdit *wowRecipeOriginal = nullptr, *wowRecipePatched = nullptr,
+              *wowRecipeOut = nullptr, *wowRecipeApply = nullptr;
     QSpinBox *wowPort = nullptr;
     QSpinBox *wowWaitUnpackMs = nullptr;
     QCheckBox *wowExpandPortal = nullptr, *wowLegacyRsa = nullptr, *wowVersionUrls = nullptr,
               *wowCheckTls = nullptr, *wowAutoDetect = nullptr, *wowBypassCert = nullptr,
               *wowWriteConfigWtf = nullptr;
+    QCheckBox *wowPortalSuffix = nullptr, *wowPortalWhole = nullptr, *wowRequireEd = nullptr,
+              *wowKeysBe = nullptr, *wowBackup = nullptr, *wowVerify = nullptr,
+              *wowFixChecksum = nullptr, *wowStripSig = nullptr, *wowLaunchAfter = nullptr,
+              *wowLauncherReg = nullptr;
+    QLabel *wowModeHint = nullptr;
     QTextEdit *wowLog = nullptr;
     QLabel *wowDataInfo = nullptr;
     void buildWowPatchTab(QTabWidget *tabs);
     void wowChooseExe();
     void wowReadPortal();
     void wowRunTlsCheck();
-    void wowPatchFile();
-    void wowPatchMemory();
+    void wowPatchFile();          // основной режим: патч на диске (patchStandalone)
+    void wowPatchMemory();        // режим Arctium: патч в памяти + запуск
+    void wowDiagnose();
+    void wowKeysSelfTest();
+    void wowBuildRecipe();
+    void wowApplyRecipe();
+    void wowLaunchResult();
+    void wowSetOutputLikeFirestorm();
+    void wowPickFile(QLineEdit *target, const QString &title, const QString &filter, bool saveMode);
+    WowPatchOptions wowCollectOptions() const;
+    // Тяжёлая операция в фоне: лог и ошибка возвращаются в UI-поток.
+    void wowRunBackground(const QString &title, const QString &okText,
+                          const std::function<bool (QStringList *, QString *)> &job,
+                          const std::function<void ()> &after = {});
     bool m_wowPatchBusy = false;
     void buildQaTab(QTabWidget *tabs);
     QTextEdit *qaTask = nullptr, *qaReport = nullptr;
