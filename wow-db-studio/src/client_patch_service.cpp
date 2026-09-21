@@ -1,19 +1,29 @@
 #include "client_patch_service.h"
 
+#include "wow_patch_core.h"
+#include "wow_pe.h"
+
 #include <QByteArray>
+#include <QCryptographicHash>
+#include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QDir>
-#include <QSaveFile>
-#include <QSslSocket>
-#include <QSslCertificate>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QProcess>
 #include <QRegularExpression>
+#include <QSaveFile>
+#include <QSslCertificate>
+#include <QSslSocket>
 #include <QStringList>
 #include <QThread>
-#include <QVector>
 
+#include <algorithm>
 #include <cstring>
 #include <functional>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -23,46 +33,158 @@
 #  include <winver.h>
 #endif
 
+// ---------------------------------------------------------------------------
+// Этот файл — ТОНКАЯ ОБЁРТКА над ядром src/wow_patch_core.* (чистый C++20).
+//
+// Всё, где легко ошибиться и дорого исправить (PE-смещения, секции, ключи,
+// портал, рецепты, верификация), живёт в ядре и покрыто тестами
+// tools/wow_patch_selftest.cpp, которые собираются БЕЗ Qt. Здесь остаются:
+//   * файловый ввод-вывод и пути (QFile/QDir/QSaveFile);
+//   * строки и отчёты для UI (QString/QStringList);
+//   * то, что умеет только Qt: TLS-проверка сертификата (QSslSocket);
+//   * то, что умеет только Windows: версия из ресурса exe и патч в памяти.
+//
+// Правило: никакой арифметики смещений и никаких hex-констант ключей здесь не
+// появляется — только вызовы wowpatch::*.
+// ---------------------------------------------------------------------------
+
 namespace {
 
 // ===========================================================================
-// Сигнатуры данных (сверено с Arctium/WoW-Launcher и wowemulation-dev/wow-patcher)
+// Мосты Qt <-> ядро
 // ===========================================================================
-const QByteArray kPatternConnectToModulus  = QByteArray::fromHex("91D59BB7D4E183A5");
-const QByteArray kPatternSignatureModulus  = QByteArray::fromHex("35FF17E733C4D3D4");
+wowpatch::Bytes toCore(const QByteArray &a) {
+    return wowpatch::Bytes(reinterpret_cast<const quint8 *>(a.constData()),
+                           reinterpret_cast<const quint8 *>(a.constData()) + a.size());
+}
+QByteArray fromCore(const wowpatch::Bytes &b) {
+    return QByteArray(reinterpret_cast<const char *>(b.data()), int(b.size()));
+}
+QString qstr(const std::string &s) { return QString::fromStdString(s); }
+std::string sstr(const QString &s) { return s.toStdString(); }
+
+QStringList qstrList(const std::vector<std::string> &v) {
+    QStringList out;
+    out.reserve(int(v.size()));
+    for (const std::string &s : v) out.append(QString::fromStdString(s));
+    return out;
+}
+
+WowDetection toQt(const wowpatch::Detection &d) {
+    WowDetection r;
+    r.version = qstr(d.version);
+    r.build = d.build;
+    r.branch = qstr(d.branch);
+    r.profile = qstr(d.profile);
+    r.note = qstr(d.note);
+    r.legacyCert = d.legacyCert;
+    r.usesEd25519 = d.usesEd25519;
+    r.standaloneDiskPatchOk = d.standaloneDiskPatchOk;
+    return r;
+}
+
+WowSectionInfo toQt(const wowpatch::SectionInfo &s) {
+    WowSectionInfo r;
+    r.name = qstr(s.name);
+    r.virtualAddress = s.virtualAddress;
+    r.virtualSize = s.virtualSize;
+    r.rawPointer = s.rawPointer;
+    r.rawSize = s.rawSize;
+    r.characteristics = s.characteristics;
+    r.diskPatchable = s.diskPatchable;
+    return r;
+}
+
+WowPatchRecord toQt(const wowpatch::Record &r) {
+    WowPatchRecord out;
+    out.id = qstr(r.id);
+    out.label = qstr(r.label);
+    out.offset = qint64(r.offset);
+    out.section = qstr(r.section);
+    out.size = int(r.size);
+    out.applied = r.applied;
+    out.note = qstr(r.note);
+    return out;
+}
+
+// ===========================================================================
+// Файловый ввод-вывод
+// ===========================================================================
+QByteArray readFileBytes(const QString &path, QString *error) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        if (error) *error = QStringLiteral("Не удалось открыть %1: %2").arg(path, f.errorString());
+        return QByteArray();
+    }
+    QByteArray b = f.readAll();
+    f.close();
+    if (b.isEmpty()) {
+        if (error) *error = QStringLiteral("Файл пуст: %1").arg(path);
+        return QByteArray();
+    }
+    return b;
+}
+
+bool writeFileBytes(const QString &path, const wowpatch::Bytes &data, QString *error) {
+    const QDir dir = QFileInfo(path).absoluteDir();
+    if (!dir.exists() && !QDir().mkpath(dir.absolutePath())) {
+        if (error) *error = QStringLiteral("Не удалось создать папку %1").arg(dir.absolutePath());
+        return false;
+    }
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly)) {
+        if (error) *error = QStringLiteral("Не удалось создать %1: %2").arg(path, out.errorString());
+        return false;
+    }
+    if (!data.empty() &&
+        out.write(reinterpret_cast<const char *>(data.data()), qint64(data.size())) != qint64(data.size())) {
+        if (error) *error = QStringLiteral("Не удалось записать %1: %2").arg(path, out.errorString());
+        out.cancelWriting();
+        return false;
+    }
+    if (!out.commit()) {
+        if (error) *error = QStringLiteral("Не удалось сохранить %1: %2").arg(path, out.errorString());
+        return false;
+    }
+    return true;
+}
+
+bool writeTextFile(const QString &path, const QString &text, QString *error) {
+    const QDir dir = QFileInfo(path).absoluteDir();
+    if (!dir.exists()) QDir().mkpath(dir.absolutePath());
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        if (error) *error = QStringLiteral("Не удалось создать %1: %2").arg(path, out.errorString());
+        return false;
+    }
+    out.write(text.toUtf8());
+    if (!out.commit()) {
+        if (error) *error = QStringLiteral("Не удалось сохранить %1: %2").arg(path, out.errorString());
+        return false;
+    }
+    return true;
+}
+
+QString hex(const QByteArray &b, int maxBytes = 0) {
+    const QByteArray v = (maxBytes > 0 && b.size() > maxBytes) ? b.left(maxBytes) : b;
+    return QString::fromLatin1(v.toHex(' ').toUpper()) +
+           ((maxBytes > 0 && b.size() > maxBytes) ? QStringLiteral(" …") : QString());
+}
+
+// ===========================================================================
+// Константы для режима «память» (Windows). Значения берутся из ядра — это
+// единственный источник правды, сюда они просто конвертируются в QByteArray.
+// ===========================================================================
+const QByteArray kPatchRsaModulus          = fromCore(wowpatch::trinityRsaModulusLe());
+const QByteArray kPatchEd25519Key          = fromCore(wowpatch::trinityEd25519PublicKey());
+const QByteArray kPatternConnectToModulus  = fromCore(wowpatch::blizzardRsaSignature());
+const QByteArray kPatternSignatureModulus  = fromCore(wowpatch::blizzardSignatureModulusSig());
+const QByteArray kPatternGameCryptoEd25519 = fromCore(wowpatch::blizzardEd25519Signature());
 const QByteArray kPatternGameCryptoRsa     = QByteArray::fromHex("71FDFA60140DF205");
-const QByteArray kPatternGameCryptoEd25519 = QByteArray::fromHex("15D618BD7DB577BD");
-const QByteArray kPatternPortal            = QByteArray(".actual.battle.net") + '\0';
-const QByteArray kPatternLauncherLogin =
-    QByteArray("Software\\Blizzard Entertainment\\Battle.net\\Launch Options\\");
-const QByteArray kPatternCertBundleUrl =
-    QByteArray("http://nydus.battle.net/Bnet/zxx/client/bgs-key-fingerprint");
-
-// ---------------------------------------------------------------------------
-// Значения (dev-ключи TrinityCore; Ed25519 = ключ из сертификата 7725530)
-// ---------------------------------------------------------------------------
-const QByteArray kPatchRsaModulus = QByteArray::fromHex(
-    "5FD6800BA7FF0140C7BC8EF56B27B0BF"
-    "F01D1BFEDD0B1F3DB66F1A480DFB5108"
-    "65584FDB5C6ECF64CBC16B2EB80F5D08"
-    "5D8906A9778B9EAA04B08310E2154D08"
-    "77D47A0E5AB0BB0061D7A675DF066488"
-    "BBB9CAB0188B5413E2CB33DF17D8DAA9"
-    "A560A31F4E2705986FAAEE143BF397A8"
-    "1202940D84DC0EF17623953613F9A9C5"
-    "48DBDA86BE292254449D9F807B078030"
-    "EAD283CCCE37D1D1CF85BE9125CEC0CC"
-    "55C8C0FB38C549036A02A99F9F86FBC7"
-    "CBC6A582A230C2ACE698DA8364437F0D"
-    "1318EB90535B376BE60D801EEFEDC7B8"
-    "689B4C097B60B257D8598D7FEACDEBC4"
-    "609F457AA9268A2F850CF219C65392F7"
-    "F0B832CB5B66CE5154B4C3D3D4DCB3EE");
-
-const QByteArray kPatchEd25519Key = QByteArray::fromHex(
-    "02596F0D0C061A8B30745988FD72C59E"
-    "29EC367FB0F341F28E0F08D037BAFC69");
-
+const QByteArray kPatternPortalSuffix      = fromCore(wowpatch::portalSuffixPattern());
+const QByteArray kPatternPortal            = kPatternPortalSuffix + '\0';
+const QByteArray kPatternLauncherLogin     = fromCore(wowpatch::launcherLoginPattern());
+const QByteArray kPatternCertBundleUrl     = fromCore(wowpatch::certBundleUrlPattern());
 const QByteArray kPatchLauncherLogin =
     QByteArray("Software\\Arctium WoW Launcher\\Battle.net\\Launch Options\\");
 
@@ -71,13 +193,15 @@ const QByteArray kUrlV2    = "https://%s.version.battle.net/v2/products/%s/versi
 const QByteArray kUrlV2New = "https://%s.version.battle.net/v2/products/%s/%s";
 const QByteArray kCdnsUrl  = "http://%s.patch.battle.net:1119/%s/cdns";
 
-// ---------------------------------------------------------------------------
-// Runtime-паттерны (.text, появляются после расшифровки Arxan; wildcard = -1)
-// ---------------------------------------------------------------------------
-using Pattern = std::vector<int16_t>;
+// ===========================================================================
+// Runtime-паттерны режима «память»: они ищутся в .text ПОСЛЕ расшифровки Arxan,
+// поэтому содержат wildcard'ы (-1). Для статического патча на диске не
+// используются — там работают только сигнатуры данных из ядра.
+// ===========================================================================
+using Pattern = wowpe::Pattern;
+Pattern pat(std::initializer_list<std::int16_t> v) { return Pattern(v.begin(), v.end()); }
 
-Pattern pat(std::initializer_list<int16_t> v) { return Pattern(v); }
-
+#ifdef Q_OS_WIN
 // Сторож: `mov dword ptr [rip+disp32], 1` после TLS-колбэка Arxan.
 const Pattern kPatInit = pat({
     0xC7, 0x05, -1,-1,-1,-1, 0x01,0x00,0x00,0x00, 0x48,0x8D, -1,-1,-1,-1,-1, 0x48,
@@ -91,55 +215,13 @@ const Pattern kPatIntegrityAlt = pat({
 const Pattern kPatCertBundleBranch = pat({ 0x75,0x06, 0x48,-1,-1, 0x60,0x5F,0xC3 });
 const Pattern kPatCertCommonName    = pat({ 0x80,-1,0x2A, 0x75,-1, 0x32,0xC0,0x48 });
 const Pattern kPatCertChain         = pat({ 0x32,0xDB,0xEB,0x02, 0xB3,0x01, 0x48,0x83,-1,-1, 0x00,0x00,0x00,0x00 });
+#endif
 
 // ===========================================================================
-// Вспомогательные функции
+// Портал (Qt-версия нужна режиму «память»; логика та же, что в ядре)
 // ===========================================================================
-// Замена ВСЕХ вхождений find. Если значение короче находки — добивается NUL до
-// её длины (чтобы не оставался хвост старой строки); если длиннее (ключи:
-// сигнатура 8 байт, значение 256/32 байта) — пишется полное значение, как в
-// Arctium/wow-patcher: в файле за сигнатурой идёт остальное поле ключа.
-// Возвращает число замен; missingNote пишется в лог, когда вхождений нет.
-int replaceAllPattern(QByteArray &data, const QByteArray &find, QByteArray repl,
-                      QStringList *log, const QString &label,
-                      const QString &missingNote = QString()) {
-    if (find.isEmpty()) return 0;
-    const bool expand = repl.size() > find.size();
-    if (!expand && repl.size() < find.size())
-        repl.append(find.size() - repl.size(), '\0');
-    int count = 0;
-    qsizetype pos = 0;
-    while (pos + find.size() <= data.size()) {
-        const qsizetype off = data.indexOf(find, pos);
-        if (off < 0) break;
-        if (expand && off + repl.size() > data.size()) {
-            if (log) log->append(QStringLiteral("  ! %1 @ 0x%2: не хватает места (%3 байт), вхождение пропущено")
-                                     .arg(label).arg(off, 0, 16).arg(qulonglong(repl.size())));
-            pos = off + 1;
-            continue;
-        }
-        // In-place: RSA/Ed25519 are longer than the 8-byte signature but occupy
-        // the following key field. Growing the QByteArray would shift the PE and
-        // the copy would not start.
-        memcpy(data.data() + off, repl.constData(), size_t(repl.size()));
-        ++count;
-        if (log) log->append(QStringLiteral("[+] %1 @ 0x%2 (%3 байт)")
-                                 .arg(label).arg(off, 0, 16).arg(qulonglong(repl.size())));
-        pos = off + qsizetype(repl.size());
-    }
-    if (!count && !missingNote.isEmpty() && log)
-        log->append(missingNote);
-    return count;
-}
-
 QString normalizePortalHost(QString text) {
-    text = text.trimmed();
-    if (text.startsWith(QLatin1String("http://"), Qt::CaseInsensitive)) text = text.mid(7);
-    if (text.startsWith(QLatin1String("https://"), Qt::CaseInsensitive)) text = text.mid(8);
-    while (text.endsWith(QLatin1Char('/'))) text.chop(1);
-    const int slash = text.indexOf(QLatin1Char('/'));
-    if (slash >= 0) text = text.left(slash);
-    return text.trimmed();
+    return qstr(wowpatch::normalizePortalHost(sstr(text)));
 }
 
 QString paddedPortal(const QString &portal, int defaultPort, QByteArray *out, qsizetype maxLen) {
@@ -159,270 +241,665 @@ QString paddedPortal(const QString &portal, int defaultPort, QByteArray *out, qs
         if (tryFit(text + QStringLiteral(":%1").arg(defaultPort))) return QString();
         if (tryFit(text)) return QString();
     }
-    return QStringLiteral("Портал «%1» не влезает в слот %2 байт (с NUL). "
-                          "Бинарный патч портала будет пропущен — клиент возьмёт SET portal из WTF/Config.wtf. "
-                          "Короткий IP:порт влезает в слот; длинный хост оставляйте в Config.wtf.")
+    return QStringLiteral("Портал «%1» не влезает в слот %2 байт (с НУЛ). "
+                          "Бинарный патч портала будет пропущен — клиент возьмёт SET portal из WTF/Config.wtf.")
         .arg(text).arg(maxLen);
 }
 
 // ===========================================================================
-// Профиль: подбор набора сигнатур по билду
+// Опции Qt -> опции ядра
 // ===========================================================================
-struct ParsedVersion { int major = 0, minor = 0, patch = 0, build = 0; };
-ParsedVersion parseVersion(const QString &v) {
-    ParsedVersion r;
-    if (v.isEmpty()) return r;
-    const QStringList parts = v.split('.');
-    if (parts.size() >= 1) r.major = parts[0].toInt();
-    if (parts.size() >= 2) r.minor = parts[1].toInt();
-    if (parts.size() >= 3) r.patch = parts[2].toInt();
-    if (parts.size() >= 4) r.build = parts[3].toInt();
-    return r;
+wowpatch::Options toCoreOptions(const WowPatchOptions &o) {
+    wowpatch::Options c;
+    c.portal = sstr(o.portal);
+    c.port = o.port;
+    c.patchPortalSuffix = o.patchPortalSuffix;
+    c.portalDomain = sstr(o.portalDomain);
+    c.patchPortalWholeSlot = o.patchPortalWholeSlot;
+    c.expandPortalBuffer = o.expandPortalBuffer;
+    c.autoDetect = o.autoDetect;
+    c.applySignaturePatches = o.applySignaturePatches;
+    c.patchLegacyGameCryptoRsa = o.patchLegacyGameCryptoRsa;
+    c.requireEd25519 = o.requireEd25519;
+    c.keysAssumeBigEndian = o.keysAssumeBigEndian;
+    c.patchVersionUrls = o.patchVersionUrls;
+    c.versionUrl = sstr(o.versionUrl);
+    c.cdnsUrl = sstr(o.cdnsUrl);
+    c.certBundleUrl = sstr(o.certBundleUrl);
+    c.patchLauncherRegistry = o.patchLauncherRegistry;
+    c.fixChecksum = o.fixChecksum;
+    c.stripSignature = o.stripSignature;
+    c.verify = o.verifyAfterWrite;
+    for (const QString &r : o.recipePaths) c.recipePaths.push_back(sstr(r));
+    return c;
+}
+
+// Ключи из PEM/hex читаются здесь (файлы — это Qt), а разбираются в ядре.
+bool resolveKeys(const WowPatchOptions &opts, wowpatch::Options *core,
+                 const std::function<void (const QString &)> &L, QString *error) {
+    if (!opts.rsaPrivatePemPath.trimmed().isEmpty()) {
+        QString err;
+        const QByteArray key = ClientPatchService::rsaModulusLeFromPem(opts.rsaPrivatePemPath.trimmed(), &err);
+        if (key.isEmpty()) {
+            if (error) *error = QStringLiteral("RSA из PEM: %1").arg(err);
+            return false;
+        }
+        core->rsaModulus = toCore(key);
+        L(QStringLiteral("RSA-модуль взят из PEM %1 (переведён в little-endian, как хранит клиент): %2")
+              .arg(QDir::toNativeSeparators(opts.rsaPrivatePemPath.trimmed()), hex(key, 8)));
+    } else if (!opts.rsaModulusHex.trimmed().isEmpty()) {
+        QString err;
+        QByteArray key = ClientPatchService::hexKey(opts.rsaModulusHex.trimmed(), 256, &err);
+        if (key.isEmpty()) {
+            if (error) *error = QStringLiteral("RSA-ключ: %1").arg(err);
+            return false;
+        }
+        QString note;
+        key = ClientPatchService::normalizeKeyOrder(key, opts.keysAssumeBigEndian, &note);
+        core->rsaModulus = toCore(key);
+        core->keysAssumeBigEndian = false;   // уже развернули
+        L(QStringLiteral("RSA-модуль из hex: %1 (%2)").arg(hex(key, 8), note));
+    } else {
+        L(QStringLiteral("RSA-модуль: встроенный ключ TrinityCore (ConnectToRSA), LE: %1 …")
+              .arg(hex(kPatchRsaModulus, 8)));
+    }
+
+    if (!opts.ed25519PemPath.trimmed().isEmpty()) {
+        QString err;
+        const QString keyHex = ClientPatchService::ed25519KeyFromPem(opts.ed25519PemPath.trimmed(), &err);
+        const QByteArray key = QByteArray::fromHex(keyHex.toLatin1());
+        if (key.size() != 32) {
+            if (error) *error = QStringLiteral("Ed25519 из PEM: %1").arg(err);
+            return false;
+        }
+        core->ed25519Key = toCore(key);
+        L(QStringLiteral("Ed25519 из PEM %1: %2")
+              .arg(QDir::toNativeSeparators(opts.ed25519PemPath.trimmed()), hex(key)));
+    } else if (!opts.ed25519KeyHex.trimmed().isEmpty()) {
+        QString err;
+        const QByteArray key = ClientPatchService::hexKey(opts.ed25519KeyHex.trimmed(), 32, &err);
+        if (key.isEmpty()) {
+            if (error) *error = QStringLiteral("Ed25519-ключ: %1").arg(err);
+            return false;
+        }
+        core->ed25519Key = toCore(key);
+        L(QStringLiteral("Ed25519 из hex: %1").arg(hex(key)));
+    } else {
+        L(QStringLiteral("Ed25519: встроенный публичный ключ TrinityCore (EnterEncryptedMode): %1")
+              .arg(hex(kPatchEd25519Key)));
+    }
+
+    if (!opts.certBundlePath.trimmed().isEmpty()) {
+        QString err;
+        const QByteArray bundle = readFileBytes(opts.certBundlePath.trimmed(), &err);
+        if (bundle.isEmpty()) L(QStringLiteral("  ! Cert bundle: %1").arg(err));
+        else core->certBundle = toCore(bundle);
+    }
+    return true;
+}
+
+QString findConfigWtf(const QString &exePath) {
+    const QDir dir = QFileInfo(exePath).absoluteDir();
+    for (const QString &candidate : { dir.filePath(QStringLiteral("WTF/Config.wtf")),
+                                      dir.filePath(QStringLiteral("Config.wtf")),
+                                      dir.filePath(QStringLiteral("../WTF/Config.wtf")) }) {
+        const QString clean = QDir::cleanPath(candidate);
+        if (QFileInfo::exists(clean)) return clean;
+    }
+    return QString();
 }
 
 } // namespace
 
 // ===========================================================================
-// Автоопределение профиля (ветка по пути, диапазон по версии)
+// 1. Автоопределение профиля
 // ===========================================================================
 WowDetection ClientPatchService::detectProfile(const QString &exePath) {
-    WowDetection d;
-    d.branch = QStringLiteral("Unknown");
-    d.profile = QStringLiteral("modern");
-    d.legacyCert = false;
-    d.usesEd25519 = true;
-
-    const QString lower = exePath.toLower();
-    const QString exeName = QFileInfo(exePath).fileName();
-    if (lower.contains(QStringLiteral("_retail_"))) {
-        d.branch = QStringLiteral("Retail");
-    } else if (exeName.compare(QStringLiteral("Wow.exe"), Qt::CaseInsensitive) == 0
-            || exeName.compare(QStringLiteral("Wow-64.exe"), Qt::CaseInsensitive) == 0) {
-        d.branch = QStringLiteral("Client");
-    } else if (lower.contains(QStringLiteral("_classic_titan_"))) {
-        d.branch = QStringLiteral("Titan");
-    } else if (lower.contains(QStringLiteral("_anniversary_"))) {
-        d.branch = QStringLiteral("Anniversary");
-    } else if (lower.contains(QStringLiteral("_classic_era_"))) {
-        d.branch = QStringLiteral("Classic Era");
-    } else if (lower.contains(QStringLiteral("_classic_")) || lower.contains(QStringLiteral("wowclassic"))) {
-        d.branch = QStringLiteral("Classic");
-    }
-
-    d.version = clientVersion(exePath);
-    const ParsedVersion v = parseVersion(d.version);
-
-    const bool classicFamily = d.branch == QStringLiteral("Classic")
-                            || d.branch == QStringLiteral("Classic Era")
-                            || d.branch == QStringLiteral("Anniversary")
-                            || d.branch == QStringLiteral("Titan");
-    const bool retail = d.branch == QStringLiteral("Retail")
-                     || d.branch == QStringLiteral("Client")
-                     || d.branch == QStringLiteral("Unknown");
-
-    if (classicFamily) {
-        // Classic (1.13.x) НЕ содержит Ed25519 и НЕ переживает патч Signature/Crypto RSA.
-        if (v.major == 1 && v.minor <= 13) {
-            d.profile = QStringLiteral("classic13");
-            d.legacyCert = false;
-            d.usesEd25519 = false;
-            d.note = QStringLiteral("Classic 1.13.x: только ConnectTo RSA + portal из Config.wtf (SET portal). Обход сертификата не применяется.");
-        } else {
-            // 1.14.x / 2.5.x / 3.4.x–5.5.x / 4.4.x / Titan: legacy-режим с обходом сертификата.
-            d.profile = QStringLiteral("legacy");
-            d.legacyCert = true;
-            d.usesEd25519 = v.major >= 3; // 3.4.x+ содержит Ed25519; 1.14/2.5 — нет (проверено, отсутствие безопасно)
-            d.note = QStringLiteral("Legacy-профиль: Signature/Crypto RSA + runtime-обход проверки сертификата (нужно для локального/своего IP).");
-        }
-    } else if (retail) {
-        if (v.major >= 6 && v.major <= 8) {
-            d.profile = QStringLiteral("legion");
-            d.legacyCert = true;
-            d.usesEd25519 = false;
-            d.note = QStringLiteral("Legion/BfA 6.x–8.x: ConnectTo RSA + SET portal в Config.wtf. "
-                                    "Длинный хост в exe не патчится (слот ~19 байт) — портал берётся из WTF.");
-        } else if (v.major == 9 || v.major == 10) {
-            d.profile = QStringLiteral("legacy");
-            d.legacyCert = true;
-            d.usesEd25519 = true;
-            d.note = QStringLiteral("Retail 9.x–10.x: legacy-профиль (Signature/Crypto RSA + обход сертификата).");
-        } else if (v.major >= 11) {
-            d.profile = QStringLiteral("modern");
-            d.legacyCert = false;
-            d.usesEd25519 = true;
-            d.note = QStringLiteral("Retail 11.x/12.x (в т.ч. 12.1.0): патч как Arctium — в ПАМЯТИ (CreateProcess + RSA/Ed25519). "
-                                    "Копия exe на диск часто не стартует (упаковка/подпись). "
-                                    "Длинный хост (auth.eracolgar.su) не влезает в слот .actual.battle.net — "
-                                    "клиент берёт SET portal из WTF/Config.wtf. Для самоподписанного bnet включите обход сертификата.");
-        } else {
-            d.profile = QStringLiteral("modern");
-            d.note = QStringLiteral("Ветка/версия не распознаны — используется современный профиль с попыткой всех сигнатур.");
-        }
-    }
-    return d;
+    QString version = clientVersion(exePath);
+    if (version.isEmpty()) version = buildInfoVersion(exePath);
+    // Байты не читаем: профиль определяется по версии и пути установки.
+    // Содержимое (уже пропатчен или нет) показывает inspectExecutable().
+    return toQt(wowpatch::detectProfile(wowpatch::Bytes(), wowpe::Image(), sstr(version), sstr(exePath)));
 }
 
 // ===========================================================================
-// 1. Консервативный режим: ASCII-замена в копии файла (как было)
+// 2. Версия из .build.info (корень установки)
+// ===========================================================================
+QString ClientPatchService::buildInfoVersion(const QString &exePath) {
+    const QDir dir = QFileInfo(exePath).absoluteDir();
+    for (const QString &candidate : { dir.filePath(QStringLiteral("../.build.info")),
+                                      dir.filePath(QStringLiteral(".build.info")) }) {
+        const QString path = QDir::cleanPath(candidate);
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
+        const QString text = QString::fromUtf8(f.readAll());
+        f.close();
+        const QStringList rows = text.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        if (rows.size() < 2) continue;
+        const QStringList head = rows.first().split(QLatin1Char('\t'));
+        int idx = -1;
+        for (int i = 0; i < head.size(); ++i)
+            if (head.at(i).trimmed().compare(QLatin1String("Version"), Qt::CaseInsensitive) == 0) idx = i;
+        if (idx < 0) continue;
+        for (int r = 1; r < rows.size(); ++r) {
+            const QString line = rows.at(r).trimmed();
+            if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) continue;
+            const QStringList cols = rows.at(r).split(QLatin1Char('\t'));
+            if (idx < cols.size() && !cols.at(idx).trimmed().isEmpty())
+                return cols.at(idx).trimmed();
+            break;
+        }
+    }
+    return QString();
+}
+
+// ===========================================================================
+// 3. Консервативный режим: ASCII-замена в копии файла
 // ===========================================================================
 bool ClientPatchService::replaceAsciiInCopy(const QString &src, const QString &dst,
                                             const QString &find, const QString &replacement,
                                             QString *error) {
-    if (find.isEmpty() || replacement.toUtf8().size() > find.toUtf8().size()) {
-        if (error) *error = "Replacement must fit the original ASCII field.";
+    const QByteArray raw = readFileBytes(src, error);
+    if (raw.isEmpty()) return false;
+    QByteArray data = raw;
+    const QByteArray f = find.toUtf8();
+    QByteArray r = replacement.toUtf8();
+    if (f.isEmpty()) {
+        if (error) *error = QStringLiteral("Пустая строка поиска.");
         return false;
     }
-    QFile in(src);
-    if (!in.open(QIODevice::ReadOnly)) { if (error) *error = in.errorString(); return false; }
-    QByteArray b = in.readAll();
-    const auto f = find.toUtf8();
-    const qsizetype pos = b.indexOf(f);
-    if (pos < 0) { if (error) *error = "ASCII value was not found in this file."; return false; }
-    b.replace(pos, f.size(), replacement.toUtf8().leftJustified(f.size(), '\0'));
-    QFile out(dst);
-    if (!out.open(QIODevice::WriteOnly)) { if (error) *error = out.errorString(); return false; }
-    if (out.write(b) != b.size()) { if (error) *error = out.errorString(); return false; }
+    if (r.size() < f.size()) r.append(f.size() - r.size(), '\0');
+    if (r.size() > f.size()) {
+        if (error) *error = QStringLiteral("Замена длиннее находки: строки в PE имеют фиксированную длину.");
+        return false;
+    }
+    int count = 0;
+    qsizetype pos = 0;
+    while ((pos = data.indexOf(f, pos)) >= 0) {
+        std::memcpy(data.data() + pos, r.constData(), size_t(r.size()));
+        ++count;
+        pos += f.size();
+    }
+    if (!count) {
+        if (error) *error = QStringLiteral("Строка «%1» в файле не найдена.").arg(find);
+        return false;
+    }
+    if (!writeFileBytes(dst, toCore(data), error)) return false;
     return true;
 }
 
 // ===========================================================================
-// 2. Патч по сигнатурам в КОПИИ файла (диск). Оригинал не изменяется.
+// 4. Ключи
 // ===========================================================================
-bool ClientPatchService::patchFileCopy(const QString &source, const QString &destination,
-                                       const WowPatchOptions &opts, QStringList *log, QString *error) {
-    if (!QFileInfo::exists(source)) {
-        if (error) *error = QStringLiteral("Файл не найден: %1").arg(source);
-        return false;
-    }
-    if (log) log->append(QStringLiteral("Патч копии файла (на диск): %1 -> %2").arg(source, destination));
+QByteArray ClientPatchService::trinityRsaModulusLe()    { return kPatchRsaModulus; }
+QByteArray ClientPatchService::trinityEd25519PublicKey(){ return kPatchEd25519Key; }
+QByteArray ClientPatchService::blizzardRsaSignature()   { return kPatternConnectToModulus; }
+QByteArray ClientPatchService::blizzardEd25519Signature(){ return kPatternGameCryptoEd25519; }
 
-    QFile in(source);
-    if (!in.open(QIODevice::ReadOnly)) {
-        if (error) *error = QStringLiteral("Не удалось открыть: %1").arg(in.errorString());
-        return false;
+QByteArray ClientPatchService::normalizeKeyOrder(const QByteArray &key, bool assumeBigEndian, QString *note) {
+    std::string n;
+    const wowpatch::Bytes out = wowpatch::normalizeKeyOrder(toCore(key), assumeBigEndian, &n);
+    if (note) *note = qstr(n);
+    return fromCore(out);
+}
+
+QByteArray ClientPatchService::rsaModulusLeFromPem(const QString &pemPath, QString *error) {
+    QFile f(pemPath);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (error) *error = QStringLiteral("Не удалось открыть PEM: %1").arg(f.errorString());
+        return QByteArray();
     }
-    QByteArray data = in.readAll();
-    in.close();
-    if (data.size() < 0x1000) {
-        if (error) *error = "Файл слишком мал — это не похоже на Wow.exe.";
-        return false;
+    const QString text = QString::fromUtf8(f.readAll());
+    f.close();
+    std::string err;
+    const wowpatch::Bytes modulus = wowpatch::rsaModulusLeFromPem(sstr(text), &err);
+    if (modulus.empty()) {
+        if (error) *error = qstr(err);
+        return QByteArray();
+    }
+    return fromCore(modulus);
+}
+
+bool ClientPatchService::keysSelfTest(QStringList *log) {
+    std::vector<std::string> l;
+    const bool ok = wowpatch::keysSelfTest(&l);
+    if (log) *log = qstrList(l);
+    return ok;
+}
+
+QByteArray ClientPatchService::hexKey(const QString &hexText, int expectedBytes, QString *error) {
+    wowpatch::Bytes b;
+    const std::string err = wowpe::hexToBytes(sstr(hexText), &b);
+    if (!err.empty()) {
+        if (error) *error = qstr(err);
+        return QByteArray();
+    }
+    if (int(b.size()) != expectedBytes) {
+        if (error) *error = QStringLiteral("Ключ должен быть %1 байт (%2 hex-символов), получено %3.")
+                                .arg(expectedBytes).arg(expectedBytes * 2).arg(int(b.size()));
+        return QByteArray();
+    }
+    return fromCore(b);
+}
+
+// ===========================================================================
+// 5. Config.wtf и папка Data
+// ===========================================================================
+QString ClientPatchService::clientDataDir(const QString &exePath, bool *existsOut) {
+    const QDir dir = QFileInfo(exePath).absoluteDir();
+    // Ретейл: exe в _retail_, Data либо рядом с exe, либо в корне установки.
+    const QStringList candidates = { dir.filePath(QStringLiteral("Data")),
+                                     dir.filePath(QStringLiteral("../Data")) };
+    for (const QString &c : candidates) {
+        const QString clean = QDir::cleanPath(c);
+        if (QFileInfo(clean).isDir()) {
+            if (existsOut) *existsOut = true;
+            return clean;
+        }
+    }
+    if (existsOut) *existsOut = false;
+    return QDir::cleanPath(candidates.first());
+}
+
+QString ClientPatchService::readPortalFromConfigWtf(const QString &exePath, QString *error) {
+    const QString config = findConfigWtf(exePath);
+    if (config.isEmpty()) {
+        if (error) *error = QStringLiteral("Config.wtf не найден рядом с клиентом (искали WTF/Config.wtf, Config.wtf и ../WTF/Config.wtf).");
+        return QString();
+    }
+    QFile f(config);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (error) *error = QStringLiteral("Не удалось открыть Config.wtf: %1").arg(f.errorString());
+        return QString();
+    }
+    const QString text = QString::fromUtf8(f.readAll());
+    f.close();
+    const QString portal = qstr(wowpatch::configPortal(sstr(text)));
+    if (portal.isEmpty() && error)
+        *error = QStringLiteral("В %1 нет строки SET portal \"host:port\".").arg(config);
+    return portal;
+}
+
+bool ClientPatchService::writePortalToConfigWtf(const QString &exePath, const QString &portal, QString *error) {
+    QString config = findConfigWtf(exePath);
+    QString text;
+    if (config.isEmpty()) {
+        config = QDir::cleanPath(QFileInfo(exePath).absoluteDir().filePath(QStringLiteral("WTF/Config.wtf")));
+        if (error) *error = QStringLiteral("Config.wtf не найден — создаю %1").arg(config);
+    } else {
+        QFile f(config);
+        if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            if (error) *error = QStringLiteral("Не удалось открыть Config.wtf: %1").arg(f.errorString());
+            return false;
+        }
+        text = QString::fromUtf8(f.readAll());
+        f.close();
+    }
+    std::string body = sstr(text);
+    if (!wowpatch::writePortalIntoConfig(body, sstr(portal))) return true;   // уже стоит
+    return writeTextFile(config, qstr(body), error);
+}
+
+// ===========================================================================
+// 6. Диагностика
+// ===========================================================================
+WowInspect ClientPatchService::inspectExecutable(const QString &exePath) {
+    WowInspect r;
+    r.path = exePath;
+    QString err;
+    const QByteArray raw = readFileBytes(exePath, &err);
+    if (raw.isEmpty()) {
+        r.error = err;
+        r.lines.append(err);
+        return r;
+    }
+    r.size = raw.size();
+
+    QString version = clientVersion(exePath);
+    const QString bi = buildInfoVersion(exePath);
+    if (version.isEmpty()) version = bi;
+    r.version = version;
+    r.buildInfoVersion = bi;
+
+    const wowpatch::Inspect ci = wowpatch::inspect(toCore(raw), sstr(version), sstr(exePath));
+    r.ok = ci.ok;
+    r.error = qstr(ci.error);
+    r.sha256 = qstr(ci.sha256);
+    r.detection = toQt(ci.detection);
+    r.pe64 = ci.pe64;
+    r.imageBase = ci.imageBase;
+    r.entryRva = ci.entryRva;
+    r.sizeOfImage = ci.sizeOfImage;
+    r.checksum = ci.checksum;
+    r.hasSignature = ci.hasSignature;
+    r.certPointer = ci.certPointer;
+    r.certSize = ci.certSize;
+    for (const wowpatch::SectionInfo &s : ci.sections) r.sections.append(toQt(s));
+    r.blizzardRsaFound = ci.blizzardRsaFound;
+    r.trinityRsaFound = ci.trinityRsaFound;
+    r.blizzardEdFound = ci.blizzardEdFound;
+    r.trinityEdFound = ci.trinityEdFound;
+    r.portalFound = ci.portalFound;
+    r.certBundleSlotFound = ci.certBundleSlotFound;
+    r.lines = qstrList(ci.lines);
+
+    // То, что видно только из файловой системы.
+    bool hasData = false;
+    r.dataDir = clientDataDir(exePath, &hasData);
+    r.dataDirFound = hasData;
+    r.lines.append(QStringLiteral("Папка Data: %1%2").arg(QDir::toNativeSeparators(r.dataDir),
+                   hasData ? QString() : QStringLiteral("  — НЕ НАЙДЕНА (клиент не запустится)")));
+
+    r.configWtfPath = findConfigWtf(exePath);
+    if (r.configWtfPath.isEmpty()) {
+        r.lines.append(QStringLiteral("Config.wtf: не найден (будет создан при патче)"));
+    } else {
+        QString perr;
+        r.configPortal = readPortalFromConfigWtf(exePath, &perr);
+        r.lines.append(QStringLiteral("Config.wtf: %1   SET portal: %2")
+                           .arg(QDir::toNativeSeparators(r.configWtfPath),
+                                r.configPortal.isEmpty() ? QStringLiteral("нет") : r.configPortal));
+    }
+    if (!ci.ok) r.lines.append(QStringLiteral("[!!] %1").arg(r.error));
+    return r;
+}
+
+// ===========================================================================
+// 7. ОСНОВНОЙ РЕЖИМ: самостоятельный пропатченный exe на диске
+// ===========================================================================
+WowPatchReport ClientPatchService::patchStandalone(const QString &source, const QString &destination,
+                                                   const WowPatchOptions &opts, QStringList *log) {
+    auto L = [&](const QString &s) { if (log) log->append(s); };
+    WowPatchReport rep;
+
+    L(QStringLiteral("=== ПАТЧ НА ДИСК (Firestorm-стиль) ==="));
+    L(QStringLiteral("Источник : %1").arg(QDir::toNativeSeparators(source)));
+    L(QStringLiteral("Результат: %1").arg(QDir::toNativeSeparators(destination)));
+
+    QString err;
+    const QByteArray raw = readFileBytes(source, &err);
+    if (raw.isEmpty()) {
+        rep.error = err;
+        L(QStringLiteral("[!!] %1").arg(err));
+        return rep;
+    }
+    wowpatch::Bytes data = toCore(raw);
+    const wowpe::Image img = wowpe::parse(data);
+    if (!img.valid) {
+        rep.error = QStringLiteral("PE не разобран: %1 — это не похоже на Wow.exe").arg(qstr(img.error));
+        L(QStringLiteral("[!!] %1").arg(rep.error));
+        return rep;
     }
 
-    // --- определённые ключи ---
-    QByteArray rsa = kPatchRsaModulus, ed = kPatchEd25519Key;
-    if (!opts.rsaModulusHex.trimmed().isEmpty()) {
-        QString e;
-        rsa = hexKey(opts.rsaModulusHex.trimmed(), 256, &e);
-        if (rsa.isEmpty()) { if (error) *error = "RSA-ключ: " + e; return false; }
-    }
-    if (!opts.ed25519KeyHex.trimmed().isEmpty()) {
-        QString e;
-        ed = hexKey(opts.ed25519KeyHex.trimmed(), 32, &e);
-        if (ed.isEmpty()) { if (error) *error = "Ed25519-ключ: " + e; return false; }
-    }
+    QString version = clientVersion(source);
+    const QString bi = buildInfoVersion(source);
+    if (version.isEmpty()) version = bi;
+    const wowpatch::Detection cdet = opts.autoDetect
+        ? wowpatch::detectProfile(data, img, sstr(version), sstr(source))
+        : wowpatch::Detection{};
+    const WowDetection det = toQt(cdet);
+    if (opts.autoDetect)
+        L(QStringLiteral("Профиль: [%1] версия %2, ветка %3%4")
+              .arg(det.profile, det.version.isEmpty() ? QStringLiteral("?") : det.version,
+                   det.branch, det.note.isEmpty() ? QString() : QStringLiteral(" — ") + det.note));
+    if (!version.isEmpty() && !bi.isEmpty() && version != bi)
+        L(QStringLiteral("Версия из ресурса exe: %1, из .build.info: %2").arg(version, bi));
 
-    // --- профиль ---
-    const WowDetection det = opts.autoDetect ? detectProfile(source) : WowDetection{};
-    const bool legacy = opts.autoDetect ? det.legacyCert : opts.patchLegacyGameCryptoRsa;
-    if (opts.autoDetect) {
-        if (log) log->append(QStringLiteral("Профиль: [%1] версия %2, ветка %3%4")
-                             .arg(det.profile, det.version.isEmpty() ? QStringLiteral("?") : det.version,
-                                  det.branch, det.note.isEmpty() ? QString() : QStringLiteral(" — ") + det.note));
-        if (log && det.profile == QLatin1String("modern"))
-            log->append(QStringLiteral("  ! 12.x: копия на диск — RSA/Ed25519/portal на месте (размер PE не меняется). "
-                                       "Сохраните как Wow.exe рядом с Data. Integrity/античит не патчатся."));
-    }
-
-    // --- папка Data берётся из каталога самого Wow.exe ---
     bool hasData = false;
     const QString dataDir = clientDataDir(source, &hasData);
-    if (log) log->append(QStringLiteral("Папка Data рядом с клиентом: %1%2")
-                             .arg(QDir::toNativeSeparators(dataDir),
-                                  hasData ? QString() : QStringLiteral(" — НЕ НАЙДЕНА!")));
-    const QString srcDir = QFileInfo(source).absolutePath();
-    const QString dstDir = QFileInfo(destination).absolutePath();
-    if (srcDir != dstDir && log)
-        log->append(QStringLiteral("  ! Копия сохраняется НЕ рядом с исходным Wow.exe (%1). Клиент из этой копии будет искать Data рядом с ней (%2\\Data), а не рядом с оригиналом. Либо сохраните копию рядом с Wow.exe, либо положите папку Data рядом с копией.")
-                        .arg(QDir::toNativeSeparators(dstDir), QDir::toNativeSeparators(srcDir)));
+    L(QStringLiteral("Папка Data: %1%2").arg(QDir::toNativeSeparators(dataDir),
+          hasData ? QString() : QStringLiteral("  — НЕ НАЙДЕНА! Клиент без Data не запустится.")));
 
-    // --- RSA ConnectTo (обязательный паттерн данных) ---
-    replaceAllPattern(data, kPatternConnectToModulus, rsa, log,
-                      QStringLiteral("ConnectTo RsaModulus"),
-                      QStringLiteral("[-] ConnectTo RsaModulus: сигнатура не найдена (другой билд?)"));
-
-    // --- Ed25519 (присутствует не во всех ветках; отсутствие — предупреждение) ---
-    replaceAllPattern(data, kPatternGameCryptoEd25519, ed, log,
-                      QStringLiteral("GameCrypto Ed25519"),
-                      det.usesEd25519
-                          ? QStringLiteral("[-] GameCrypto Ed25519: не найдено (пропуск)")
-                          : QStringLiteral("[-] GameCrypto Ed25519: не ожидается в этой ветке (пропуск)"));
-
-    // --- Signature / Crypto RSA: только legacy-профиль (1.13.x — нельзя!) ---
-    if (legacy) {
-        replaceAllPattern(data, kPatternSignatureModulus, rsa, log,
-                          QStringLiteral("Signature RsaModulus (legacy)"),
-                          QStringLiteral("[-] Signature RsaModulus (legacy): не найдено"));
-        replaceAllPattern(data, kPatternGameCryptoRsa, rsa, log,
-                          QStringLiteral("GameCrypto RsaModulus (legacy)"),
-                          QStringLiteral("[-] GameCrypto RsaModulus (legacy): не найдено"));
+    wowpatch::Options core = toCoreOptions(opts);
+    if (!resolveKeys(opts, &core, L, &err)) {
+        rep.error = err;
+        L(QStringLiteral("[!!] %1").arg(err));
+        return rep;
     }
 
-    // --- Portal (optional): long host does not fit .actual.battle.net; 7.x uses Config.wtf ---
-    {
-        QByteArray value;
-        const QString portalError = paddedPortal(opts.portal, opts.port, &value, kPatternPortal.size());
-        if (!portalError.isEmpty()) {
-            if (log) log->append(QStringLiteral("  ! %1").arg(portalError));
-        } else if (replaceAllPattern(data, kPatternPortal, value, log,
-                                     QStringLiteral("Login Portal -> %1").arg(QString::fromUtf8(value.constData()))) == 0) {
-            if (log) log->append(QStringLiteral("  [-] Portal .actual.battle.net не найден — SET portal в Config.wtf (так работает 7.3.5)."));
+    std::vector<std::string> clog;
+    wowpatch::Report crep;
+
+    // --- рецепты: ДО сигнатурных патчей (диапазоны потом учитываются ядром) ---
+    for (const QString &recipePath : opts.recipePaths) {
+        const QString path = recipePath.trimmed();
+        if (path.isEmpty()) continue;
+        QFile rf(path);
+        if (!rf.open(QIODevice::ReadOnly)) {
+            L(QStringLiteral("  ! Рецепт %1 не открыт: %2").arg(path, rf.errorString()));
+            continue;
         }
-        const QString dstName = QFileInfo(destination).fileName();
-        const QString srcName = QFileInfo(source).fileName();
-        if (log && dstName.compare(srcName, Qt::CaseInsensitive) != 0)
-            log->append(QStringLiteral("  ! Копия названа «%1», а не «%2». Часть клиентов запускается только как Wow.exe / Wow-64.exe — сохраните копию с тем же именем в другой папке рядом с Data.")
-                            .arg(dstName, srcName));
+        const QString text = QString::fromUtf8(rf.readAll());
+        rf.close();
+        wowpatch::Recipe recipe;
+        std::string jerr;
+        if (!wowpatch::recipeFromJson(sstr(text), &recipe, &jerr)) {
+            L(QStringLiteral("  ! Рецепт %1: %2").arg(path, qstr(jerr)));
+            continue;
+        }
+        L(QStringLiteral("Рецепт %1").arg(QDir::toNativeSeparators(path)));
+        wowpatch::applyRecipeToImage(data, img, recipe, &crep, &clog);
     }
 
-    // --- Launcher Login Registry (опционально) ---
-    replaceAllPattern(data, kPatternLauncherLogin, kPatchLauncherLogin, log,
-                      QStringLiteral("Launcher Login Registry"));
+    // --- сам патч (план, запись, checksum/подпись, верификация) ---
+    const bool ok = wowpatch::patchImage(data, core, cdet, &crep, &clog);
+    for (const std::string &s : clog) L(qstr(s));
 
-    // --- Version / CDN URL (опционально) ---
-    if (opts.patchVersionUrls) {
-        const QByteArray v1 = (opts.versionUrl.isEmpty() ? kUrlV1 : opts.versionUrl.toUtf8()) + '\0';
-        const QByteArray v2 = (opts.versionUrl.isEmpty() ? kUrlV2 : opts.versionUrl.toUtf8()) + '\0';
-        const QByteArray v2new = (opts.versionUrl.isEmpty() ? kUrlV2New : opts.versionUrl.toUtf8()) + '\0';
-        const QByteArray cdns = (opts.cdnsUrl.isEmpty() ? kCdnsUrl : opts.cdnsUrl.toUtf8()) + '\0';
-        struct UrlPatch { QByteArray find; QByteArray repl; const char *name; };
-        const UrlPatch urls[] = {
-            { kUrlV1 + '\0', v1, "Version URL v1" },
-            { kUrlV2 + '\0', v2, "Version URL v2" },
-            { kUrlV2New + '\0', v2new, "Version URL v2 new" },
-            { kCdnsUrl + '\0', cdns, "CDNs URL" },
-        };
-        for (const auto &u : urls) {
-            replaceAllPattern(data, u.find, u.repl, log, QString::fromLatin1(u.name));
+    rep.size = qint64(data.size());
+    rep.sha256 = qstr(crep.sha256);
+    rep.verifiedClean = crep.verifiedClean;
+    rep.verification = qstrList(crep.verification);
+    for (const wowpatch::Record &rc : crep.records) rep.records.append(toQt(rc));
+
+    if (!ok) {
+        rep.error = qstr(crep.error);
+        L(QStringLiteral("[!!] %1").arg(rep.error));
+        return rep;
+    }
+
+    // --- бэкап и запись ---
+    const QFileInfo srcInfo(source), dstInfo(destination);
+    const bool inPlace = srcInfo.absoluteFilePath() == dstInfo.absoluteFilePath();
+    if (QFileInfo::exists(destination) && opts.makeBackup) {
+        const QString bak = inPlace ? destination + QStringLiteral(".orig")
+                                    : destination + QStringLiteral(".bak");
+        QFile::remove(bak);
+        if (QFile::copy(destination, bak))
+            L(QStringLiteral("Резервная копия: %1").arg(QDir::toNativeSeparators(bak)));
+        else
+            L(QStringLiteral("  ! Не удалось создать резервную копию %1 — продолжаю без неё").arg(bak));
+    }
+    if (!writeFileBytes(destination, data, &err)) {
+        rep.error = err;
+        L(QStringLiteral("[!!] %1").arg(err));
+        return rep;
+    }
+    rep.destination = destination;
+    rep.size = qint64(data.size());
+    L(QStringLiteral("Записано: %1 (%2 байт, SHA-256 %3)")
+          .arg(QDir::toNativeSeparators(destination)).arg(data.size()).arg(rep.sha256));
+
+    // --- верификация того, что РЕАЛЬНО легло на диск ---
+    if (opts.verifyAfterWrite) {
+        L(QStringLiteral("Проверка файла на диске:"));
+        QString verr;
+        const QByteArray written = readFileBytes(destination, &verr);
+        if (written.isEmpty()) {
+            rep.verification.append(QStringLiteral("[!!] не удалось перечитать результат: %1").arg(verr));
+            rep.verifiedClean = false;
+        } else {
+            const wowpatch::Bytes wd = toCore(written);
+            const wowpe::Image wimg = wowpe::parse(wd);
+            std::vector<std::string> vout;
+            const bool clean = wowpatch::verifyImage(wd, wimg.valid ? wimg : img, crep, &vout);
+            for (const std::string &s : vout) {
+                L(QStringLiteral("  %1").arg(qstr(s)));
+                rep.verification.append(qstr(s));
+            }
+            rep.verifiedClean = clean;
+            if (!clean) {
+                rep.error = QStringLiteral("Файл на диске не прошёл проверку — см. строки [!!] выше.");
+                L(QStringLiteral("[!!] %1").arg(rep.error));
+                return rep;
+            }
         }
     }
 
-    // --- Cert bundle URL (опционально) ---
-    if (!opts.certBundleUrl.isEmpty() && opts.certBundleUrl.size() <= kPatternCertBundleUrl.size()) {
-        replaceAllPattern(data, kPatternCertBundleUrl, opts.certBundleUrl.toUtf8(), log,
-                          QStringLiteral("Cert bundle URL"));
+    // --- Config.wtf ---
+    if (opts.writeConfigWtf && !opts.portal.trimmed().isEmpty()) {
+        const QString want = normalizePortalHost(opts.portal);
+        QString cfgErr;
+        const QString existing = readPortalFromConfigWtf(source, &cfgErr);
+        if (existing == want) {
+            L(QStringLiteral("Config.wtf: SET portal \"%1\" уже стоит — не трогаю").arg(want));
+            rep.configWtfPath = findConfigWtf(destination);
+            rep.portalWritten = want;
+        } else if (writePortalToConfigWtf(destination, want, &cfgErr)) {
+            rep.configWtfPath = findConfigWtf(destination);
+            rep.portalWritten = want;
+            L(QStringLiteral("[OK] SET portal \"%1\" записан в %2")
+                  .arg(want, QDir::toNativeSeparators(rep.configWtfPath)));
+            if (!cfgErr.isEmpty()) L(QStringLiteral("  [i] %1").arg(cfgErr));
+        } else {
+            L(QStringLiteral("  ! Config.wtf: %1").arg(cfgErr));
+        }
     }
 
-    QSaveFile out(destination);
-    if (!out.open(QIODevice::WriteOnly)) {
-        if (error) *error = QStringLiteral("Не удалось создать выходную копию: %1").arg(out.errorString());
+    rep.ok = true;
+    L(QStringLiteral("Готово: %1 — самостоятельный exe (запускается без лаунчера).").arg(QDir::toNativeSeparators(destination)));
+
+    if (opts.launchAfterPatch) {
+        QString lerr;
+        if (!launchClient(destination, opts.extraArgs, log, &lerr))
+            L(QStringLiteral("  ! Запуск: %1").arg(lerr));
+    }
+    return rep;
+}
+
+bool ClientPatchService::patchFileCopy(const QString &source, const QString &destination,
+                                       const WowPatchOptions &opts, QStringList *log, QString *error) {
+    const WowPatchReport rep = patchStandalone(source, destination, opts, log);
+    if (!rep.ok && error) *error = rep.error;
+    return rep.ok;
+}
+
+QString ClientPatchService::defaultOutputPath(const QString &exePath) {
+    // Firestorm-стиль: пропатченный exe лежит там же и называется так же —
+    // тогда он находит свою Data и WTF. Оригиналу делаем бэкап .orig.
+    return QFileInfo(exePath).absoluteFilePath();
+}
+
+// ===========================================================================
+// 8. Рецепт: снять разницу и сохранить в JSON
+// ===========================================================================
+bool ClientPatchService::buildRecipe(const QString &originalExe, const QString &patchedExe,
+                                     const QString &outJsonPath, const WowPatchOptions &opts,
+                                     QStringList *log, QString *error) {
+    Q_UNUSED(opts);
+    auto L = [&](const QString &s) { if (log) log->append(s); };
+
+    L(QStringLiteral("=== ИЗВЛЕЧЕНИЕ РЕЦЕПТА ==="));
+    L(QStringLiteral("Оригинал       : %1").arg(QDir::toNativeSeparators(originalExe)));
+    L(QStringLiteral("Пропатченный  : %1").arg(QDir::toNativeSeparators(patchedExe)));
+
+    QString err;
+    const QByteArray aRaw = readFileBytes(originalExe, &err);
+    if (aRaw.isEmpty()) { if (error) *error = err; L(QStringLiteral("[!!] %1").arg(err)); return false; }
+    const QByteArray bRaw = readFileBytes(patchedExe, &err);
+    if (bRaw.isEmpty()) { if (error) *error = err; L(QStringLiteral("[!!] %1").arg(err)); return false; }
+
+    wowpatch::RecipeMeta meta;
+    meta.name = sstr(QFileInfo(patchedExe).completeBaseName());
+    meta.sourceOriginal = sstr(originalExe);
+    meta.sourcePatched = sstr(patchedExe);
+    meta.originalSha256 = sstr(QString::fromLatin1(
+        QCryptographicHash::hash(aRaw, QCryptographicHash::Sha256).toHex()));
+    meta.patchedSha256 = sstr(QString::fromLatin1(
+        QCryptographicHash::hash(bRaw, QCryptographicHash::Sha256).toHex()));
+    meta.originalVersion = sstr(clientVersion(originalExe));
+    meta.patchedVersion = sstr(clientVersion(patchedExe));
+    meta.createdUtc = sstr(QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+
+    wowpatch::Recipe recipe;
+    std::vector<std::string> clog;
+    std::string cerr;
+    if (!wowpatch::makeRecipe(toCore(aRaw), toCore(bRaw), meta, &recipe, &clog, &cerr)) {
+        for (const std::string &s : clog) L(qstr(s));
+        if (error) *error = qstr(cerr);
+        L(QStringLiteral("[!!] %1").arg(qstr(cerr)));
         return false;
     }
-    out.write(data);
-    if (!out.commit()) {
-        if (error) *error = QStringLiteral("Не удалось сохранить копию: %1").arg(out.errorString());
+    for (const std::string &s : clog) L(qstr(s));
+
+    const QString json = qstr(wowpatch::recipeToJson(recipe));
+    if (!writeTextFile(outJsonPath, json, &err)) {
+        if (error) *error = err;
+        L(QStringLiteral("[!!] %1").arg(err));
         return false;
     }
-    if (log) log->append(QStringLiteral("Готово. Копия сохранена: %1").arg(destination));
+    L(QStringLiteral("Рецепт сохранён: %1 (hunks=%2)")
+          .arg(QDir::toNativeSeparators(outJsonPath)).arg(recipe.hunks.size()));
+
+    // Контроль: читаем обратно и переносим на оригинал — должно совпасть.
+    wowpatch::Recipe back;
+    std::string jerr;
+    if (!wowpatch::recipeFromJson(sstr(json), &back, &jerr)) {
+        if (error) *error = QStringLiteral("Сохранённый JSON не читается обратно: %1").arg(qstr(jerr));
+        L(QStringLiteral("[!!] %1").arg(*error));
+        return false;
+    }
+    wowpatch::Bytes target = toCore(aRaw);
+    const wowpe::Image timg = wowpe::parse(target);
+    wowpatch::Report rr;
+    std::vector<std::string> rlog;
+    const int moved = wowpatch::applyRecipeToImage(target, timg, back, &rr, &rlog);
+    for (const std::string &s : rlog) L(qstr(s));
+    const bool same = target == toCore(bRaw);
+    L(QStringLiteral("Самопроверка рецепта: перенесено %1 hunks, результат %2 пропатченному файлу")
+          .arg(moved).arg(same ? QStringLiteral("побайтово РАВЕН") : QStringLiteral("НЕ равен")));
+    if (!same) {
+        if (error) *error = QStringLiteral("Самопроверка рецепта не прошла: перенос не воспроизводит пропатченный файл.");
+        return false;
+    }
+    return true;
+}
+
+// ===========================================================================
+// 9. Применить рецепт(ы) к exe
+// ===========================================================================
+bool ClientPatchService::applyRecipe(const QString &source, const QString &destination,
+                                     const QStringList &recipePaths, QStringList *log, QString *error) {
+    WowPatchOptions opts;
+    opts.recipePaths = recipePaths;
+    opts.applySignaturePatches = false;   // нужны только hunks из рецепта
+    opts.writeConfigWtf = false;
+    opts.requireEd25519 = false;
+    opts.autoDetect = false;
+    const WowPatchReport rep = patchStandalone(source, destination, opts, log);
+    if (!rep.ok && error) *error = rep.error;
+    return rep.ok;
+}
+
+// ===========================================================================
+// 10. Запуск готового клиента
+// ===========================================================================
+bool ClientPatchService::launchClient(const QString &exePath, const QString &extraArgs,
+                                      QStringList *log, QString *error) {
+    if (!QFileInfo::exists(exePath)) {
+        if (error) *error = QStringLiteral("Файл не найден: %1").arg(exePath);
+        return false;
+    }
+    QStringList args;
+    args << extraArgs.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    const QString workDir = QFileInfo(exePath).absolutePath();
+    if (!QProcess::startDetached(exePath, args, workDir)) {
+        if (error) *error = QStringLiteral("Не удалось запустить %1").arg(exePath);
+        return false;
+    }
+    if (log) log->append(QStringLiteral("Запущен %1%2 (рабочая папка %3)")
+                             .arg(QDir::toNativeSeparators(exePath),
+                                  args.isEmpty() ? QString() : QStringLiteral(" ") + args.join(QLatin1Char(' ')),
+                                  QDir::toNativeSeparators(workDir)));
     return true;
 }
 
@@ -433,33 +910,28 @@ namespace {
 // Фаза A/B: скан памяти по регионам (VirtualQueryEx) и запись патчей
 // ===========================================================================
 struct PatchOp {
-    const char *label;      // статическая строка
+    const char *label;
     quintptr address = 0;
     QByteArray bytes;
 };
 
 constexpr int SCAN_MAX_REGIONS = 4096;
-constexpr qsizetype MAX_REGION_READ = 32 * 1024 * 1024; // 32 MiB на регион
+constexpr qsizetype MAX_REGION_READ = 32 * 1024 * 1024;
 
 bool matchAt(const QByteArray &buf, qsizetype off, const Pattern &pat) {
     if (off + qsizetype(pat.size()) > buf.size()) return false;
-    for (qsizetype i = 0; i < qsizetype(pat.size()); ++i) {
-        if (pat[size_t(i)] >= 0 && quint8(buf.at(off + i)) != quint8(pat[size_t(i)]))
-            return false;
-    }
+    for (qsizetype i = 0; i < qsizetype(pat.size()); ++i)
+        if (pat[size_t(i)] >= 0 && quint8(buf.at(off + i)) != quint8(pat[size_t(i)])) return false;
     return true;
 }
 
 quintptr moduleEnd(HANDLE h, quintptr base) {
     if (!base) return 0;
-    quintptr end = base;
-    quintptr addr = base;
+    quintptr end = base, addr = base;
     for (int i = 0; i < SCAN_MAX_REGIONS; ++i) {
         MEMORY_BASIC_INFORMATION mbi{};
-        if (!VirtualQueryEx(h, reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi)) || !mbi.RegionSize)
-            break;
-        if (quintptr(mbi.AllocationBase) != base)
-            break;
+        if (!VirtualQueryEx(h, reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi)) || !mbi.RegionSize) break;
+        if (quintptr(mbi.AllocationBase) != base) break;
         const quintptr re = quintptr(mbi.BaseAddress) + quintptr(mbi.RegionSize);
         if (re > end) end = re;
         if (re <= addr) break;
@@ -472,8 +944,7 @@ void scanMemory(HANDLE h, quintptr start, quintptr end, const Pattern &pat,
                 const std::function<QByteArray(const QByteArray &)> &make,
                 QVector<PatchOp> &out, QStringList *log) {
     if (pat.empty() || start >= end) return;
-    bool exact = true;
-    for (int16_t v : pat) { if (v < 0) { exact = false; break; } }
+    bool exact = std::all_of(pat.begin(), pat.end(), [](int16_t v) { return v >= 0; });
     QByteArray needle;
     int leadOff = 0;
     char leadByte = 0;
@@ -481,17 +952,15 @@ void scanMemory(HANDLE h, quintptr start, quintptr end, const Pattern &pat,
         needle.resize(int(pat.size()));
         for (int i = 0; i < needle.size(); ++i) needle[i] = char(quint8(pat[size_t(i)]));
     } else {
-        for (size_t i = 0; i < pat.size(); ++i) {
+        for (size_t i = 0; i < pat.size(); ++i)
             if (pat[i] >= 0) { leadOff = int(i); leadByte = char(pat[i]); break; }
-        }
     }
     quintptr addr = start;
     int regions = 0;
     while (addr < end && regions < SCAN_MAX_REGIONS) {
         ++regions;
         MEMORY_BASIC_INFORMATION mbi{};
-        if (!VirtualQueryEx(h, reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi)) || !mbi.RegionSize)
-            break;
+        if (!VirtualQueryEx(h, reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi)) || !mbi.RegionSize) break;
         const quintptr regionBase = quintptr(mbi.BaseAddress);
         const quintptr regionEnd = regionBase + quintptr(mbi.RegionSize);
         if (mbi.State != MEM_COMMIT || mbi.RegionSize < SIZE_T(pat.size())) {
@@ -513,8 +982,7 @@ void scanMemory(HANDLE h, quintptr start, quintptr end, const Pattern &pat,
                         if (hit < 0) break;
                         if (make) {
                             const QByteArray bytes = make(buf.mid(hit, needle.size()));
-                            if (!bytes.isEmpty())
-                                out.push_back({ nullptr, chunk + quintptr(hit), bytes });
+                            if (!bytes.isEmpty()) out.push_back({ nullptr, chunk + quintptr(hit), bytes });
                         } else {
                             out.push_back({ nullptr, chunk + quintptr(hit), QByteArray(1, '\x01') });
                         }
@@ -529,9 +997,9 @@ void scanMemory(HANDLE h, quintptr start, quintptr end, const Pattern &pat,
                         if (off < 0) { off = hit + 1; continue; }
                         if (matchAt(buf, off, pat)) {
                             if (make) {
-                                const QByteArray bytes = make(buf.mid(off, qsizetype(pat.size())));
-                                if (!bytes.isEmpty())
-                                    out.push_back({ nullptr, chunk + quintptr(off), bytes });
+                                const QByteArray bytes = make(buf.mid(off, qsizetype(pat.size()))
+                                );
+                                if (!bytes.isEmpty()) out.push_back({ nullptr, chunk + quintptr(off), bytes });
                             } else {
                                 out.push_back({ nullptr, chunk + quintptr(off), QByteArray(1, '\x01') });
                             }
@@ -572,24 +1040,16 @@ bool writeAt(HANDLE h, quintptr address, const QByteArray &data, QStringList *lo
     return true;
 }
 
-// Замена "первых N байт" паттерна (для runtime-сайтов).
 QByteArray replaceFirst(const QByteArray &matched, QByteArray prefix) {
     QByteArray out = matched;
-    for (int i = 0; i < prefix.size() && i < out.size(); ++i)
-        out[i] = prefix.at(i);
+    for (int i = 0; i < prefix.size() && i < out.size(); ++i) out[i] = prefix.at(i);
     return out;
 }
+QByteArray ret0Stub(const QByteArray &m) { return replaceFirst(m, QByteArray("\xC2\x00\x00", 3)); }
+QByteArray nopPair(const QByteArray &m)  { return replaceFirst(m, QByteArray("\x90\x90", 2)); }
+QByteArray movAl1(const QByteArray &m)   { return replaceFirst(m, QByteArray("\xB0\x01", 2)); }
+QByteArray movBl1(const QByteArray &m)   { return replaceFirst(m, QByteArray("\xB3\x01\xEB\x02", 4)); }
 
-// C2 00 00 = ret 0 (пролог функции целостности).
-QByteArray ret0Stub(const QByteArray &matched) { return replaceFirst(matched, QByteArray("\xC2\x00\x00", 3)); }
-// 90 90 — успешная ветка всегда.
-QByteArray nopPair(const QByteArray &matched) { return replaceFirst(matched, QByteArray("\x90\x90", 2)); }
-// B0 01 = mov al, 1 (CN всегда совпадает).
-QByteArray movAl1(const QByteArray &matched) { return replaceFirst(matched, QByteArray("\xB0\x01", 2)); }
-// B3 01 EB 02 = mov bl,1; jmp +2 (цепочка всегда ок).
-QByteArray movBl1(const QByteArray &matched) { return replaceFirst(matched, QByteArray("\xB3\x01\xEB\x02", 4)); }
-
-// Ожидание расшифровки .text (сторож init после TLS-колбэка Arxan).
 bool waitForUnpack(HANDLE h, quintptr base, quintptr end, const QString &logPrefix,
                    int waitMs, QStringList *log, bool *foundOut) {
     const int steps = qMax(1, waitMs / 300);
@@ -610,9 +1070,8 @@ bool waitForUnpack(HANDLE h, quintptr base, quintptr end, const QString &logPref
 
 } // namespace
 #endif
-
 // ===========================================================================
-// 3. Патч в памяти: CreateProcess(CREATE_SUSPENDED) → PEB → фаза A → фаза B
+// 8. Патч в памяти (Arctium): CreateProcess(CREATE_SUSPENDED) → PEB → A → B
 // ===========================================================================
 bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOptions &opts,
                                         QStringList *log, QString *error) {
@@ -627,12 +1086,16 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
     }
     if (log) log->append(QStringLiteral("Патч в памяти (метод Arctium):"));
 
-    // --- ключи ---
     QByteArray rsa = kPatchRsaModulus, ed = kPatchEd25519Key;
-    if (!opts.rsaModulusHex.trimmed().isEmpty()) {
+    if (!opts.rsaPrivatePemPath.trimmed().isEmpty()) {
+        QString e;
+        rsa = rsaModulusLeFromPem(opts.rsaPrivatePemPath.trimmed(), &e);
+        if (rsa.isEmpty()) { if (error) *error = "RSA из PEM: " + e; return false; }
+    } else if (!opts.rsaModulusHex.trimmed().isEmpty()) {
         QString e;
         rsa = hexKey(opts.rsaModulusHex.trimmed(), 256, &e);
         if (rsa.isEmpty()) { if (error) *error = "RSA-ключ: " + e; return false; }
+        QString n; rsa = normalizeKeyOrder(rsa, opts.keysAssumeBigEndian, &n);
     }
     if (!opts.ed25519KeyHex.trimmed().isEmpty()) {
         QString e;
@@ -640,17 +1103,14 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
         if (ed.isEmpty()) { if (error) *error = "Ed25519-ключ: " + e; return false; }
     }
 
-    // --- профиль ---
     const WowDetection det = opts.autoDetect ? detectProfile(exePath) : WowDetection{};
     bool legacy = opts.autoDetect ? det.legacyCert : opts.patchLegacyGameCryptoRsa;
-    const bool modern = (det.profile == QLatin1String("modern"));
-    if (!legacy && opts.bypassCertValidation)
-        legacy = true; // пользователь явно просит обход — пробуем legacy-паттерны (отсутствие безопасно)
+    const bool modern = (det.profile == QLatin1String("modern") || det.profile == QLatin1String("modern12"));
+    if (!legacy && opts.bypassCertValidation) legacy = true;
     if (opts.autoDetect && log) log->append(QStringLiteral("Профиль: [%1] версия %2, ветка %3%4")
                                             .arg(det.profile, det.version.isEmpty() ? QStringLiteral("?") : det.version,
                                                  det.branch, det.note.isEmpty() ? QString() : QStringLiteral(" — ") + det.note));
 
-    // --- папка Data всегда берётся из каталога самого Wow.exe ---
     {
         bool hasData = false;
         const QString dataDir = clientDataDir(exePath, &hasData);
@@ -659,7 +1119,6 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
                                       hasData ? QString() : QStringLiteral(" — НЕ НАЙДЕНА! Клиент не запустится без неё.")));
     }
 
-    // --- Config.wtf: пишем portal КАК ВВЕЛИ (без принудительного :1119) ---
     if (opts.writeConfigWtf) {
         QString cfgErr;
         const QString existing = readPortalFromConfigWtf(exePath, &cfgErr);
@@ -667,15 +1126,14 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
         if (!want.isEmpty() && existing != want) {
             if (!writePortalToConfigWtf(exePath, want, &cfgErr)) {
                 if (log) log->append(QStringLiteral("  ! Config.wtf: %1").arg(cfgErr));
-            } else if (log) log->append(QStringLiteral("  [OK] SET portal \"%1\" записан в WTF/Config.wtf (как есть, порт не дописывается)").arg(want));
+            } else if (log) log->append(QStringLiteral("  [OK] SET portal \"%1\" записан в WTF/Config.wtf").arg(want));
         } else if (log && existing == want && !want.isEmpty()) {
             log->append(QStringLiteral("  [OK] SET portal \"%1\" уже стоит в Config.wtf — не трогаем").arg(existing));
         }
     }
 
-    // --- 1) CreateProcessW с CREATE_SUSPENDED (Unicode-пути; A+utf8 ломает кириллицу) ---
     const QString dir = QFileInfo(exePath).absolutePath();
-    const QString cmdLine = QStringLiteral("\"%1\" -config Config.wtf%2").arg(
+    const QString cmdLine = QStringLiteral("\"%1\"%2").arg(
         QDir::toNativeSeparators(exePath),
         opts.extraArgs.isEmpty() ? QString() : QStringLiteral(" ") + opts.extraArgs);
     std::wstring cmdCopy = cmdLine.toStdWString();
@@ -700,7 +1158,6 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
         return false;
     };
 
-    // --- 2) NtQueryInformationProcess → PEB → ImageBase ---
     struct PROCESS_BASIC_INFORMATION {
         PVOID Reserved1; PVOID PebBaseAddress;
         PVOID Reserved2_0, Reserved2_1; ULONG_PTR UniqueProcessId; PVOID Reserved3;
@@ -730,26 +1187,22 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
         if (wow64) {
             ULONG_PTR peb32 = 0;
             ULONG n = 0;
-            if (pNtQuery(pi.hProcess, 26, &peb32, sizeof(peb32), &n) != 0 || !peb32)
-                return 0;
+            if (pNtQuery(pi.hProcess, 26, &peb32, sizeof(peb32), &n) != 0 || !peb32) return 0;
             quint32 base32 = 0;
             if (!ReadProcessMemory(pi.hProcess, reinterpret_cast<LPCVOID>(peb32 + 0x08),
-                                   &base32, sizeof(base32), &nread) || nread != sizeof(base32))
-                return 0;
+                                   &base32, sizeof(base32), &nread) || nread != sizeof(base32)) return 0;
             return quintptr(base32);
         }
 #endif
         if (!ReadProcessMemory(pi.hProcess, reinterpret_cast<LPCVOID>(quintptr(pbi.PebBaseAddress) + 0x10),
-                               &base, sizeof(base), &nread) || nread != sizeof(base))
-            return 0;
+                               &base, sizeof(base), &nread) || nread != sizeof(base)) return 0;
         return base;
     };
 
     auto regionMapped = [&](quintptr addr) -> bool {
         if (!addr) return false;
         MEMORY_BASIC_INFORMATION mbi{};
-        if (!VirtualQueryEx(pi.hProcess, reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi)))
-            return false;
+        if (!VirtualQueryEx(pi.hProcess, reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi))) return false;
         return mbi.State == MEM_COMMIT
             && (quintptr(mbi.AllocationBase) == addr || quintptr(mbi.BaseAddress) == addr);
     };
@@ -759,7 +1212,6 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
                          .arg(imageBase, 0, 16)
                          .arg(wow64 ? QStringLiteral("WOW64 32-bit") : QStringLiteral("native")));
 
-    // CREATE_SUSPENDED holds the main thread; NtResumeProcess does not release it.
     bool mapped = regionMapped(imageBase);
     if (!mapped) {
         ResumeThread(pi.hThread);
@@ -776,15 +1228,13 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
         MEMORY_BASIC_INFORMATION mbi{};
         const SIZE_T vq = VirtualQueryEx(pi.hProcess, reinterpret_cast<LPCVOID>(imageBase), &mbi, sizeof(mbi));
         return killAndReturn(QStringLiteral(
-            "Образ процесса не замапился (VirtualQueryEx). ImageBase=0x%1 wow64=%2 vq=%3 state=0x%4 size=0x%5 err=0x%6. "
-            "Для 7.3.5 достаточно SET portal в Config.wtf и запуска Wow.exe напрямую.")
+            "Образ процесса не замапился (VirtualQueryEx). ImageBase=0x%1 wow64=%2 vq=%3 state=0x%4 size=0x%5 err=0x%6.")
             .arg(imageBase, 0, 16).arg(int(wow64)).arg(qulonglong(vq))
             .arg(mbi.State, 0, 16).arg(qulonglong(mbi.RegionSize), 0, 16)
             .arg(GetLastError(), 0, 16));
     }
     if (log) log->append(QStringLiteral("  [3] Образ готов (ImageBase 0x%1); процесс приостановлен.").arg(imageBase, 0, 16));
 
-    // --- 4) ФАЗА A: патчи данных (вся память, с wildcard-паттернами) ---
     const quintptr scanEnd = moduleEnd(pi.hProcess, imageBase);
     if (log) log->append(QStringLiteral("  [4] Скан модуля 0x%1 … 0x%2 (%3 МБ)")
                          .arg(imageBase, 0, 16).arg(scanEnd, 0, 16)
@@ -793,10 +1243,7 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
     int okCount = 0;
 
     const auto queueSimple = [&](const QByteArray &pattern, QByteArray repl, const char *label) {
-        // Ключи длиннее сигнатуры (8 байт -> 256/32) — пишем полное значение;
-        // короче — добиваем NUL до размера сайта, иначе останется хвост старой строки.
-        if (repl.size() < pattern.size())
-            repl.append(pattern.size() - repl.size(), '\0');
+        if (repl.size() < pattern.size()) repl.append(pattern.size() - repl.size(), '\0');
         QVector<PatchOp> hits;
         scanMemory(pi.hProcess, imageBase, scanEnd, Pattern(pattern.begin(), pattern.end()),
                    [repl](const QByteArray &) { return repl; }, hits, log);
@@ -812,13 +1259,12 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
         queueSimple(kPatternSignatureModulus, rsa, "Signature RsaModulus (legacy)");
         queueSimple(kPatternGameCryptoRsa, rsa, "GameCrypto RsaModulus (legacy)");
     }
-    // Portal
     {
         QVector<PatchOp> hits;
         scanMemory(pi.hProcess, imageBase, scanEnd, Pattern(kPatternPortal.begin(), kPatternPortal.end()),
                    [&](const QByteArray &) -> QByteArray {
                        qsizetype buffer = kPatternPortal.size();
-                       if (opts.expandPortalBuffer) buffer = 128; // расширение — только по явному флагу
+                       if (opts.expandPortalBuffer) buffer = 128;
                        QByteArray value;
                        const QString perr = paddedPortal(opts.portal, opts.port, &value, buffer);
                        if (!perr.isEmpty()) {
@@ -832,7 +1278,8 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
         if (hits.isEmpty() && log)
             log->append(QStringLiteral("  [-] Portal .actual.battle.net не найден — оставляем SET portal в Config.wtf."));
     }
-    queueSimple(kPatternLauncherLogin, kPatchLauncherLogin, "Launcher Login Registry");
+    if (opts.patchLauncherRegistry)
+        queueSimple(kPatternLauncherLogin, kPatchLauncherLogin, "Launcher Login Registry");
     if (opts.patchVersionUrls) {
         queueSimple(kUrlV1 + '\0', (opts.versionUrl.isEmpty() ? kUrlV1 : opts.versionUrl.toUtf8()) + '\0', "Version URL v1");
         queueSimple(kUrlV2 + '\0', (opts.versionUrl.isEmpty() ? kUrlV2 : opts.versionUrl.toUtf8()) + '\0', "Version URL v2");
@@ -854,12 +1301,10 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
     }
     if (log) log->append(QStringLiteral("Фаза A: применено %1/%2 патчей данных.").arg(okCount).arg(ops.size()));
 
-    // --- 5) ResumeThread: CREATE_SUSPENDED снимается только так ---
     ResumeThread(pi.hThread);
     pNtResume(pi.hProcess);
     if (log) log->append(QStringLiteral("  [5] Процесс запущен (ResumeThread), ожидание расшифровки .text..."));
 
-    // --- 6) ФАЗА B только для legacy. 12.1.0: не сканируем Arxan (висит), не трогаем integrity. ---
     if (opts.bypassCertValidation && !modern) {
         bool unpacked = false;
         waitForUnpack(pi.hProcess, imageBase, scanEnd, QStringLiteral("  [6] "), opts.waitUnpackMs, log, &unpacked);
@@ -894,7 +1339,8 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
         ResumeThread(pi.hThread);
         pNtResume(pi.hProcess);
     } else if (modern && log) {
-        log->append(QStringLiteral("  [6] 12.x: фаза B (Arxan/integrity) пропущена — иначе зависание и «клиент сломан»."));
+        log->append(QStringLiteral("  [6] 11.x/12.x: фаза B (Arxan/integrity) пропущена — для статически "
+                                   "пропатченного exe она не нужна, а скан упакованного .text вешает процесс."));
     }
 
     if (log) log->append(QStringLiteral("Готово: клиент запущен с патчами. Файл на диске не изменён."));
@@ -905,20 +1351,7 @@ bool ClientPatchService::patchAndLaunch(const QString &exePath, const WowPatchOp
 }
 
 // ===========================================================================
-// 3b. Папка Data рядом с exe (клиент ищет её в каталоге самого Wow.exe)
-// ===========================================================================
-QString ClientPatchService::clientDataDir(const QString &exePath, bool *existsOut) {
-    const QString dir = QFileInfo(exePath).absolutePath();
-    const QString data = dir + QStringLiteral("/Data");
-    if (existsOut) {
-        const QFileInfo fi(data);
-        *existsOut = fi.exists() && fi.isDir();
-    }
-    return data;
-}
-
-// ===========================================================================
-// 4. TLS-проверка сертификата сервера (QSslSocket, Qt Network)
+// 9. TLS-проверка сертификата сервера
 // ===========================================================================
 bool ClientPatchService::checkPortalTls(const QString &host, int port, QStringList *errors) {
     if (host.isEmpty() || port <= 0) {
@@ -931,6 +1364,10 @@ bool ClientPatchService::checkPortalTls(const QString &host, int port, QStringLi
     socket.connectToHostEncrypted(host, quint16(port));
     if (!socket.waitForConnected(3500) || !socket.waitForEncrypted(3500)) {
         if (errors) errors->append(QStringLiteral("  ! %1").arg(socket.errorString()));
+        if (errors) errors->append(QStringLiteral("  [i] Для TrinityCore это ожидаемо: bnetserver отдаёт dev-цепочку "
+                                                  "с CN=*.* (TrinityCore Battle.net Aurora CA), которую обычный TLS-клиент "
+                                                  "не примет. Пропатченный Wow.exe её принимает — эта проверка только "
+                                                  "показывает, что порт 1119 вообще слушается."));
         return false;
     }
     const QSslCertificate cert = socket.peerCertificate();
@@ -938,95 +1375,20 @@ bool ClientPatchService::checkPortalTls(const QString &host, int port, QStringLi
         if (errors) errors->append("  ! Сервер не прислал сертификат.");
         return false;
     }
-    if (errors) {
-        errors->append(QStringLiteral("  [OK] Сертификат: %1. Для локального запуска/своего IP лучше включить «Обход проверки сертификата» — тогда подойдёт и самоподписанный сертификат вашего bnet-сервера.")
-                       .arg(cert.subjectInfo(QSslCertificate::CommonName).join(QLatin1String(", "))));
-    }
+    if (errors)
+        errors->append(QStringLiteral("  [OK] Сертификат: %1. Порт слушается, TLS поднимается.").arg(
+            cert.subjectInfo(QSslCertificate::CommonName).join(QLatin1String(", "))));
     socket.disconnectFromHost();
     return true;
 }
 
 // ===========================================================================
-// 5. Чтение SET portal из WTF/Config.wtf
-// ===========================================================================
-QString ClientPatchService::readPortalFromConfigWtf(const QString &exePath, QString *error) {
-    const QDir dir = QFileInfo(exePath).absoluteDir();
-    QString config;
-    for (const QString &candidate : { dir.filePath(QStringLiteral("WTF/Config.wtf")),
-                                      dir.filePath(QStringLiteral("Config.wtf")) }) {
-        if (QFileInfo::exists(candidate)) { config = candidate; break; }
-    }
-    if (config.isEmpty()) {
-        if (error) *error = "Config.wtf не найден рядом с клиентом (папки WTF нет).";
-        return QString();
-    }
-    QFile f(config);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        if (error) *error = QStringLiteral("Не удалось открыть Config.wtf: %1").arg(f.errorString());
-        return QString();
-    }
-    const QString text = QString::fromUtf8(f.readAll());
-    const QRegularExpression re(QStringLiteral("(?i)SET\\s+portal\\s+\"([^\"]+)\""));
-    const QRegularExpressionMatch m = re.match(text);
-    if (!m.hasMatch()) {
-        if (error) *error = "В Config.wtf нет строки SET portal \"host:port\".";
-        return QString();
-    }
-    return m.captured(1);
-}
-
-// ===========================================================================
-// 6. Запись SET portal в WTF/Config.wtf (с бэкапом .bak)
-// ===========================================================================
-bool ClientPatchService::writePortalToConfigWtf(const QString &exePath, const QString &portal, QString *error) {
-    const QDir dir = QFileInfo(exePath).absoluteDir();
-    QString config;
-    for (const QString &candidate : { dir.filePath(QStringLiteral("WTF/Config.wtf")),
-                                      dir.filePath(QStringLiteral("Config.wtf")) }) {
-        if (QFileInfo::exists(candidate)) { config = candidate; break; }
-    }
-    if (config.isEmpty()) {
-        // создаём WTF/Config.wtf
-        QDir wtf(dir);
-        if (!wtf.mkpath(QStringLiteral("WTF"))) {
-            if (error) *error = QStringLiteral("Не удалось создать папку WTF рядом с клиентом: %1").arg(dir.absolutePath());
-            return false;
-        }
-        config = dir.filePath(QStringLiteral("WTF/Config.wtf"));
-    }
-    QString text;
-    if (QFileInfo::exists(config)) {
-        QFile f(config);
-        if (f.open(QIODevice::ReadOnly | QIODevice::Text)) text = QString::fromUtf8(f.readAll());
-        // бэкап
-        QFile::copy(config, config + QStringLiteral(".bak"));
-    }
-    const QRegularExpression re(QStringLiteral("(?im)^\\s*SET\\s+portal\\s+\"[^\"]*\"\\s*"));
-    if (re.match(text).hasMatch())
-        text.replace(re, QStringLiteral("SET portal \"%1\"").arg(portal));
-    else
-        text += QStringLiteral("SET portal \"%1\"\n").arg(portal);
-
-    QSaveFile out(config);
-    if (!out.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        if (error) *error = QStringLiteral("Не удалось открыть Config.wtf для записи: %1").arg(out.errorString());
-        return false;
-    }
-    out.write(text.toUtf8());
-    if (!out.commit()) {
-        if (error) *error = QStringLiteral("Не удалось сохранить Config.wtf: %1").arg(out.errorString());
-        return false;
-    }
-    return true;
-}
-
-// ===========================================================================
-// 7. Версия клиента (FileVersionInfo, билды >65535 — как в Arctium)
+// 10. Версия клиента (FileVersionInfo, билды >65535 — как в Arctium)
 // ===========================================================================
 QString ClientPatchService::clientVersion(const QString &exePath) {
 #ifdef Q_OS_WIN
     DWORD handle = 0;
-    const QByteArray path = exePath.toUtf8();
+    const QByteArray path = QDir::toNativeSeparators(exePath).toUtf8();
     const DWORD size = GetFileVersionInfoSizeA(path.constData(), &handle);
     if (!size) return QString();
     QByteArray data(static_cast<int>(size), Qt::Uninitialized);
@@ -1052,8 +1414,9 @@ QString ClientPatchService::clientVersion(const QString &exePath) {
 #endif
 }
 
+
 // ===========================================================================
-// 8. Извлечение Ed25519-ключа из PEM-сертификата (SPKI BIT STRING 0x20)
+// 11. Извлечение Ed25519-ключа из PEM (SPKI BIT STRING 0x00 + 32 байта)
 // ===========================================================================
 QString ClientPatchService::ed25519KeyFromPem(const QString &pemPath, QString *error) {
     QFile f(pemPath);
@@ -1061,57 +1424,55 @@ QString ClientPatchService::ed25519KeyFromPem(const QString &pemPath, QString *e
         if (error) *error = QStringLiteral("Не удалось открыть PEM: %1").arg(f.errorString());
         return QString();
     }
-    QString pem = QString::fromUtf8(f.readAll());
-    pem.remove(QRegularExpression(QStringLiteral("-----BEGIN[^-]+-----|-----END[^-]+-----|\\s")));
-    const QByteArray der = QByteArray::fromBase64(pem.toUtf8());
-    // SPKI: SEQUENCE { SEQUENCE { OID Ed25519 (1.3.101.112) }, BIT STRING 0x00 <32 байта> }
-    const int pos = der.indexOf(QByteArray("\x03\x20", 2));
-    if (pos < 0 || pos + 2 + 32 > der.size()) {
-        if (error) *error = "В сертификате не найден ключ Ed25519 (BIT STRING 32 байта).";
+    const QString text = QString::fromUtf8(f.readAll());
+    f.close();
+    std::string err;
+    const wowpatch::Bytes key = wowpatch::ed25519PublicFromPem(sstr(text), &err);
+    if (key.size() != 32) {
+        if (error) *error = qstr(err);
         return QString();
     }
-    const QByteArray key = der.mid(pos + 2, 32);
-    return QString::fromLatin1(key.toHex().toUpper());
+    return QString::fromLatin1(fromCore(key).toHex()).toUpper();
 }
 
-// ===========================================================================
-// 9. Hex -> QByteArray с проверкой длины
-// ===========================================================================
-QByteArray ClientPatchService::hexKey(const QString &hex, int expectedBytes, QString *error) {
-    QByteArray b = QByteArray::fromHex(hex.toLatin1().trimmed());
-    if (b.size() != expectedBytes) {
-        if (error) *error = QStringLiteral("ожидается %1 байт (%2 hex-символов), получено %3.")
-                                .arg(expectedBytes).arg(expectedBytes * 2).arg(b.size());
-        return QByteArray();
-    }
-    return b;
-}
 
 // ===========================================================================
-// 10. Описание метода для вкладки
+// 13. Описание метода для вкладки
 // ===========================================================================
 QString ClientPatchService::methodSummary() {
     return QStringLiteral(
-        "МЕТОД (изучен по Arctium Game Launcher 1.5.3.195; сверен с wowemulation-dev/wow-patcher "
-        "и исходником Arctium/WoW-Launcher, MIT).\n"
+        "РЕЖИМ «FIRESTORM» — самостоятельный пропатченный Wow.exe на диске.\n"
+        "Так сделан, например, «WoW 11.2.5 - Firestorm.exe»: это копия Wow.exe ТОГО ЖЕ размера,\n"
+        "в которой точечно заменены байты в секции данных. Запускается двойным щелчком, лаунчер не нужен,\n"
+        "адрес сервера берётся из `SET portal` в WTF/Config.wtf.\n"
         "\n"
-        "  1) CreateProcessA(Wow.exe, CREATE_SUSPENDED) — процесс создан, но не запущен;\n"
-        "  2) NtQueryInformationProcess → PEB → ImageBase (PEB+0x10);\n"
-        "  3) короткий resume (загрузка образа) → NtSuspendProcess;\n"
-        "  4) ФАЗА A: скан памяти (VirtualQueryEx) + запись патчей данных:\n"
-        "     ConnectTo RSA, Signature/Crypto RSA (legacy), Ed25519, portal, реестр,\n"
-        "     version/CDN URL, cert-bundle URL — VirtualProtectEx/WriteProcessMemory;\n"
-        "  5) resume → TLS-колбэк Arxan расшифровывает .text;\n"
-        "  6) ФАЗА B (опция «Обход сертификата»): Integrity → ret, CertBundle JZ → NOP,\n"
-        "     CertCommonName → AL=1, CertChain → BL=1 — принимает самоподписанный\n"
-        "     сертификат вашего bnet-сервера (нужно для localhost / своего IP).\n"
+        "Что правим (клиент 11.x / 12.x, в т.ч. 12.1.0.69497):\n"
+        "  1) ConnectTo RSA-модуль, 256 байт в .rdata (little-endian) — клиент проверяет им подпись\n"
+        "     SMSG_CONNECT_TO. Подставляем ключ TrinityCore (ConnectToRSA).\n"
+        "  2) Ed25519, 32 байта — клиент проверяет им подпись SMSG_ENTER_ENCRYPTED_MODE.\n"
+        "     БЕЗ него вход в мир обрывается на переходе к шифрованию. Ключ TrinityCore —\n"
+        "     публичная половина EnterEncryptedModePrivateKey.\n"
+        "  3) SET portal \"host[:port]\" в WTF/Config.wtf — единственный надёжный способ задать адрес.\n"
+        "  4) (опция) суффикс .actual.battle.net -> .actual.<домен ≤10 байт>. Это именно СУФФИКС:\n"
+        "     клиент склеивает «eu» + «.actual.battle.net», поэтому писать сюда «127.0.0.1:1119»\n"
+        "     целиком нельзя — получится «eu127.0.0.1:1119».\n"
         "\n"
-        "АВТОПОДБОР: ветка по пути (_retail_/_classic_/_anniversary_/…), версия по "
-        "VersionInfo, профиль по диапазону (1.13.x — только ConnectTo + portal; "
-        "1.14+/2.5.x/3.4.x/4.4.x/9.x-10.x — legacy; 11.x+ — современный).\n"
+        "Чего НЕ делаем: не правим .text на диске. У ретейла код упакован (Arxan/Digital.ai) и\n"
+        "восстанавливается при запуске, поэтому файловые правки кода либо теряются, либо роняют клиент.\n"
+        "Движок (src/wow_pe.*) читает таблицу секций и принимает только сайты в .rdata/.data,\n"
+        "правит ПЕРВОЕ подходящее вхождение (а не все подряд) и после записи перечитывает файл,\n"
+        "подтверждая каждый патч, размер, заголовок и отсутствие родных ключей Blizzard.\n"
         "\n"
-        "ЛОКАЛЬНО / СВОЙ IP — ДА: portal может быть 127.0.0.1:1119, localhost:1119 "
-        "или IP:1119 (влезает в слот 19 байт), плюс запись SET portal в WTF/Config.wtf. "
-        "Для самоподписанного сертификата включите «Обход проверки сертификата» — "
-        "иначе современный клиент отклонит сертификат. Оригинал файла никогда не изменяется.");
+        "Сервер: TrinityCore bnetserver со стандартной dev-цепочкой (CN=`*.*`, TrinityCore Battle.net\n"
+        "Aurora CA) — она лежит в TrinityCoreWin64vs/bnetserver.cert.pem. Порты: 1119 (bnet),\n"
+        "8081 (REST-логин), 8085 (мир). Аккаунт: `bnetaccount create почта пароль`.\n"
+        "\n"
+        "РЕЖИМ «РЕЦЕПТ» — если у вас есть готовый пропатченный клиент другого билда (тот самый\n"
+        "Firestorm.exe) и его оригинал: снимаем точечную разницу, сохраняем в JSON вместе с контекстом\n"
+        "и переносим на ваш 12.1.0.69497 поиском по контексту, а не по смещениям. Что не перенесётся —\n"
+        "добирается сигнатурами.\n"
+        "\n"
+        "РЕЖИМ «ПАМЯТЬ» — как Arctium: CreateProcess(CREATE_SUSPENDED) -> PEB -> патчи в памяти ->\n"
+        "запуск. Файл не меняется. Нужен, когда exe трогать нельзя, и для legacy-профилей,\n"
+        "где требуется runtime-обход проверки сертификата.");
 }
