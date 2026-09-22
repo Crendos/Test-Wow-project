@@ -350,7 +350,8 @@ class spell_pal_light_within_damage_ex : public SpellScript
 
         if (!caster->HasAura(SPELL_EX_LIGHT_WITHIN_DAMAGE))
             return;
-        if (!caster->HasAura(SPELL_EX_AVENGING_WRATH) && !caster->HasAura(SPELL_EX_CRUSADE))
+        if (!caster->HasAura(SPELL_EX_AVENGING_WRATH) && !caster->HasAura(SPELL_EX_CRUSADE)
+            && !caster->HasAura(SPELL_EX_AVENGING_WRATH_8S))
             return;
 
         if (AuraEffect const* bonus = caster->GetAuraEffect(SPELL_EX_LIGHT_WITHIN_DAMAGE, EFFECT_0))
@@ -389,9 +390,11 @@ class spell_pal_light_within_blade_ex : public SpellScript
         });
 
         if (artOfWar)
-            caster->RemoveAura(SPELL_EX_ART_OF_WAR_READY);
+            if (Aura* ready = caster->GetAura(SPELL_EX_ART_OF_WAR_READY))
+                ready->ModStackAmount(-1, AURA_REMOVE_BY_ENEMY_SPELL);
         if (righteousCause)
-            caster->RemoveAura(SPELL_EX_RIGHTEOUS_CAUSE_READY);
+            if (Aura* ready = caster->GetAura(SPELL_EX_RIGHTEOUS_CAUSE_READY))
+                ready->ModStackAmount(-1, AURA_REMOVE_BY_ENEMY_SPELL);
     }
 
     void Register() override

@@ -10,11 +10,14 @@ paladin/
 ├── spell_paladin_class_fixes_5.cpp   — скрипты, партия 4b (Свет, маяки)
 ├── spell_paladin_class_fixes_6.cpp   — скрипты, партия 5 (классовое дерево)
 ├── spell_paladin_class_fixes_7.cpp   — скрипты, партия 6 (геройские деревья)
+├── spell_paladin_class_fixes_8.cpp   — скрипты, партия 7 (Слава авангарда, Маяк Спасителя,
+│                                        Серафимский барьер, Переполняющий свет)
 ├── paladin_class_fixes.sql           — SQL партии 1
 ├── paladin_class_fixes_2.sql         — SQL партии 2
 ├── paladin_class_fixes_3.sql         — SQL партии 3
 ├── paladin_class_fixes_4.sql         — SQL партий 4a+4b
 ├── paladin_class_fixes_5.sql         — SQL партии 5+6 (геройские)
+├── paladin_class_fixes_7.sql         — SQL партии 7 (по ID пользователя)
 └── core_patch/
     └── 0001-core-spell-block-chance.patch  — ПАТЧ ЯДРА (блок заклинаний, мастерство Прота)
 ```
@@ -81,12 +84,13 @@ git apply paladin/core_patch/0001-core-spell-block-chance.patch           # пр
 5. `spell_paladin_class_fixes_5.cpp`
 6. `spell_paladin_class_fixes_6.cpp`
 7. `spell_paladin_class_fixes_7.cpp`
+8. `spell_paladin_class_fixes_8.cpp`
 
 Порядок важен: партии 4a–6 используют хелперы (`IsPaladinJudgment`, `GetHolyPowerCost`), объявленные в партии 1.
 
 Быстро из командной строки (из корня репозитория с фиксами):
 ```bash
-for i in "" _2 _3 _4 _5 _6 _7; do
+for i in "" _2 _3 _4 _5 _6 _7 _8; do
   sed -n '/=== CUT HERE ===/,$p' paladin/spell_paladin_class_fixes${i}.cpp >> src/server/scripts/Spells/spell_paladin.cpp
 done
 ```
@@ -103,6 +107,7 @@ void AddSC_paladin_spell_scripts_ex4();
 void AddSC_paladin_spell_scripts_ex5();
 void AddSC_paladin_spell_scripts_ex6();
 void AddSC_paladin_spell_scripts_ex7();
+void AddSC_paladin_spell_scripts_ex8();
 ```
 (части 1 не нужно — её регистрация уже вызывается; х4a объявляется внутри ex4? — НЕТ: ex4 = партия 4a, ex5 = 4b; обе объявляются здесь.)
 
@@ -114,6 +119,7 @@ void AddSC_paladin_spell_scripts_ex7();
     AddSC_paladin_spell_scripts_ex5();
     AddSC_paladin_spell_scripts_ex6();
     AddSC_paladin_spell_scripts_ex7();
+    AddSC_paladin_spell_scripts_ex8();
 ```
 
 ---
@@ -129,6 +135,7 @@ mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_2.sql
 mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_3.sql
 mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_4.sql
 mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_5.sql
+mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_7.sql
 ```
 (например: `mysql -u root -p acore_world < paladin/paladin_class_fixes.sql`)
 
@@ -176,4 +183,6 @@ cmake --build . -j$(nproc)
 - Страж — задержка распада упрощена (+1с длительности за трату СС);
 - Маяк веры — 2-й маяк с полным переносом (для 70% — примечание в шапке `_5.cpp`);
 - Наставляемая молитва — Слово света полной силы (в игре 60%);
-- Точные шансы/ID новых талантов 12.1 (нижний правый ряд) — ждём ID от пользователя.
+- Серафимский барьер/Переполняющий свет — щит через носитель 209388 (визуал Прота, значение точное).
+- Маяк Спасителя — перенос 10/20%, пере-выбор цели каждые 2с (условия переноса упрощены).
+- Слава авангарда — болт без задержки 300мс и без «по линии» (цель + ДBC-эффекты 1269175).
