@@ -143,14 +143,14 @@ class spell_pal_burn_to_ash_ex : public AuraScript
         _ticks = 0;
     }
 
-    void OnPeriodic(AuraEffect* aurEff)
+    void OnPeriodic(AuraEffect const* aurEff)
     {
         Unit* caster = GetCaster();
         if (!caster || !caster->HasAura(SPELL_EX2_BURN_TO_ASH))
             return;
 
         ++_ticks;
-        aurEff->ChangeAmount(_baseAmount * (1.f + 0.02f * _ticks));
+        const_cast<AuraEffect*>(aurEff)->ChangeAmount(_baseAmount * (1.f + 0.02f * _ticks));
     }
 
     void Register() override
@@ -198,7 +198,7 @@ class spell_pal_shining_light_ex : public AuraScript
 
         if (Aura* freeWoG = target->GetAura(SPELL_EX2_SHINING_LIGHT_FREE))
         {
-            if (freeWoG->GetStackAmount() < freeWoG->GetMaxStackAmount())
+            if (freeWoG->GetStackAmount() < freeWoG->GetSpellInfo()->StackAmount)
                 freeWoG->ModStackAmount(1, AURA_REMOVE_BY_ENEMY_SPELL);
         }
         else
