@@ -70,7 +70,7 @@ git apply paladin/core_patch/0001-core-spell-block-chance.patch           # пр
 
 ---
 
-## ШАГ 1. Скрипты (7 файлов)
+## ШАГ 1. Скрипты (8 файлов)
 
 ### 1.1. Вставка кода
 Откройте `src/server/scripts/Spells/spell_paladin.cpp`. Прокрутите в САМЫЙ КОНЕЦ файла
@@ -135,14 +135,26 @@ mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_2.sql
 mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_3.sql
 mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_4.sql
 mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_5.sql
+mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_6.sql
 mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_7.sql
+mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_8.sql
 ```
 (например: `mysql -u root -p acore_world < paladin/paladin_class_fixes.sql`)
 
 Что делают:
 - `spell_script_names` — привязывают скрипты к ID заклинаний;
 - `spell_proc` — включают проц-ауры, которые БЕЗ строки в этой таблице не работают вовсе
-  (включая P0-фикс «Крещендо ударов» 406833 и блок-зависимые процы).
+  (включая P0-фикс «Крещендо ударов» 406833 и блок-зависимые процы);
+- `_6.sql` — проц-таблица для партии 6 (классовое дерево);
+- `_8.sql` — спираль Благословенного молота: строка `areatrigger_create_properties` (Id 6006)
+  + 49 точек сплайна + привязка AI-скрипта `at_pal_blessed_hammer`.
+
+Проверка спирали молота после импорта:
+```sql
+SELECT Id, Shape, Speed, SpeedIsTime, ScriptName FROM areatrigger_create_properties WHERE Id=6006 AND IsCustom=0;
+SELECT COUNT(*) FROM areatrigger_create_properties_spline_point WHERE AreaTriggerCreatePropertiesId=6006 AND IsCustom=0;
+```
+(вторая строка вернёт 49, если спираль создали мы; 0 — если TDB содержит свою розничную строку, это тоже нормально)
 
 ---
 
@@ -179,7 +191,7 @@ cmake --build . -j$(nproc)
 ---
 
 ## Известные упрощения v1 (см. PALADIN_AUDIT.md)
-- Благословенный молот — AoE-урон без вращающейся спирали;
+- ~~Благословенный молот — AoE-урон без вращающейся спирали~~ → ✅ сделано (партия 8: AT-спираль 6006 + AI-скрипт, SQL `_8.sql`);
 - Страж — задержка распада упрощена (+1с длительности за трату СС);
 - Маяк веры — 2-й маяк с полным переносом (для 70% — примечание в шапке `_5.cpp`);
 - Наставляемая молитва — Слово света полной силы (в игре 60%);

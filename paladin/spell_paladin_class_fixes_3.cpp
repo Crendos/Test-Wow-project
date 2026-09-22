@@ -6,6 +6,8 @@
 
 // === CUT HERE ===============================================================
 
+#include "AreaTriggerAI.h"
+#include "AreaTriggerDataStore.h"
 #include "CellImpl.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
@@ -52,7 +54,8 @@ enum PaladinEx3Spells
     SPELL_EX3_CRUSADE_AURA              = 231895,
     SPELL_EX3_AW_8S                     = 454351,
     SPELL_EX3_BLESSED_HAMMER            = 204019,
-    SPELL_EX3_BLESSED_HAMMER_DMG        = 204301
+    SPELL_EX3_BLESSED_HAMMER_DMG        = 204301,
+    SPELL_EX3_BLESSED_HAMMER_AT         = 6006    // AreaTriggerCreatePropertiesId (Effect#1 каста 204019)
 };
 
 // --- Щит мстителя: концентратор всех талант-обработок -------------------------
@@ -309,7 +312,12 @@ class spell_pal_valiant_crusade_ex : public SpellScript
     }
 };
 
-// 204019 - Благословенный молот: урон всем врагам вокруг (v1 без АТ-спирали).
+// 204019 - Благословенный молот.
+// Розничная схема: Effect#1 каста = Create Area Trigger (6006) — ядро само спавнит AT,
+// AI-скрипт at_pal_blessed_hammer вешает 204301 (урон + дебафф) на врагов, через которых
+// проходит спираль. Визуал молота клиент рисует из SpellVisual самого каста.
+// Fallback: если в world DB нет строки create_properties 6006 (не импортирован _8.sql) —
+// старое поведение: мгновенный AoE-урон вокруг.
 class spell_pal_blessed_hammer_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -322,6 +330,9 @@ class spell_pal_blessed_hammer_ex : public SpellScript
         Unit* caster = GetCaster();
         if (!caster)
             return;
+
+        if (sAreaTriggerDataStore->GetAreaTriggerCreateProperties(AreaTriggerCreatePropertiesId{ SPELL_EX3_BLESSED_HAMMER_AT, false }))
+            return; // AT 6006 заспавнится эффектом заклинания — спираль работает
 
         float const radius = 8.f;
         std::vector<Unit*> targets;
@@ -341,6 +352,39 @@ class spell_pal_blessed_hammer_ex : public SpellScript
     {
         AfterCast += SpellCastFn(spell_pal_blessed_hammer_ex::HandleAfterCast);
     }
+};
+
+// Спираль Благословенного молота: урон при прохождении над врагом (каждый — 1 раз).
+struct at_pal_blessed_hammer : public AreaTriggerAI
+{
+    using AreaTriggerAI::AreaTriggerAI;
+
+    void OnCreate(Spell const* /*creatingSpell*/) override
+    {
+        // Сплайн рассчитан на ~2.5 с; живём столько же, а не все 5 с заклинания
+        at->SetDuration(2500);
+    }
+
+    void OnUnitEnter(Unit* unit) override
+    {
+        if (!unit || !unit->IsAlive())
+            return;
+
+        if (_hit.find(unit->GetGUID()) != _hit.end())
+            return;
+
+        Unit* caster = at->GetCaster();
+        if (!caster || !caster->IsValidAttackTarget(unit))
+            return;
+
+        _hit.insert(unit->GetGUID());
+        caster->CastSpell(unit, SPELL_EX3_BLESSED_HAMMER_DMG, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR
+        });
+    }
+
+private:
+    std::unordered_set<ObjectGuid> _hit;
 };
 
 // 1241288 - Молот гнева: в АН Правосудие превращается в Молот гнева
