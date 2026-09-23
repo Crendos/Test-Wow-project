@@ -277,7 +277,42 @@ findstr /m /c:"spell_pal_glory_of_the_vanguard_ex" "C:\TrinityCore\build\bin\Rel
 ```
 (напечатает путь к exe, если строка найдена; молчит — если нет).
 
-### Если с нуля (кратко):
+### Через командную строку — x64 Native Tools Command Prompt for VS 2022
+
+Кому удобнее консоль (быстрее GUI-сборки, печатает прогресс в процентах, легко повторять):
+
+1. **Пуск → Visual Studio 2022 → x64 Native Tools Command Prompt for VS 2022**
+   (именно этот ярлык — он сам прописывает пути к компилятору; обычный cmd НЕ подойдёт).
+2. Проверка, что вы в том самом окне: наберите `msbuild -version` — напечатает номер, а не «не является командой».
+
+**Если сервер УЖЕ собирался** (есть `TrinityCore.sln`):
+```bat
+cd /d C:\TrinityCore\build
+msbuild TrinityCore.sln /p:Configuration=Release /p:Platform=x64 /m
+```
+`/m` — параллельная сборка (все ядра CPU). Соберёт всё, включая ваши правки Шагов 0–1.
+Готовые `worldserver.exe`/`authserver.exe` появятся (обновятся) в `C:\TrinityCore\build\bin\Release\`.
+
+**Собрать только серверы (быстрее, чем весь sln):**
+```bat
+cd /d C:\TrinityCore\build
+msbuild worldserver.vcxproj /p:Configuration=Release /m
+msbuild authserver.vcxproj /p:Configuration=Release /m
+```
+
+**Если с нуля** (той же консолью, cmake подтянется из VS; при ругани на Boost добавьте `-DBOOST_ROOT=C:/boost`):
+```bat
+cd /d C:\TrinityCore
+cmake -S . -B build -A x64
+cmake --build build --config Release -j 8
+```
+
+**✅ Проверка шага 3 той же консолью** (0 = не собралось со скриптами, путь = собралось):
+```bat
+findstr /m /c:"spell_pal_glory_of_the_vanguard_ex" "C:\TrinityCore\build\bin\Release\worldserver.exe"
+```
+
+### Если с нуля (кратко, через GUI):
 1. **CMake (cmake-gui)**: «Where is the source code» = `C:/TrinityCore`; «Where to build» = `C:/TrinityCore/build` → **Configure** → Visual Studio 17 2022, x64.
    Если ругнётся на Boost — добавьте запись `BOOST_ROOT` = путь к распакованному Boost и снова **Configure** (до исчезновения красных строк).
 2. **Generate** → **Open Project** → в VS: Release/x64 → ALL_BUILD → Build (займёт 20–60 мин).
