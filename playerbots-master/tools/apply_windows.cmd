@@ -40,11 +40,16 @@ pushd "%SRC%"
 echo [2/6] git apply --3way patches/0001-core-integration.diff ...
 git apply --3way --verbose "%MODDIR%\patches\0001-core-integration.diff"
 if errorlevel 1 (
-    echo [ERROR] git apply failed. Manual steps:
-    echo         1. git apply --reject "%MODDIR%\patches\0001-core-integration.diff"
-    echo         2. Resolve .rej files using docs\02_CORE_PATCH.md as reference.
-    popd
-    exit /b 1
+    git apply --reverse --quiet --check "%MODDIR%\patches\0001-core-integration.diff"
+    if not errorlevel 1 (
+        echo [INFO] Patch is already applied - skipping.
+    ) else (
+        echo [ERROR] git apply failed. Manual steps:
+        echo         1. git apply --reject "%MODDIR%\patches\0001-core-integration.diff"
+        echo         2. Resolve .rej files using docs\02_CORE_PATCH.md as reference.
+        popd
+        exit /b 1
+    )
 )
 
 echo [3/6] Copy bot module to src\server\scripts\Custom\playerbots ...
@@ -60,9 +65,14 @@ echo [5/6] Build game ...
 cmake --build "%BUILD%" --config %CONFIG% --target game -- /m
 if errorlevel 1 ( echo [ERROR] build target game failed & popd & exit /b 1 )
 
-echo [5/6] Build scripts_custom ...
-cmake --build "%BUILD%" --config %CONFIG% --target scripts_custom -- /m
-if errorlevel 1 ( echo [ERROR] build target scripts_custom failed & popd & exit /b 1 )
+rem --- detect scripts mode from CMakeCache (static -> target "scripts", dynamic -> "scripts_custom") ---
+set "SCRIPTS_TARGET=scripts"
+findstr /R /C:"^SCRIPTS:STRING=dynamic" "%BUILD%\CMakeCache.txt" >nul 2>nul
+if not errorlevel 1 set "SCRIPTS_TARGET=scripts_custom"
+
+echo [5/6] Build %SCRIPTS_TARGET% ...
+cmake --build "%BUILD%" --config %CONFIG% --target %SCRIPTS_TARGET% -- /m
+if errorlevel 1 ( echo [ERROR] build target %SCRIPTS_TARGET% failed & popd & exit /b 1 )
 
 echo [5/6] Build worldserver ...
 cmake --build "%BUILD%" --config %CONFIG% --target worldserver -- /m
@@ -72,8 +82,8 @@ echo [6/6] Done. One-time manual steps:
 echo   1. Run sql\world_playerbots_rotation.sql into your world database.
 echo   2. Add keys from conf\playerbots.conf.dist to worldserver.conf
 echo      ^(minimum: Playerbots.Enabled = 1^).
-echo   3. Make sure scripts_custom.dll is next to worldserver.exe
-echo      in build\bin\%CONFIG%.
+echo   3. If your build is SCRIPTS=dynamic: make sure scripts_custom.dll is next
+echo      to worldserver.exe in build\bin\%CONFIG%. ^(Static mode: nothing extra.^)
 echo.
 echo ALL OK: patch applied, module installed, targets built.
 popd

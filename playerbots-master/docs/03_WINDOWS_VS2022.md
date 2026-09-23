@@ -40,15 +40,17 @@ cmake %BUILD%
 
 :: 4) сборка затронутых проектов в нужном порядке
 cmake --build %BUILD% --config RelWithDebInfo --target game -- /m
-cmake --build %BUILD% --config RelWithDebInfo --target scripts_custom -- /m
+::    SCRIPTS=static  -> цель "scripts"         (агрегатная lib, модуль попадёт в worldserver.exe)
+::    SCRIPTS=dynamic -> цель "scripts_custom"  (отдельная dll)
+cmake --build %BUILD% --config RelWithDebInfo --target scripts -- /m
 cmake --build %BUILD% --config RelWithDebInfo --target worldserver -- /m
 ```
 
-Зачем именно такой порядок: наш патч меняет **game** (WorldSession/CharacterHandler);
-модуль — это проект **scripts_custom** (при SCRIPTS=dynamic он появится сам после
-cmake reconfigure, потому что CMake пересобирает список исходников scripts/Custom);
-**worldserver** перелинковывается, т.к. game.dll изменилась.
-RelWithDebInfo выбран как в типовой сборке TC под client-snifing (есть .pdb для отладки).
+Зачем именно такой порядок: патч меняет **game** (WorldSession/CharacterHandler);
+модуль компилируется внутри **scripts** (static) либо **scripts_custom** (dynamic —
+оба случая apply_windows.cmd определяет сам по CMakeCache.txt);
+**worldserver** линкуется последним. Первая сборка `scripts` при static — долгая
+(компилируются все модули скриптов), это нормально, дальше — инкрементально.
 
 ## Первичная инициализация данных (делается один раз)
 
