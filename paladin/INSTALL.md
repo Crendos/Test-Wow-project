@@ -37,15 +37,20 @@
 Что это: без него «Божественный оплот» не блокирует заклинания.
 
 ### Вариант А — через командную строку (30 секунд)
-Правый клик по `C:\TrinityCore` → **Git Bash Here**, в открывшемся окне:
+Откройте **x64 Native Tools Command Prompt for VS 2022** (подходит и обычный cmd — Git Bash не нужен).
+Три строки (путь к ядру подставьте свой; если в пути есть пробелы — кавычки обязательны):
 
-```bash
-git apply --check "C:/paladin-fixes/paladin/core_patch/0001-core-spell-block-chance.patch"
+```cmd
+cd /d C:\TrinityCore
+git apply --check "C:\paladin-fixes\paladin\core_patch\0001-core-spell-block-chance.patch"
+git apply "C:\paladin-fixes\paladin\core_patch\0001-core-spell-block-chance.patch" && echo === PATCH OK ===
 ```
-Если ничего не напечатало — всё чисто (git apply молчит при успехе). Применяем:
-```bash
-git apply "C:/paladin-fixes/paladin/core_patch/0001-core-spell-block-chance.patch" && echo "=== ПАТЧ УСТАНОВЛЕН ==="
+Первая команда молчит при успехе (тишина = ОК). Вторая должна напечатать `=== PATCH OK ===`.
+Проверка после установки:
+```cmd
+findstr /n "spellBlockChance" src\server\game\Entities\Unit\Unit.cpp
 ```
+Должна напечататься строка с номером (~1276). Если `git apply` отвечает `already exists` — патч уже стоит, ничего не делайте. После шага 0 ядро нужно пересобрать (Шаг 3).
 
 ### Вариант Б — вручную в Notepad++ (если git'у не доверяете)
 
