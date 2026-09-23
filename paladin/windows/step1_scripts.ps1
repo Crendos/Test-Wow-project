@@ -31,17 +31,15 @@ foreach ($f in $files) { if (-not (Test-Path $f)) { Write-Host "[X] нет фа�
 $raw = Get-Content -Raw $pal
 $cur = ([regex]::Matches($raw, [regex]::Escape($marker))).Count
 $hasNew = $raw.Contains('MakeSpellArgs')
-$hasAT  = $raw.Contains('RegisterAreaTriggerAI(at_pal_blessed_hammer)')
+$hasAT    = $raw.Contains('RegisterAreaTriggerAI(at_pal_blessed_hammer)')
+$hasGuard = $raw.Contains('procSpell->IsTriggered()')
 Write-Host "[1/4] маркеров в spell_paladin.cpp сейчас: $cur (нужно 0 или 10)"
 $needRollback = $false
 if ($cur -eq 10) {
-    if ($hasNew -and $hasAT) {
-        Write-Host ">>> УЖЕ УСТАНОВЛЕНО (версия MakeSpellArgs + AT-скрипт) — вставка пропущена"
-    } elseif (-not $hasAT) {
-        Write-Host ">>> найдена версия БЕЗ AT-скрипта молота (краш 204019!) — заменяю на новую"
-        $needRollback = $true
+    if ($hasNew -and $hasAT -and $hasGuard) {
+        Write-Host ">>> УЖЕ УСТАНОВЛЕНО (последняя версия) — вставка пропущена"
     } else {
-        Write-Host ">>> найдена СТАРАЯ версия партий (MSVC-несовместимая) — заменяю на новую"
+        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (без AT-скрипта молота или анти-зацикливания) — заменяю на новую"
         $needRollback = $true
     }
 } elseif ($cur -ne 0) {
@@ -76,10 +74,11 @@ if ($cur -eq 0) {
     $now = ([regex]::Matches($raw2, [regex]::Escape($marker))).Count
     $ms  = ([regex]::Matches($raw2, 'MakeSpellArgs')).Count
     $atN = ([regex]::Matches($raw2, [regex]::Escape('RegisterAreaTriggerAI(at_pal_blessed_hammer)'))).Count
+    $gdN = ([regex]::Matches($raw2, [regex]::Escape('procSpell->IsTriggered()'))).Count
     Write-Host "[3/4] маркеров стало: $now (нужно 10)"
     Write-Host "[3b]  MakeSpellArgs в файле: $ms (ожидается 18)"
-    Write-Host "[3c]  регистрация AT-скрипта молота: $atN (ожидается 1)"
-    if ($now -eq 10 -and $ms -eq 18 -and $atN -eq 1) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (MSVC-совместимая версия + AT-скрипт)" -ForegroundColor Green }
+    Write-Host "[3c]  AT-скрипт молота: $atN (ожидается 1); анти-зацикливание: $gdN (ожидается 2)"
+    if ($now -eq 10 -and $ms -eq 18 -and $atN -eq 1 -and $gdN -eq 2) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)" -ForegroundColor Green }
     else { Write-Host "[X] НЕ СХОДИТСЯ — пришлите этот вывод целиком" -ForegroundColor Red; Read-Host Enter; exit 1 }
 }
 

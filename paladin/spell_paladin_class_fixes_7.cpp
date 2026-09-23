@@ -87,7 +87,9 @@ class spell_pal_hammer_of_light_ex : public SpellScript
         }
     }
 
-    void HandleHitTarget(SpellEffIndex /*effIndex*/)
+    // SpellHitHandler без привязки к эффект-индексу: у 427453 dummy-эффект не в EFFECT_0
+    // (в логе ядра: "Effect EFFECT_0 ... did not match dbc effect data"), индекс меняется между билдами DBC.
+    void HandleHitTarget()
     {
         Unit* caster = GetCaster();
         if (!caster || !caster->HasAura(SPELL_EX7_LIGHTS_GUIDANCE))
@@ -128,7 +130,7 @@ class spell_pal_hammer_of_light_ex : public SpellScript
 
     void Register() override
     {
-        OnEffectHitTarget += SpellEffectFn(spell_pal_hammer_of_light_ex::HandleHitTarget, EFFECT_0, SPELL_EFFECT_DUMMY);
+        OnHit += SpellHitFn(spell_pal_hammer_of_light_ex::HandleHitTarget);
         AfterCast += SpellCastFn(spell_pal_hammer_of_light_ex::HandleAfterCast);
     }
 };
@@ -187,7 +189,15 @@ class spell_pal_second_sunrise_ex : public AuraScript
     bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
     {
         SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
-        return spellInfo && (spellInfo->Id == SPELL_EX7_HAMMER_OF_WRATH || spellInfo->Id == SPELL_EX7_HAMMER_OF_WRATH_AW);
+        if (!spellInfo || (spellInfo->Id != SPELL_EX7_HAMMER_OF_WRATH && spellInfo->Id != SPELL_EX7_HAMMER_OF_WRATH_AW))
+            return false;
+
+        // ре-касты от самого прока (triggered) не прокают повторно — ограничивает цепочку одним звеном
+        if (Spell const* procSpell = eventInfo.GetProcSpell())
+            if (procSpell->IsTriggered())
+                return false;
+
+        return true;
     }
 
     void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)

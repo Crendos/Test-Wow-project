@@ -137,9 +137,17 @@ class spell_pal_divine_resonance_ret_ex : public AuraScript
     bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
     {
         SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
-        return spellInfo && (spellInfo->Id == SPELL_EX6_JUDGMENT_RET
-            || spellInfo->Id == SPELL_EX6_JUDGMENT_PROT
-            || spellInfo->Id == SPELL_EX6_JUDGMENT_HOLY);
+        if (!spellInfo || (spellInfo->Id != SPELL_EX6_JUDGMENT_RET
+            && spellInfo->Id != SPELL_EX6_JUDGMENT_PROT
+            && spellInfo->Id != SPELL_EX6_JUDGMENT_HOLY))
+            return false;
+
+        // наши собственные ре-касты (triggered) не прокают повторно — иначе бесконечный цикл Правосудий
+        if (Spell const* procSpell = eventInfo.GetProcSpell())
+            if (procSpell->IsTriggered())
+                return false;
+
+        return true;
     }
 
     void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
@@ -148,12 +156,13 @@ class spell_pal_divine_resonance_ret_ex : public AuraScript
         if (!caster)
             return;
 
-        if (Aura* aura = GetAura())
-        {
-            aura->ModStackAmount(-1, AURA_REMOVE_BY_ENEMY_SPELL);
-            if (aura->GetStackAmount() <= 0)
-                return;
-        }
+        Aura* aura = GetAura();
+        if (!aura) // аура потеряна — ре-каст без списания стаков дал бы бесконечный цикл
+            return;
+
+        aura->ModStackAmount(-1, AURA_REMOVE_BY_ENEMY_SPELL);
+        if (aura->GetStackAmount() <= 0)
+            return;
 
         if (Unit* target = eventInfo.GetActionTarget())
             caster->CastSpell(target, eventInfo.GetSpellInfo()->Id, CastSpellExtraArgsInit{

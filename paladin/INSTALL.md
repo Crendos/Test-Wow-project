@@ -401,3 +401,34 @@ findstr /m /c:"spell_pal_glory_of_the_vanguard_ex" "C:\TrinityCore\build\bin\Rel
 - Слава авангарда — болт без полёта «по линии» (цель + DBC-эффекты 1269175), задержка 300 мс есть.
 
 Полный статус по каждому таланту — `PALADIN_AUDIT.md`; измеренные значения по WCL — `logs_analysis/README.md`.
+
+
+## 8. Фикс после краша #2 (зацикливание проков + Хаммер Ламповщика)
+
+Что изменилось в скриптах (партии 6 и 7):
+- наказание зла (b6): повторный каст теперь только при живой ауре и списывает стаки ДО ре-каста; triggered-рекасты больше не прокают сами себя.
+- пробуждение Солнца (b7): triggered-рекасты не прокают повторно (ограничение цепочки одним звеном).
+- Хаммер света Ламповщика (427453): хук переведён с эффект-индекса на OnHit — урон работал молча неработающим в старой версии.
+
+### Шаг 1. Обновить скрипты
+1. Скачай обновлённый ZIP этой ветки (Code -> Download ZIP).
+2. Запусти `paladin\windows\step1_scripts.bat` (cmd) — скрипт сам найдёт старую версию и заменит её.
+3. Жди строку `>>> найдена УСТАРЕВШАЯ версия партий` и затем `[X] ШАГ 1.1 ВЫПОЛНЕН (последняя версия)`.
+   Проверка [3c]: `AT-скрипт молота: 1; анти-зацикливание: 2`.
+
+### Шаг 2. Пересобрать ядро (только scripts + worldserver)
+В "x64 Native Tools Command Prompt for VS 2022":
+```
+cd /d C:\BuildTrinity\TrinityCore-build
+del /q src\server\scripts\CMakeFiles\scripts.dir\Spells\spell_paladin.cpp.obj
+msbuild TrinityCore.sln /p:Configuration=Release /p:Platform=x64 /m /v:m /t:scripts
+msbuild TrinityCore.sln /p:Configuration=Release /p:Platform=x64 /m /v:m /t:worldserver
+```
+Тишина/без ошибок = ОК. Жди `worldserver.vcxproj -> ...` в конце. Обе машины — одинаково.
+
+### Шаг 3. Проверка
+- Замени worldserver.exe на сервере, запусти, играй 30-60 мин всеми тремя спеками.
+- Если краш ПОВТОРИТСЯ: пришли новый .dmp и точно укажи время краша, плюс вывод:
+  `findstr /i "spell_pal" Server.log` (из папки сервера).
+- В логе загрузки НЕ должно быть строки про `spell_pal_hammer_of_light_ex` и `did not match dbc effect data`
+  (в старой версии было 11 таких предупреждений; эта версия чинит главную).
