@@ -104,13 +104,15 @@ git apply "C:/paladin-fixes/paladin/core_patch/0001-core-spell-block-chance.patc
 
 ### 1.1. Вставить код в spell_paladin.cpp
 
-**Вариант «bat-скриптом в консоли VS» (БЕЗ Git Bash вообще).**
-Откройте **x64 Native Tools Command Prompt for VS 2022** (или обычный cmd) и выполните одну строку:
-```bat
-"C:\Users\USER\Desktop\new\paladin\windows\step1_scripts.bat" "C:\Users\USER\Desktop\new\paladin" "C:\Users\USER\Desktop\new\test\TrinityCore"
-```
-Скрипт сам допишет все 10 файлов (через `more +N` — аналог sed), посчитает партии,
-проверит лоадер и напечатает итог. Всё общение с консолью — на чистом Windows-инструментарии.
+**Вариант «bat-скриптом» (БЕЗ Git Bash и БЕЗ указания путей).**
+В папке `paladin\windows\` лежит **`step1_scripts.bat`** — просто **дважды кликните по нему**.
+Он сам:
+- найдёт папку фиксов (рядом с собой) и корень ядра (типовые места, включая
+  `Desktop\new\test\TrinityCore`); если не найдёт — спросит путь (в окно вставляется правым кликом);
+- допишет все 10 файлов, проверит счётчиком (партий: 10), при повторном запуске не задвоит;
+- напомнит про правки лоадера (1.2а/1.2б) и проверит их после.
+
+Из консоли (x64 Native Tools / cmd) то же самое: `"C:\...\windows\step1_scripts.bat"` (аргументы не нужны).
 
 **Вариант «sh-скриптом» (через Git Bash, консоль почти не нужна).**
 Наберите руками две короткие строки (Ctrl+V тут не работает — набор вручную надёжен):
@@ -228,13 +230,7 @@ echo "--- Проверки завершены ---"
    - `C:\paladin-fixes\paladin\paladin_class_fixes_10.sql`
    (каждый — отдельный запуск Run SQL file; повторный прогон безопасен).
 
-**Через скрипт (проще всего)** — наберите одной строкой (подставьте свои пароль/базу):
-```
-bash <(tr -d '\r' < "C:/Users/USER/Desktop/new/paladin/windows/step2_sql.sh") root МОЙПАРОЛЬ имя_базы "C:/Users/USER/Desktop/new/paladin"
-```
-Напечатает по каждому файлу `OK/ОШИБКА`, итог `успешно N из 10` и контрольный SQL-блок.
-
-**Через консоль (если `mysql.exe` в PATH) — с подтверждением каждого файла:**
+**Через консоль (cmd/консоль VS, если `mysql.exe` в PATH) — с подтверждением каждого файла:**
 ```bash
 D=0; F=0
 for i in "" _2 _3 _4 _5 _6 _7 _8 _9 _10; do
@@ -269,14 +265,7 @@ SELECT CONCAT('4) Проц-строки (Спасенный/Наказание):
 
 **Общая проверка всего (0–1 + сборка) одним скриптом:**
 
-— через cmd/консоль VS (без Git Bash):
-```bat
-"C:\Users\USER\Desktop\new\paladin\windows\check_all.bat" "C:\Users\USER\Desktop\new\paladin" "C:\Users\USER\Desktop\new\test\TrinityCore"
-```
-— через Git Bash:
-```
-bash <(tr -d '\r' < "C:/Users/USER/Desktop/new/paladin/windows/check_all.sh")
-```
+— **двойной клик по `paladin\windows\check_all.bat`** (ядро найдёт сам; если нет — спросит путь):
 Напечатает `>>> OK:` по каждому пункту с фактическими числами и в конце
 `=== ВСЁ СХОДИТСЯ ===` либо список расхождений (этот вывод удобно прислать мне).
 
