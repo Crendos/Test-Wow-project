@@ -4,8 +4,10 @@
 #   cmake -S tools -B build-tools
 #   cmake --build build-tools -c Release
 #
-# Получаются три исполняемых файла:
+# Получаются четыре исполняемых файла:
 #   wow_patch_cli       — консольный патчер Wow.exe («Firestorm-стиль»)
+#   wow_mem_patcher     — патч клиента в ПАМЯТИ (без изменения файла на диске;
+#                         для билдов 12.x, где on-disk патч прибивается защитой)
 #   wow_pe_selftest     — проверки PE-движка (разбор, секции, checksum, hunks)
 #   wow_patch_selftest  — проверки всей логики патча (ключи, профиль, портал,
 #                         Config.wtf, PEM, рецепты, верификация)
@@ -46,6 +48,15 @@ if(WIN32)
 endif()
 if(MSVC)
     target_compile_options(wow_patch_cli PRIVATE /utf-8)
+endif()
+
+# Патч клиента В ПАМЯТИ (без изменения Wow.exe на диске) — для билдов, где
+# on-disk патченый exe прибивается рантайм-защитой при старте.
+add_executable(wow_mem_patcher wow_mem_patcher.cpp)
+target_link_libraries(wow_mem_patcher PRIVATE wow_patch_core)
+target_include_directories(wow_mem_patcher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(MSVC)
+    target_compile_options(wow_mem_patcher PRIVATE /utf-8)
 endif()
 
 enable_testing()
