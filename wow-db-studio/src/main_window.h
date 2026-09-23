@@ -17,11 +17,6 @@
 #include "server_launcher.h"
 #include "sql_wizard_service.h"
 #include "content_editor_service.h"
-#include "qa_bot_service.h"
-#include "qa_retail_source.h"
-#include "qa_sniff_source.h"
-#include "retail_reference_service.h"
-#include "retail_community_reference_service.h"
 #include "client_patch_service.h"
 
 #include <functional>
@@ -30,8 +25,8 @@ class MainWindow final : public QMainWindow {
     Q_OBJECT
 public: MainWindow();
 private:
-    DatabaseService m_db; NetworkGuard m_guard; Db2Importer m_importer; AiService m_ai; KnowledgeBase m_knowledge; CoreRepositoryService m_coreRepositories; JarvisEngine m_jarvis; WagoService m_wago; ServerLauncher m_server; QaRetailSource m_retail; RetailReferenceService m_retailReference; RetailCommunityReferenceService m_retailCommunity;
-    QLineEdit *host,*user,*password,*db2Url,*db2Table,*exeSource,*exeOutput,*findText,*replaceText,*aiEndpoint,*aiModel,*aiKey,*wowheadUrl,*coreRepository,*corePatch,*knowledgeTitle,*knowledgeTags,*detectFolder;
+    DatabaseService m_db; NetworkGuard m_guard; Db2Importer m_importer; AiService m_ai; KnowledgeBase m_knowledge; CoreRepositoryService m_coreRepositories; JarvisEngine m_jarvis; WagoService m_wago; ServerLauncher m_server;
+    QLineEdit *host,*user,*password,*db2Url,*db2Table,*aiEndpoint,*aiModel,*aiKey,*wowheadUrl,*coreRepository,*corePatch,*knowledgeTitle,*knowledgeTags,*detectFolder;
     QLineEdit *worldPath,*realmPath,*raHost,*raUser,*raPassword,*serverCommand;
     QCheckBox *rememberKey,*offlineMode,*serverOwnConsole;
     QSpinBox *port,*raPort; QComboBox *core,*coreBranch,*dbSelector,*wagoBuild,*wagoTableName,*wagoLocalTable,*wagoHotfixDb,*wagoLocale;
@@ -169,26 +164,6 @@ private:
                           const std::function<bool (QStringList *, QString *)> &job,
                           const std::function<void ()> &after = {});
     bool m_wowPatchBusy = false;
-    void buildQaTab(QTabWidget *tabs);
-    QTextEdit *qaTask = nullptr, *qaReport = nullptr;
-    QComboBox *qaPreset = nullptr;
-    QLineEdit *qaSniffPath = nullptr, *qaReferenceBuild = nullptr;
-    QComboBox *qaScopeType = nullptr; QLineEdit *qaScopeName = nullptr; QSpinBox *qaScopeMap = nullptr; QSpinBox *qaScopeZone = nullptr; QLabel *qaScopeStatus = nullptr;
-    QTableWidget *qaFixesTable = nullptr;
-    QVector<QaFix> m_qaFixes;
-    void runQaBots();
-    void finishQaRun(const QaRetailCatalog &catalog);
-    void onRetailCatalogReady(const QaRetailCatalog &catalog);
-    void applySelectedQaFixes();
-    bool m_qaBusy = false;
-    QaRetailCatalog m_pendingQaCatalog;
-    bool m_qaReferenceBusy = false;
-    bool m_qaReferenceForRun = false;
-    bool m_qaCommunityBusy = false;
-    bool m_qaCommunityForRun = false;
-    void continueQaAfterCommunity(const QString &build);
-    QString composeQaTask() const;
-    void resolveQaScopeFromCache();
     void consoleRunSql();
     void consoleAppend(const QString &line);
     void showPerformanceDialog();

@@ -10,7 +10,21 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Widgets Sql Network)
+find_package(Qt6 6.4 QUIET COMPONENTS Core Gui Widgets Sql Network)
+if(NOT Qt6_FOUND)
+    message(FATAL_ERROR
+        "Qt6 (>=6.4) не найден: пресет берёт путь из переменной окружения QTDIR.\n"
+        "Что сделать:\n"
+        "  1) Установи Qt 6 с компонентом 'MSVC 2022 64-bit' (desktop kit) —\n"
+        "     онлайн-инсталлер qt.io ИЛИ: pip install aqtinstall &&\n"
+        "     aqt install-qt windows desktop 6.8.2 win64_msvc2022_64 -O C:/Qt\n"
+        "  2) Задай переменную окружения на префикс кита:\n"
+        "       setx QTDIR \"C:/Qt/6.8.2/msvc2022_64\"   (переоткрой консоль!)\n"
+        "     либо разово, без переменной:\n"
+        "       cmake --preset vs2022-x64 -DCMAKE_PREFIX_PATH=C:/Qt/6.8.2/msvc2022_64\n"
+        "  3) Повтори: cmake --preset vs2022-x64\n"
+        "Подробности: docs/BUILD_WINDOWS_QT6.md (разделы 3, 4 и 8).")
+endif()
 
 add_executable(WowDbStudio
     src/main.cpp
@@ -35,11 +49,6 @@ add_executable(WowDbStudio
     src/studio_file_log.h src/studio_file_log.cpp
     src/sql_wizard_service.h src/sql_wizard_service.cpp
     src/content_editor_service.h src/content_editor_service.cpp
-    src/qa_bot_service.h src/qa_bot_service.cpp
-    src/qa_retail_source.h src/qa_retail_source.cpp
-    src/qa_sniff_source.h src/qa_sniff_source.cpp
-    src/retail_reference_service.h src/retail_reference_service.cpp
-    src/retail_community_reference_service.h src/retail_community_reference_service.cpp
 )
 target_link_libraries(WowDbStudio PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Sql Qt6::Network)
 if(WIN32)
