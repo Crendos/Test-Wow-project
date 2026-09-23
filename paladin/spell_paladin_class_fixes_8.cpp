@@ -15,6 +15,9 @@
 
 // === CUT HERE ===============================================================
 
+#include "EventProcessor.h"
+#include "ObjectAccessor.h"
+
 enum PaladinEx8Spells
 {
     SPELL_EX8_JUDGMENT_RET              = 20271,
@@ -86,8 +89,42 @@ class spell_pal_glory_of_the_vanguard_ex : public SpellScript
     }
 };
 
-// 31935 - Щит мстителя: с Авангардом (или в АН) — болт 1269175; потребление
-// Авангарда даёт +1 HP (1267211) и Доблесть (1267215).
+// 31935 - Щит мстителя: с Авангардом (или в АН) — болт 1269175 через 300 мс
+// ПОСЛЕ попадания щита (розничная задержка, simc: glory_of_the_vanguard_delay=300ms).
+// Болт даёт +1 HP (1267211) и Доблесть 1269179 (стакается, тратится ЩП целиком).
+// В АН болт летит всегда, и Авангард при этом НЕ тратится (simc: isApex3 без decrement).
+class pal_vanguard_bolt_event : public BasicEvent
+{
+public:
+    pal_vanguard_bolt_event(Unit* caster, ObjectGuid targetGuid) : _caster(caster), _targetGuid(targetGuid) { }
+
+    bool Execute(uint64 /*time*/, uint32 /*diff*/) override
+    {
+        Unit* target = ObjectAccessor::GetUnit(*_caster, _targetGuid);
+        if (target && _caster->IsValidAttackTarget(target))
+            _caster->CastSpell(target, SPELL_EX8_VANGUARD_BOLT, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR
+            });
+
+        if (_caster->HasAura(SPELL_EX8_GLORY_2))
+            _caster->CastSpell(_caster, SPELL_EX8_HOLY_POWER_ENERGIZE, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, 1 } }
+            });
+
+        if (_caster->HasAura(SPELL_EX8_GLORY_3))
+            _caster->CastSpell(_caster, SPELL_EX8_VALOR_BUFF, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR
+            });
+
+        return true;
+    }
+
+private:
+    Unit* _caster;
+    ObjectGuid _targetGuid;
+};
+
 class spell_pal_avengers_shield_vanguard_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -99,7 +136,7 @@ class spell_pal_avengers_shield_vanguard_ex : public SpellScript
     {
         Unit* caster = GetCaster();
         Unit* target = GetExplTargetUnit();
-        if (!caster)
+        if (!caster || !target)
             return;
 
         bool hasVanguard = caster->HasAura(SPELL_EX8_VANGUARD_BUFF);
@@ -107,26 +144,11 @@ class spell_pal_avengers_shield_vanguard_ex : public SpellScript
         if (!hasVanguard && !avengingWrath)
             return;
 
-        if (hasVanguard)
+        // Розница/simc: в АН Авангард остаётся (не тратится)
+        if (hasVanguard && !avengingWrath)
             caster->RemoveAura(SPELL_EX8_VANGUARD_BUFF);
 
-        caster->CastSpell(target, SPELL_EX8_VANGUARD_BOLT, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-
-        if (hasVanguard && caster->HasAura(SPELL_EX8_GLORY_2))
-            caster->CastSpell(caster, SPELL_EX8_HOLY_POWER_ENERGIZE, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringSpell = GetSpell(),
-                .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, 1 } }
-            });
-
-        if (hasVanguard && caster->HasAura(SPELL_EX8_GLORY_3))
-            caster->CastSpell(caster, SPELL_EX8_VALOR_BUFF, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringSpell = GetSpell()
-            });
+        caster->m_Events.AddEventAtOffset(new pal_vanguard_bolt_event(caster, target->GetGUID()), 300ms);
     }
 
     void Register() override
@@ -152,6 +174,12 @@ class spell_pal_shield_of_the_righteous_vanguard_ex : public SpellScript
             return;
 
         caster->RemoveAura(SPELL_EX8_VALOR_BUFF);
+
+        // Розница/simc: Blaze бьёт и основную цель ЩП (execute_on_target), плюс до 4 вторичных
+        caster->CastSpell(target, SPELL_EX8_BLAZE_OF_GLORY, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
 
         float const radius = 10.f;
         std::vector<Unit*> enemies;
