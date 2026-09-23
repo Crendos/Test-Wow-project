@@ -105,6 +105,12 @@ tail -3 src/server/scripts/Spells/spell_paladin.cpp
 ```
 (команда дописывает все 10 файлов в конец spell_paladin.cpp; в хвосте файла должна появиться строка AddSC_paladin_spell_scripts_ex10).
 
+**✅ Проверка шага 1.1:**
+```bash
+grep -c "=== CUT HERE ===" src/server/scripts/Spells/spell_paladin.cpp
+```
+Должно напечатать **10** (все партии внутри). `0` — вставки не было; 1–9 — повторите цикл (частичный повтор безопасен: помеченные куски допишутся вторым слоем, но чтобы было чисто — лучше восстановить spell_paladin.cpp из git: `git checkout -- src/server/scripts/Spells/spell_paladin.cpp` и выполнить цикл заново).
+
 **Вручную (если хочется руками):**
 1. Откройте `C:\TrinityCore\src\server\scripts\Spells\spell_paladin.cpp` в Notepad++.
 2. Нажмите **Ctrl+End** (в самый конец файла), поставьте курсор на новую строку.
@@ -144,6 +150,23 @@ void AddSC_paladin_spell_scripts_ex10();
     AddSC_paladin_spell_scripts_ex10();
 ```
 
+**✅ Проверка шага 1.2:**
+```bash
+grep -c "void AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp
+grep -c "    AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp
+```
+Обе должны напечатать **9** (первая — объявления, вторая — вызовы).
+
+### ✅ Всё вместе: проверка шагов 0–1 одним блоком
+```bash
+echo "--- Шаг 0: патч ядра (ждём 3) ---"; grep -c "spellBlockChance" src/server/game/Entities/Unit/Unit.cpp
+echo "--- Шаг 1: партии (ждём 10) ---"; grep -c "=== CUT HERE ===" src/server/scripts/Spells/spell_paladin.cpp
+echo "--- Шаг 1: объявления (ждём 9) ---"; grep -c "void AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp
+echo "--- Шаг 1: вызовы (ждём 9) ---"; grep -c "    AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp
+echo "--- Проверки завершены ---"
+```
+Все четыре цифры совпали — переходите к Шагу 2.
+
 ---
 
 ## ШАГ 2. База данных (HeidiSQL, по кликам)
@@ -165,12 +188,25 @@ void AddSC_paladin_spell_scripts_ex10();
    - `C:\paladin-fixes\paladin\paladin_class_fixes_10.sql`
    (каждый — отдельный запуск Run SQL file; повторный прогон безопасен).
 
-**Проверка импорта.** В HeidiSQL откройте вкладку **Query**, выполните:
-```sql
-SELECT COUNT(*) FROM spell_script_names WHERE ScriptName LIKE 'spell_pal%';
-SELECT Id, Shape, Speed, ScriptName FROM areatrigger_create_properties WHERE Id=6006 AND IsCustom=0;
+**Через консоль (если `mysql.exe` в PATH) — с подтверждением каждого файла:**
+```bash
+for i in "" _2 _3 _4 _5 _6 _7 _8 _9 _10; do
+  mysql -u root -pВАШ_ПАРОЛЬ ИМЯ_БАЗЫ < "C:/paladin-fixes/paladin/paladin_class_fixes${i}.sql" && echo "OK: paladin_class_fixes${i}.sql"
+done
 ```
-Первая строка должна вернуть несколько десятков (бинды скриптов), вторая — строку 6006 со спиралью молота.
+Должно напечатать десять строк `OK: paladin_class_fixes…sql`.
+
+**✅ Проверка импорта.** В HeidiSQL откройте вкладку **Query**, выполните (вывод прямо говорит, что применилось):
+```sql
+SELECT CONCAT('1) Бинды скриптов: ', COUNT(*), ' (ждём больше 50)') AS ПРОВЕРКА FROM spell_script_names WHERE ScriptName LIKE 'spell_pal%'
+UNION ALL
+SELECT CONCAT('2) Спираль молота AT 6006: ', COUNT(*), ' (ждём 1)') FROM areatrigger_create_properties WHERE Id=6006 AND IsCustom=0
+UNION ALL
+SELECT CONCAT('3) Точки спирали: ', COUNT(*), ' (49 = наша спираль; 0 = строка из TDB)') FROM areatrigger_create_properties_spline_point WHERE AreaTriggerCreatePropertiesId=6006 AND IsCustom=0
+UNION ALL
+SELECT CONCAT('4) Проц-строки (Спасенный/Наказание): ', COUNT(*), ' (ждём 2)') FROM spell_proc WHERE SpellId IN (157047, 431474);
+```
+Если хоть одна строка не совпала с ожиданием — соответствующий SQL-файл не импортировался, прогоните его заново (повтор безопасен).
 
 ---
 
@@ -180,7 +216,18 @@ SELECT Id, Shape, Speed, ScriptName FROM areatrigger_create_properties WHERE Id=
 1. Откройте `C:\TrinityCore\build\TrinityCore.sln` в Visual Studio.
 2. Сверху выберите конфигурацию **Release**, платформу **x64**.
 3. В окне Solution Explorer правый клик по **ALL_BUILD** → **Build**.
-4. Ждите. В конце должно быть `========== Build: succeeded, 0 failed ==========`.
+4. Ждите. В конце должно быть `========== Build: succeeded, 0 failed ==========` (любое число failed — кидайте мне текст ошибки).
+
+**✅ Проверка шага 3** (что скрипты реально попали в exe; Git Bash, из папки ядра):
+```bash
+grep -a -c "spell_pal_glory_of_the_vanguard_ex" build/bin/Release/worldserver.exe
+```
+Напечатает **1** или больше — скрипты внутри сборки. Напечатает `0` — вставки из Шага 1 не попали в сборку (перепроверьте шаги 1.1–1.2 и пересоберите).
+В обычной командной строке (cmd) то же самое:
+```cmd
+findstr /m /c:"spell_pal_glory_of_the_vanguard_ex" "C:\TrinityCore\build\bin\Release\worldserver.exe"
+```
+(напечатает путь к exe, если строка найдена; молчит — если нет).
 
 ### Если с нуля (кратко):
 1. **CMake (cmake-gui)**: «Where is the source code» = `C:/TrinityCore`; «Where to build» = `C:/TrinityCore/build` → **Configure** → Visual Studio 17 2022, x64.
