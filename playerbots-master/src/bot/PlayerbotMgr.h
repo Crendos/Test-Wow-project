@@ -45,6 +45,7 @@ public:
 
     void UpdateAI(uint32 diff);
     void HandlePlayerBotLoggedIn(Player* player);
+    PlayerbotAI* GetBotAI(std::string const& botName);
     void BotSay(uint32 accountId, std::string const& text);
 
     void StartRoster();

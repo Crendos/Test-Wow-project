@@ -1,7 +1,7 @@
 /*
- * PLAYERBOTS под TrinityCore master — Фаза 0 MVP
- * Поведение одного бота: PLANE (фоновая «жизнь») + COMBAT (помощь по цели).
- * Всё поведение выполняется в world-thread (tick из PlayerbotMgr::UpdateAI).
+ * PLAYERBOTS под TrinityCore master — v2 (плавное движение + follow-мастер)
+ * Поведение одного бота: состояния COMBAT > FOLLOW > PLANE.
+ * Всё происходит в world-thread (tick из PlayerbotMgr::UpdateAI через WorldScript::OnUpdate).
  */
 #ifndef PLAYERBOT_AI_H
 #define PLAYERBOT_AI_H
@@ -13,6 +13,7 @@
 
 class Player;
 class Unit;
+class SpellInfo;
 
 class PlayerbotAI
 {
@@ -23,40 +24,57 @@ public:
     void Update(uint32 diff);
     void Destroy() { delete this; }
 
+    // --- master binding (.playerbots followme / .playerbots stay) ---
+    void SetMasterAndFollow(Player* master);
+    void ClearFollow();
+    bool IsFollowMode() const { return _followEnabled; }
+    ObjectGuid GetMasterGUID() const { return _masterGuid; }
+
     // команды (.playerbots cmd ...)
     void PingMaster();
-    void FollowStop();
     void BotSay(std::string const& msg);
     void EmoteMe(uint32 emote);
 
-    // plane: фоновые действия
+private:
+    // состояния
+    void DoCombatAI(uint32 diff);
+    void HandleFollowTick(uint32 diff);
+    void HandlePlaneTick(uint32 diff);
+
+    void DoFindTarget();          // свой таргет бота
+    Unit* FindProtectTarget();    // цель-угроза мастера (если мастер есть) 
+    void TargetSelectionIfNeeded();
+    float GetMeleeDistance() const { return 4.0f; }
+
+    bool CastSpellAt(uint32 spellId);
+    bool IsSpellReady(uint32 spellId) const;
+    bool IsSelfBuff(SpellInfo const* info) const;
+
+    static float GetDefaultCombatRange(uint8 cls);
+
+    // plane
     void RandomWander(uint32 diff);
     void RandomEmote(uint32 diff);
     void RandomChat(uint32 diff);
 
-    // combat: автоассист
-    void DoCombatAI(uint32 diff);
-    void DoFindTarget();
-    void TargetSelectionIfNeeded();
-
-    bool CastSpellAt(uint32 spellId);
-    bool IsSpellReady(uint32 spellId) const;
-
-    float GetMeleeDistance() const  { return 4.0f; }
-    float GetMaxRange() const       { return m_combatRange; }
-
-private:
-    static float GetDefaultCombatRange(uint8 cls);
-
     Player* _bot;
     std::vector<uint32> m_combatSpells;   // приоритет: [0] — fallback-базовый
 
+    // --- combat ---
     Unit*  m_combatTarget  = nullptr;
-    uint32 m_recastTimerMs = 0;           // минимальный интервал между кастами (v0)
+    uint32 m_recastTimerMs = 0;           // минимальный интервал между кастами (v2: по GCD)
 
+    // --- follow ---
+    ObjectGuid _masterGuid;
+    bool   _followEnabled  = false;
+    float  _followDist     = 3.5f;
+    uint32 _followRepointMs= 0;           // каденс перезапуска сплайна (мс)
+    float  _lastFollowX = 0.0f, _lastFollowY = 0.0f; // анти-спам: дедуп по мастерской точке
+
+    // --- plane ---
     float  m_combatRange      = 0.0f;
 
-    uint32 m_planeEmoteTimer  = 0;        // тики до следующего эвента
+    uint32 m_planeEmoteTimer  = 0;
     uint32 m_planeWanderTimer = 0;
     uint32 m_planeChatTimer   = 0;
 };

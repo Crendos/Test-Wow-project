@@ -7,6 +7,7 @@
 #include "ChatCommandTags.h"
 #include "Config.h"
 #include "Language.h"
+#include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
 #include "RBAC.h"
 #include "ScriptMgr.h"
@@ -37,6 +38,8 @@ namespace
                 { "ping",        HandleBotPingCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "remove",      HandleBotRemoveCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "removeall",   HandleBotRemoveAllCommand,      static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "followme",    HandleBotFollowMeCommand,       static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "stay",        HandleBotStayCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "roster",      playerbotsRosterCommandTable },
             };
 
@@ -77,6 +80,47 @@ namespace
             }
             for (std::string const& n : bots)
                 handler->SendSysMessage(n.c_str());
+            return true;
+        }
+
+        // .playerbots followme <имя>  — бот привязывается к тебе и следует
+        static bool HandleBotFollowMeCommand(ChatHandler* handler, Tail name)
+        {
+            if (name.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots followme <имя>");
+                return false;
+            }
+            Player* master = handler->GetPlayer();
+            if (!master)
+            {
+                handler->SendSysMessage("Команда доступна только из игры (требуется мастер).");
+                return false;
+            }
+            std::string const botName{name};
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                return false;
+            }
+            ai->SetMasterAndFollow(master);
+            handler->SendSysMessage("Бот следует за вами.");
+            return true;
+        }
+
+        // .playerbots stay <имя>  — бот отвязывается и остаётся на месте
+        static bool HandleBotStayCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                return false;
+            }
+            ai->ClearFollow();
+            handler->SendSysMessage("Бот остановлен.");
             return true;
         }
 

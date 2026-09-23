@@ -236,6 +236,17 @@ void PlayerbotMgr::RemoveAll()
         RemoveBot(name);
 }
 
+PlayerbotAI* PlayerbotMgr::GetBotAI(std::string const& botName)
+{
+    ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName);
+    if (!guid)
+        return nullptr;
+    auto itr = m_bots.find(sCharacterCache->GetCharacterAccountIdByGuid(guid));
+    if (itr == m_bots.end())
+        return nullptr;
+    return itr->second.ai;
+}
+
 // ---------------------------------------------------------------- per-frame AI
 
 void PlayerbotMgr::UpdateAI(uint32 diff)
