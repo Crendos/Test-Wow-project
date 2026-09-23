@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------
+# Playerbots (MVP-фаза 0) — скопировать нужные ключи в свой worldserver.conf
+# Все ключи читаются через sConfigMgr->Get*Default — отсутствие ключа = дефолт.
+# ---------------------------------------------------------------------------
+
+# Главный выключатель системы ботов.
+#   0 = боты не логинятся (команды add/roster отвечают ошибкой)
+#   1 = система активна
+Playerbots.Enabled = 1
+
+# Максимум одновременных ботов в мире.
+# Помните правило master: 1 бот = 1 игровой аккаунт.
+Playerbots.MaxCount = 100
+
+# Диапазон accountId, зарезервированных под бот-аккаунты (таблица auth.account.id).
+# Используется только для предупреждения в логе (жёсткой проверки нет — см. docs/02).
+Playerbots.FreeAccountsStart = 9000
+Playerbots.FreeAccountsEnd   = 9499
+
+# Интервал ротации состава (world.playerbots_rotation), в минутах. MVP:
+# смена окна производится только по команде `.playerbots roster start` + ручная
+# ротация через `.playerbots roster rotation <мин>` (планировщик — в фазе 1).
+Playerbots.Rotation.Minutes = 5
+
+# Автоматически поднимать состав при старте worldserver
+# (хук WorldScript::OnStartup в cs_playerbots.cpp):
+#   1 = после старта сервера выполняется менеджерский StartRoster()
+Playerbots.AutoStartRoster = 0

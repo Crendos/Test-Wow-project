@@ -1,0 +1,746 @@
+diff --git a/src/server/game/Handlers/CharacterHandler.cpp b/src/server/game/Handlers/CharacterHandler.cpp
+index 518d9fac..2a69cfb0 100644
+--- a/src/server/game/Handlers/CharacterHandler.cpp
++++ b/src/server/game/Handlers/CharacterHandler.cpp
+@@ -67,303 +67,6 @@
+ #include <boost/circular_buffer.hpp>
+ #include <sstream>
+ 
+-class LoginQueryHolder : public CharacterDatabaseQueryHolder
+-{
+-    private:
+-        uint32 m_accountId;
+-        ObjectGuid m_guid;
+-    public:
+-        LoginQueryHolder(uint32 accountId, ObjectGuid guid)
+-            : m_accountId(accountId), m_guid(guid) { }
+-        ObjectGuid GetGuid() const { return m_guid; }
+-        uint32 GetAccountId() const { return m_accountId; }
+-        bool Initialize();
+-};
+-
+-bool LoginQueryHolder::Initialize()
+-{
+-    SetSize(MAX_PLAYER_LOGIN_QUERY);
+-
+-    bool res = true;
+-    ObjectGuid::LowType lowGuid = m_guid.GetCounter();
+-
+-    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_FROM, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_CUSTOMIZATIONS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_CUSTOMIZATIONS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GROUP_MEMBER);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GROUP, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_AURAS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AURAS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_AURA_EFFECTS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AURA_EFFECTS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_AURA_STORED_LOCATIONS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AURA_STORED_LOCATIONS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SPELL);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SPELLS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SPELL_FAVORITES);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SPELL_FAVORITES, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_OBJECTIVES);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_OBJECTIVES_CRITERIA);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES_CRITERIA, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_OBJECTIVES_CRITERIA_PROGRESS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES_CRITERIA_PROGRESS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_OBJECTIVES_SPAWN_TRACKING);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES_SPAWN_TRACKING, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_DAILY);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_DAILY_QUEST_STATUS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_WEEKLY);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_WEEKLY_QUEST_STATUS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_MONTHLY);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MONTHLY_QUEST_STATUS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_SEASONAL);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SEASONAL_QUEST_STATUS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_REPUTATION);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_REPUTATION, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_INVENTORY);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_INVENTORY, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_ARTIFACT);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_ARTIFACTS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_AZERITE);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AZERITE, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_AZERITE_MILESTONE_POWER);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AZERITE_MILESTONE_POWERS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_AZERITE_UNLOCKED_ESSENCE);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AZERITE_UNLOCKED_ESSENCES, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_AZERITE_EMPOWERED);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AZERITE_EMPOWERED, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAIL);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAILS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS_ARTIFACT);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS_ARTIFACT, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS_AZERITE);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS_AZERITE, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS_AZERITE_MILESTONE_POWER);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS_AZERITE_MILESTONE_POWER, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS_AZERITE_UNLOCKED_ESSENCE);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS_AZERITE_UNLOCKED_ESSENCE, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS_AZERITE_EMPOWERED);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS_AZERITE_EMPOWERED, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SOCIALLIST);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SOCIAL_LIST, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_HOMEBIND);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_HOME_BIND, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SPELLCOOLDOWNS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SPELL_COOLDOWNS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SPELL_CHARGES);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SPELL_CHARGES, stmt);
+-
+-    if (sWorld->getBoolConfig(CONFIG_DECLINED_NAMES_USED))
+-    {
+-        stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_DECLINEDNAMES);
+-        stmt->setUInt64(0, lowGuid);
+-        res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_DECLINED_NAMES, stmt);
+-    }
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GUILD_MEMBER);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GUILD, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_ARENAINFO);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_ARENA_INFO, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_ACHIEVEMENTS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_ACHIEVEMENTS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_CRITERIAPROGRESS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_CRITERIA_PROGRESS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_EQUIPMENTSETS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_EQUIPMENT_SETS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TRANSMOG_OUTFITS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFITS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TRANSMOG_OUTFIT);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFIT, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TRANSMOG_OUTFIT_SITUATION);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFIT_SITUATION, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TRANSMOG_OUTFIT_SLOT);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFIT_SLOT, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_CUF_PROFILES);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_CUF_PROFILES, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_BGDATA);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_BG_DATA, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GLYPHS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GLYPHS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TALENTS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TALENTS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_PVP_TALENTS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_PVP_TALENTS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PLAYER_ACCOUNT_DATA);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_ACCOUNT_DATA, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SKILLS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SKILLS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_RANDOMBG);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_RANDOM_BG, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_BANNED);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_BANNED, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUSREW);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_REW, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PLAYER_CURRENCY);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_CURRENCY, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CORPSE_LOCATION);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_CORPSE_LOCATION, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_PETS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_PET_SLOTS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GARRISON);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GARRISON, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GARRISON_BLUEPRINTS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GARRISON_BLUEPRINTS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GARRISON_BUILDINGS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GARRISON_BUILDINGS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GARRISON_FOLLOWERS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GARRISON_FOLLOWERS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GARRISON_FOLLOWER_ABILITIES);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GARRISON_FOLLOWER_ABILITIES, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_TRAIT_ENTRIES);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRAIT_ENTRIES, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_TRAIT_CONFIGS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRAIT_CONFIGS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PLAYER_DATA_ELEMENTS_CHARACTER);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_DATA_ELEMENTS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PLAYER_DATA_FLAGS_CHARACTER);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_DATA_FLAGS, stmt);
+-
+-    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_BANK_TAB_SETTINGS);
+-    stmt->setUInt64(0, lowGuid);
+-    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_BANK_TAB_SETTINGS, stmt);
+-
+-    return res;
+-}
+ 
+ class EnumCharactersQueryHolder : public CharacterDatabaseQueryHolder
+ {
+diff --git a/src/server/game/Server/WorldSession.cpp b/src/server/game/Server/WorldSession.cpp
+index 2db54162..9e644d6d 100644
+--- a/src/server/game/Server/WorldSession.cpp
++++ b/src/server/game/Server/WorldSession.cpp
+@@ -51,6 +51,7 @@
+ #include "ScriptMgr.h"
+ #include "SocialMgr.h"
+ #include "World.h"
++#include "CharacterCache.h"        // PLAYERBOTS: sCharacterCache->GetCharacterAccountIdByGuid
+ #include "WorldSocket.h"
+ #include <boost/circular_buffer.hpp>
+ 
+@@ -222,6 +223,10 @@ std::string WorldSession::GetPlayerInfo() const
+ /// Send a packet to the client
+ void WorldSession::SendPacket(WorldPacket const* packet, bool forced /*= false*/)
+ {
++    // PLAYERBOTS: у бота нет клиента — SMSG тихо дропаем (без спама в лог)
++    if (m_isPlayerBot)
++        return;
++
+     if (!opcodeTable.IsValid(static_cast<OpcodeServer>(packet->GetOpcode())))
+     {
+         char const* specialName = packet->GetOpcode() == UNKNOWN_OPCODE ? "UNKNOWN_OPCODE" : "INVALID_OPCODE";
+@@ -351,6 +356,17 @@ void WorldSession::LogUnprocessedTail(WorldPacket const* packet)
+ /// Update the WorldSession (triggered by World update)
+ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
+ {
++    // PLAYERBOTS: быстрый путь без сокетных транзакций/пакетов
++    if (m_isPlayerBot)
++    {
++        time_t botNow = GameTime::GetGameTime();
++        if (_logoutTime && _logoutTime <= botNow)
++            LogoutPlayer(true);
++        ProcessQueryCallbacks();
++        updater.ProcessUnsafe();
++        return !ShouldLogOut(botNow);
++    }
++
+     ///- Before we process anything:
+     /// If necessary, kick the player because the client didn't send anything for too long
+     /// (or they've been idling in character select)
+@@ -1829,3 +1845,319 @@ void WorldSession::RegisterTimeSync(uint32 counter)
+ {
+     _pendingTimeSyncRequests[counter] = getMSTime();
+ }
++
++// === PLAYERBOTS =========================================================
++// Вход бота персонажем без сокетов: реплика HandleContinuePlayerLogin без SMSG.
++void WorldSession::LoginPlayerBot(ObjectGuid guid)
++{
++    if (PlayerLoading() || GetPlayer())
++        return;
++
++    m_playerLoading = guid;
++    if (!IsLegitCharacterForAccount(guid))
++    {
++        TC_LOG_ERROR("playerbots", "LoginPlayerBot: персонаж {} не принадлежит аккаунту {}", guid.ToString(), GetAccountId());
++        m_playerLoading.Clear();
++        return;
++    }
++
++    std::shared_ptr<LoginQueryHolder> holder = std::make_shared<LoginQueryHolder>(GetAccountId(), m_playerLoading);
++    if (!holder->Initialize())
++    {
++        TC_LOG_ERROR("playerbots", "LoginPlayerBot: не удалось инициализировать LoginQueryHolder для {}", guid.ToString());
++        m_playerLoading.Clear();
++        return;
++    }
++
++    AddQueryHolderCallback(CharacterDatabase.DelayQueryHolder(holder)).AfterComplete([this](SQLQueryHolderBase const& holderDone)
++    {
++        HandlePlayerLogin(static_cast<LoginQueryHolder const&>(holderDone));
++    });
++}
++// =========================================================================
++
++// LOGIN QUERY HOLDER (розница перенесена из CharacterHandler.cpp) ----------
++bool LoginQueryHolder::Initialize()
++{
++    SetSize(MAX_PLAYER_LOGIN_QUERY);
++
++    bool res = true;
++    ObjectGuid::LowType lowGuid = m_guid.GetCounter();
++
++    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_FROM, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_CUSTOMIZATIONS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_CUSTOMIZATIONS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GROUP_MEMBER);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GROUP, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_AURAS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AURAS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_AURA_EFFECTS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AURA_EFFECTS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_AURA_STORED_LOCATIONS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AURA_STORED_LOCATIONS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SPELL);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SPELLS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SPELL_FAVORITES);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SPELL_FAVORITES, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_OBJECTIVES);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_OBJECTIVES_CRITERIA);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES_CRITERIA, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_OBJECTIVES_CRITERIA_PROGRESS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES_CRITERIA_PROGRESS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_OBJECTIVES_SPAWN_TRACKING);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_OBJECTIVES_SPAWN_TRACKING, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_DAILY);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_DAILY_QUEST_STATUS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_WEEKLY);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_WEEKLY_QUEST_STATUS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_MONTHLY);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MONTHLY_QUEST_STATUS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUS_SEASONAL);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SEASONAL_QUEST_STATUS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_REPUTATION);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_REPUTATION, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_INVENTORY);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_INVENTORY, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_ARTIFACT);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_ARTIFACTS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_AZERITE);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AZERITE, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_AZERITE_MILESTONE_POWER);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AZERITE_MILESTONE_POWERS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_AZERITE_UNLOCKED_ESSENCE);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AZERITE_UNLOCKED_ESSENCES, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ITEM_INSTANCE_AZERITE_EMPOWERED);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_AZERITE_EMPOWERED, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAIL);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAILS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS_ARTIFACT);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS_ARTIFACT, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS_AZERITE);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS_AZERITE, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS_AZERITE_MILESTONE_POWER);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS_AZERITE_MILESTONE_POWER, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS_AZERITE_UNLOCKED_ESSENCE);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS_AZERITE_UNLOCKED_ESSENCE, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_MAILITEMS_AZERITE_EMPOWERED);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_MAIL_ITEMS_AZERITE_EMPOWERED, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SOCIALLIST);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SOCIAL_LIST, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_HOMEBIND);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_HOME_BIND, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SPELLCOOLDOWNS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SPELL_COOLDOWNS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SPELL_CHARGES);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SPELL_CHARGES, stmt);
++
++    if (sWorld->getBoolConfig(CONFIG_DECLINED_NAMES_USED))
++    {
++        stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_DECLINEDNAMES);
++        stmt->setUInt64(0, lowGuid);
++        res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_DECLINED_NAMES, stmt);
++    }
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_GUILD_MEMBER);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GUILD, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_ARENAINFO);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_ARENA_INFO, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_ACHIEVEMENTS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_ACHIEVEMENTS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_CRITERIAPROGRESS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_CRITERIA_PROGRESS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_EQUIPMENTSETS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_EQUIPMENT_SETS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TRANSMOG_OUTFITS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFITS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TRANSMOG_OUTFIT);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFIT, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TRANSMOG_OUTFIT_SITUATION);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFIT_SITUATION, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TRANSMOG_OUTFIT_SLOT);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRANSMOG_OUTFIT_SLOT, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_CUF_PROFILES);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_CUF_PROFILES, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_BGDATA);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_BG_DATA, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GLYPHS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GLYPHS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_TALENTS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TALENTS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_PVP_TALENTS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_PVP_TALENTS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PLAYER_ACCOUNT_DATA);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_ACCOUNT_DATA, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_SKILLS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_SKILLS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_RANDOMBG);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_RANDOM_BG, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_BANNED);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_BANNED, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_QUESTSTATUSREW);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_QUEST_STATUS_REW, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PLAYER_CURRENCY);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_CURRENCY, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CORPSE_LOCATION);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_CORPSE_LOCATION, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_PETS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_PET_SLOTS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GARRISON);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GARRISON, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GARRISON_BLUEPRINTS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GARRISON_BLUEPRINTS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GARRISON_BUILDINGS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GARRISON_BUILDINGS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GARRISON_FOLLOWERS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GARRISON_FOLLOWERS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_GARRISON_FOLLOWER_ABILITIES);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_GARRISON_FOLLOWER_ABILITIES, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_TRAIT_ENTRIES);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRAIT_ENTRIES, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_TRAIT_CONFIGS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_TRAIT_CONFIGS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PLAYER_DATA_ELEMENTS_CHARACTER);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_DATA_ELEMENTS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PLAYER_DATA_FLAGS_CHARACTER);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_DATA_FLAGS, stmt);
++
++    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHARACTER_BANK_TAB_SETTINGS);
++    stmt->setUInt64(0, lowGuid);
++    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_BANK_TAB_SETTINGS, stmt);
++
++    return res;
++}
+diff --git a/src/server/game/Server/WorldSession.h b/src/server/game/Server/WorldSession.h
+index 8ba9b624..fcec24f9 100644
+--- a/src/server/game/Server/WorldSession.h
++++ b/src/server/game/Server/WorldSession.h
+@@ -23,6 +23,7 @@
+ #include "AuthDefines.h"
+ #include "ClientBuildInfo.h"
+ #include "DatabaseEnvFwd.h"
++#include "QueryHolder.h"   // PLAYERBOTS: SQLQueryHolder<T> — нужен для наследования LoginQueryHolder
+ #include "Duration.h"
+ #include "IteratorPair.h"
+ #include "LockedQueue.h"
+@@ -43,7 +44,19 @@ class CollectionMgr;
+ class Creature;
+ class InstanceLock;
+ class Item;
+-class LoginQueryHolder;
++class LoginQueryHolder : public CharacterDatabaseQueryHolder
++{
++    private:
++        uint32 m_accountId;
++        ObjectGuid m_guid;
++    public:
++        LoginQueryHolder(uint32 accountId, ObjectGuid guid)
++            : m_accountId(accountId), m_guid(guid) { }
++        ObjectGuid GetGuid() const { return m_guid; }
++        uint32 GetAccountId() const { return m_accountId; }
++        bool Initialize();
++};
++
+ class MessageBuffer;
+ class Player;
+ class Unit;
+@@ -984,6 +997,18 @@ class TC_GAME_API WorldSession
+             uint32 build, ClientBuild::VariantId clientBuildVariant, LocaleConstant locale, uint32 recruiter, bool isARecruiter);
+         ~WorldSession();
+ 
++        // === PLAYERBOTS ===================================================
++        // Пометить сессию бот-сессией (без сокетов). Вызывать ДО первого Update.
++        void MarkAsPlayerBot() { m_isPlayerBot = true; }
++        bool IsPlayerBot() const { return m_isPlayerBot; }
++        // Вход персонажа в мир без сокетного танца ConnectTo/ResumeComms
++        // (реплика HandleContinuePlayerLogin без SMSG-части).
++        void LoginPlayerBot(ObjectGuid guid);
++        // ===================================================================
++
++        // Return true if the session is confirmed (CMSG_PLAYER_LOGIN opcode wasn't received)
++        bool IsBotLoginPending() const { return PlayerLoading() && m_isPlayerBot; }
++
+         bool PlayerLoading() const { return !m_playerLoading.IsEmpty(); }
+         bool PlayerLogout() const { return m_playerLogout; }
+         bool PlayerLogoutWithSave() const { return m_playerLogout && m_playerSave; }
+@@ -2019,6 +2044,7 @@ class TC_GAME_API WorldSession
+         bool m_inQueue;                                     // session wait in auth.queue
+         ObjectGuid m_playerLoading;                         // code processed in LoginPlayer
+         bool m_playerLogout;                                // code processed in LogoutPlayer
++        bool m_isPlayerBot = false;                         // PLAYERBOTS: сессия бота (без сокетов)
+         bool m_playerRecentlyLogout;
+         bool m_playerSave;
+         LocaleConstant m_sessionDbcLocale;
+diff --git a/src/server/scripts/Custom/custom_script_loader.cpp b/src/server/scripts/Custom/custom_script_loader.cpp
+index 9e5e9ba2..f5725fb6 100644
+--- a/src/server/scripts/Custom/custom_script_loader.cpp
++++ b/src/server/scripts/Custom/custom_script_loader.cpp
+@@ -17,8 +17,12 @@
+ 
+ // This is where scripts' loading functions should be declared:
+ 
++// This is where scripts' loading functions should be declared:
++void AddSC_playerbots();
++
+ // The name of this function should match:
+ // void Add${NameOfDirectory}Scripts()
+ void AddCustomScripts()
+ {
++    AddSC_playerbots();
+ }
