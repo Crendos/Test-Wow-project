@@ -173,7 +173,10 @@ class spell_pal_empyrean_deliverance_ex : public SpellScript
     }
 };
 
-// 53600 - ЩП обновляет Сотрясение небес по пандемии (8с база + 30%).
+// Спендеры Силы Света обновляют Сотрясение небес по пандемии.
+// simc: refresh в holy_power_consumer_t::execute (ОБЩИЙ для ЩП/ОП/Буря/СС):
+// +8с (база), кап 1.3×базы = 10.4с. Лог Т-Рета: ШТ 96 аптайм-гейнов = 96 кастов МС
+// при 296+348 спендерах — без капа бафф был бы вечным, поэтому кап обязателен.
 class spell_pal_sotr_shake_heavens_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -192,8 +195,10 @@ class spell_pal_sotr_shake_heavens_ex : public SpellScript
             int32 base = sth->GetSpellInfo()->GetMaxDuration();
             if (base <= 0)
                 base = 8000;
-            int32 pandemic = sth->GetDuration() + int32(base * 0.3f);
-            sth->SetDuration(pandemic > base ? pandemic : base);
+            // пандемия: +база, но не выше 1.3×базы (simc: 8с до 10.4с)
+            int64 updated = int64(sth->GetDuration()) + base;
+            int64 cap     = int64(base) * 13 / 10;
+            sth->SetDuration(int32(updated < cap ? updated : cap));
         }
     }
 

@@ -10,8 +10,12 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (427453, 'spell_pal_hol_templar_ex'),
 -- летящий молоток: стаки Избавления Света
 (431398, 'spell_pal_empyrean_deliverance_ex'),
--- ЩП: пандемия-обновление Сотрясения небес
+-- Пандемия-обновление Сотрясения небес: ЛЮБОЙ спендер Силы Света
+-- (simc: holy_power_consumer; кап 1.3x базы внутри скрипта)
 (53600,  'spell_pal_sotr_shake_heavens_ex'),
+(85256,  'spell_pal_sotr_shake_heavens_ex'), -- Окончательный приговор
+(53385,  'spell_pal_sotr_shake_heavens_ex'), -- Божественная буря
+(85673,  'spell_pal_sotr_shake_heavens_ex'), -- Слово света
 -- ТДА: вращающийся Божественный молот
 (375576, 'spell_pal_divine_toll_templar_ex'),
 -- Правосудие (все варианты) и Молот гнева: стаки Освящения
