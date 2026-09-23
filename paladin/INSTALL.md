@@ -70,13 +70,13 @@ git apply paladin/core_patch/0001-core-spell-block-chance.patch           # пр
 
 ---
 
-## ШАГ 1. Скрипты (9 файлов)
+## ШАГ 1. Скрипты (10 файлов)
 
 ### 1.1. Вставка кода
 Откройте `src/server/scripts/Spells/spell_paladin.cpp`. Прокрутите в САМЫЙ КОНЕЦ файла
 (после последней закрывающей скобки и после `AddSC_paladin_spell_scripts()` — там обычно `// Add all scripts in the proper order` и функция регистрации).
 
-В конец файла вставьте содержимое всех 9 файлов, **строго в этом порядке**:
+В конец файла вставьте содержимое всех 10 файлов, **строго в этом порядке**:
 1. `spell_paladin_class_fixes.cpp` — всё, что ПОСЛЕ строки `=== CUT HERE ===`
 2. `spell_paladin_class_fixes_2.cpp` — так же
 3. `spell_paladin_class_fixes_3.cpp`
@@ -86,6 +86,7 @@ git apply paladin/core_patch/0001-core-spell-block-chance.patch           # пр
 7. `spell_paladin_class_fixes_7.cpp`
 8. `spell_paladin_class_fixes_8.cpp`
 9. `spell_paladin_class_fixes_9.cpp`
+10. `spell_paladin_class_fixes_10.cpp`
 
 Порядок важен: партии 4a–6 используют хелперы (`IsPaladinJudgment`, `GetHolyPowerCost`), объявленные в партии 1.
 
@@ -110,6 +111,7 @@ void AddSC_paladin_spell_scripts_ex6();
 void AddSC_paladin_spell_scripts_ex7();
 void AddSC_paladin_spell_scripts_ex8();
 void AddSC_paladin_spell_scripts_ex9();
+void AddSC_paladin_spell_scripts_ex10();
 ```
 (части 1 не нужно — её регистрация уже вызывается; х4a объявляется внутри ex4? — НЕТ: ex4 = партия 4a, ex5 = 4b; обе объявляются здесь.)
 
@@ -123,6 +125,7 @@ void AddSC_paladin_spell_scripts_ex9();
     AddSC_paladin_spell_scripts_ex7();
     AddSC_paladin_spell_scripts_ex8();
     AddSC_paladin_spell_scripts_ex9();
+    AddSC_paladin_spell_scripts_ex10();
 ```
 
 ---
@@ -142,6 +145,7 @@ mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_6.sql
 mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_7.sql
 mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_8.sql
 mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_9.sql
+mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_10.sql
 ```
 (например: `mysql -u root -p acore_world < paladin/paladin_class_fixes.sql`)
 
