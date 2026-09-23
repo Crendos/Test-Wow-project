@@ -1,0 +1,5 @@
+## Interface: 120100
+## Title: PalDump
+## Notes: /paldump - выгрузка ID способностей и талантов в SavedVariables
+## SavedVariables: PalDumpDB
+PalDump.lua
