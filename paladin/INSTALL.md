@@ -244,7 +244,9 @@ SELECT CONCAT('2) Спираль молота AT 6006: ', COUNT(*), ' (ждём 
 UNION ALL
 SELECT CONCAT('3) Точки спирали: ', COUNT(*), ' (49 = наша спираль; 0 = строка из TDB)') FROM areatrigger_create_properties_spline_point WHERE AreaTriggerCreatePropertiesId=6006 AND IsCustom=0
 UNION ALL
-SELECT CONCAT('4) Проц-строки (Спасенный/Наказание): ', COUNT(*), ' (ждём 2)') FROM spell_proc WHERE SpellId IN (157047, 431474);
+SELECT CONCAT('4) Проц-строки (Спасенный/Наказание): ', COUNT(*), ' (ждём 2)') FROM spell_proc WHERE SpellId IN (157047, 431474)
+UNION ALL
+SELECT CONCAT('5) Шаблон AT 6006: ', COUNT(*), ' (ждём 1; 0 = КРАШ при касте молота!)') FROM areatrigger_template WHERE Id=6006 AND IsCustom=0;
 ```
 Если хоть одна строка не совпала с ожиданием — соответствующий SQL-файл не импортировался, прогоните его заново (повтор безопасен).
 

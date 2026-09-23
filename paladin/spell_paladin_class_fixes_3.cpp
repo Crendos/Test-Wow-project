@@ -421,6 +421,8 @@ class spell_pal_hammer_of_wrath_aw_ex : public AuraScript
     }
 };
 
+// Регистрация AI-скрипта AT 6006 (раньше struct был, но не регистрировался —
+// AT летел «пустым» без урона; ScriptName из _8.sql теперь находит AI).
 void AddSC_paladin_spell_scripts_ex3()
 {
     RegisterSpellScript(spell_pal_avengers_shield_ex);
@@ -431,4 +433,5 @@ void AddSC_paladin_spell_scripts_ex3()
     RegisterSpellScript(spell_pal_valiant_crusade_ex);
     RegisterSpellScript(spell_pal_blessed_hammer_ex);
     RegisterSpellScript(spell_pal_hammer_of_wrath_aw_ex);
+    RegisterAreaTriggerAI(at_pal_blessed_hammer);
 }

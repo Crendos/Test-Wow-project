@@ -31,11 +31,15 @@ foreach ($f in $files) { if (-not (Test-Path $f)) { Write-Host "[X] нет фа�
 $raw = Get-Content -Raw $pal
 $cur = ([regex]::Matches($raw, [regex]::Escape($marker))).Count
 $hasNew = $raw.Contains('MakeSpellArgs')
+$hasAT  = $raw.Contains('RegisterAreaTriggerAI(at_pal_blessed_hammer)')
 Write-Host "[1/4] маркеров в spell_paladin.cpp сейчас: $cur (нужно 0 или 10)"
 $needRollback = $false
 if ($cur -eq 10) {
-    if ($hasNew) {
-        Write-Host ">>> УЖЕ УСТАНОВЛЕНО (версия MakeSpellArgs) — вставка пропущена"
+    if ($hasNew -and $hasAT) {
+        Write-Host ">>> УЖЕ УСТАНОВЛЕНО (версия MakeSpellArgs + AT-скрипт) — вставка пропущена"
+    } elseif (-not $hasAT) {
+        Write-Host ">>> найдена версия БЕЗ AT-скрипта молота (краш 204019!) — заменяю на новую"
+        $needRollback = $true
     } else {
         Write-Host ">>> найдена СТАРАЯ версия партий (MSVC-несовместимая) — заменяю на новую"
         $needRollback = $true
@@ -71,9 +75,11 @@ if ($cur -eq 0) {
     $raw2 = Get-Content -Raw $pal
     $now = ([regex]::Matches($raw2, [regex]::Escape($marker))).Count
     $ms  = ([regex]::Matches($raw2, 'MakeSpellArgs')).Count
+    $atN = ([regex]::Matches($raw2, [regex]::Escape('RegisterAreaTriggerAI(at_pal_blessed_hammer)'))).Count
     Write-Host "[3/4] маркеров стало: $now (нужно 10)"
     Write-Host "[3b]  MakeSpellArgs в файле: $ms (ожидается 18)"
-    if ($now -eq 10 -and $ms -eq 18) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (MSVC-совместимая версия)" -ForegroundColor Green }
+    Write-Host "[3c]  регистрация AT-скрипта молота: $atN (ожидается 1)"
+    if ($now -eq 10 -and $ms -eq 18 -and $atN -eq 1) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (MSVC-совместимая версия + AT-скрипт)" -ForegroundColor Green }
     else { Write-Host "[X] НЕ СХОДИТСЯ — пришлите этот вывод целиком" -ForegroundColor Red; Read-Host Enter; exit 1 }
 }
 

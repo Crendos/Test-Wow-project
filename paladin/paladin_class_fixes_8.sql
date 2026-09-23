@@ -9,6 +9,12 @@
 -- Если TDB уже содержит строку 6006 (розничные данные) — она используется как есть,
 -- наш скрипт лишь привязывается через ScriptName. Если строки нет — создаём свою со спиральным сплайном.
 
+-- 0) ШАБЛОН AT — ОБЯЗАТЕЛЕН: без строки в areatrigger_template ядро (master 2026+)
+-- хранит Template=NULL и ПАДАЕТ (ACCESS_VIOLATION в AreaTrigger::IsServerSide)
+-- при первом же касте 204019. REPLACE безопасен и для TDB-варианта (Id=6006, IsCustom=0).
+REPLACE INTO `areatrigger_template` (`Id`,`IsCustom`,`Flags`,`ActionSetId`,`ActionSetFlags`) VALUES (6006,0,0,0,0);
+
+
 -- 1) Привязать AI-скрипт к существующей строке (если TDB её содержит)
 UPDATE `areatrigger_create_properties` SET `ScriptName`='at_pal_blessed_hammer' WHERE `Id`=6006 AND `IsCustom`=0;
 
