@@ -1,9 +1,259 @@
--- PalDump: /paldump — выгрузка ID способностей (книга заклинаний) и талантов.
--- КАЖДАЯ специализация сохраняется ОТДЕЛЬНО и НЕ затирает предыдущие:
--- переключите спеку → /paldump → /reload (и так для Света/Воздаяния/Защиты).
--- После /reload файл лежит: WTF\Account\<аккаунт>\SavedVariables\PalDump.lua
+-- PalDump v3: два инструмента в одном.
+-- 1) /paldump — выгрузка ID способностей (книга заклинаний) и талантов.
+--    КАЖДАЯ специализация сохраняется ОТДЕЛЬНО и НЕ затирает предыдущие:
+--    переключите спеку → /paldump → /reload (и так для Света/Воздаяния/Защиты).
+-- 2) /paldumplog — БОЕВОЙ ЛОГ: что я кастанул, какие бафы/дебафы получили/потеряли
+--    я, пит и цели, хилы/энергайзы по мне, суммоны. Пишется в тот же файл:
+--    WTF\Account\<аккаунт>\SavedVariables\PalDump.lua (таблица PalDumpDB.log)
+--    Лог автосохраняется каждые ~400 событий и при входе/выходе из боя.
+--    Команды:
+--      /paldumplog          — вкл/выкл лог
+--      /paldumplog snap     — мгновенный снимок всех аур (я + цель)
+--      /paldumplog show 30  — показать последние 30 строк в чат
+--      /paldumplog dmg on   — дополнительно писать урон (много строк!)
+--      /paldumplog clear    — очистить лог
 -- Совместим со старым и новым API (C_SpellBook / C_Traits / C_SpecializationInfo).
 
+---------------------------------------------------------------------
+-- ХРАНИЛИЩЕ
+---------------------------------------------------------------------
+PalDumpDB = PalDumpDB or {}
+PalDumpDB.specs = PalDumpDB.specs or {}
+PalDumpDB.cfg   = PalDumpDB.cfg   or { log = false, dmg = false }
+PalDumpDB.log   = PalDumpDB.log   or {}
+
+local MAX_LOG = 8000          -- кольцевой буфер строк
+local FLUSH_EVERY = 400       -- автосейв каждые N событий
+
+local playerGUID = nil
+local summoned = {}           -- GUID питомцев/стражей из SPELL_SUMMON
+local startTime = GetTime()
+local evCount = 0
+local lastKey, lastN = nil, 0
+
+local function nowStr()
+    return string.format("%7.1f", GetTime() - startTime)
+end
+
+local function fmt(ev, id, name, src, dst, extra)
+    return string.format("[%s] %-24s %s [%d] %s -> %s%s",
+        nowStr(), ev, tostring(name or "?"), id or 0, tostring(src or "?"), tostring(dst or "?"), extra or "")
+end
+
+local function flush()
+    evCount = 0
+    pcall(SaveVariables)
+end
+
+local function addLine(line, key)
+    local L = PalDumpDB.log
+    if key and key == lastKey and L[#L] then
+        lastN = lastN + 1
+        L[#L] = line .. string.format("  <<x%d>>", lastN + 1)
+    else
+        lastKey, lastN = key, 0
+        L[#L + 1] = line
+        if #L > MAX_LOG then table.remove(L, 1) end
+    end
+    evCount = evCount + 1
+    if evCount >= FLUSH_EVERY then flush() end
+end
+
+---------------------------------------------------------------------
+-- БОЕВОЙ ЛОГ (COMBAT_LOG_EVENT_UNFILTERED)
+---------------------------------------------------------------------
+local AURA_EV = {
+    SPELL_AURA_APPLIED       = true,
+    SPELL_AURA_APPLIED_DOSE  = true,
+    SPELL_AURA_REMOVED       = true,
+    SPELL_AURA_REMOVED_DOSE  = true,
+    SPELL_AURA_REFRESH       = true,
+    SPELL_AURA_BROKEN        = true,
+    SPELL_AURA_BROKEN_SPELL  = true,
+}
+
+local function OnCLEU()
+    if not PalDumpDB.cfg.log then return end
+    local petG = UnitGUID("pet")
+    local _, ev, _, sGUID, sName, _, _, dGUID, dName, _, _, spellId, spellName, _, a1, a2, a3, a4, a5, a6, a7 = CombatLogGetCurrentEventInfo()
+    if not ev then return end
+
+    local petS = petG and sGUID == petG
+    local petD = petG and dGUID == petG
+    local srcMine = sGUID == playerGUID or summoned[sGUID] or petS
+    local dstMine = dGUID == playerGUID or summoned[dGUID] or petD
+    if not (srcMine or dstMine) then return end
+
+    local src = srcMine and (petS and "ПИТ" or "Я") or tostring(sName or sGUID or "?")
+    local dst = dstMine and (petD and "ПИТ" or "Я") or tostring(dName or dGUID or "?")
+
+    local line, key
+    if ev == "SPELL_CAST_SUCCESS" then
+        line = fmt(ev, spellId, spellName, src, dst)
+        key = "C" .. spellId .. dst
+    elseif AURA_EV[ev] then
+        local ex
+        if ev == "SPELL_AURA_APPLIED" or ev == "SPELL_AURA_APPLIED_DOSE" or ev == "SPELL_AURA_REMOVED_DOSE" then
+            ex = (a1 == "BUFF") and " [баф]" or " [дебаф]"
+            if ev ~= "SPELL_AURA_APPLIED" and a2 and a2 > 1 then ex = ex .. " стаков:" .. a2 end
+        elseif ev == "SPELL_AURA_REFRESH" then
+            ex = (a1 == "BUFF") and " [баф] обновлён" or " [дебаф] обновлён"
+        elseif ev == "SPELL_AURA_BROKEN" then
+            ex = " сорван"
+        elseif ev == "SPELL_AURA_BROKEN_SPELL" then
+            ex = " сорван спеллом " .. tostring(a2 or "?")
+        else
+            ex = ""
+        end
+        line = fmt(ev, spellId, spellName, src, dst, ex)
+        key = "A" .. ev .. spellId .. dst
+    elseif ev == "SPELL_SUMMON" then
+        if srcMine and dGUID then summoned[dGUID] = true end
+        line = fmt(ev, spellId, spellName, src, dst)
+        key = nil
+    elseif ev == "SPELL_ENERGIZE" and dstMine then
+        line = fmt(ev, spellId, spellName, src, dst, " +" .. tostring(a2 or 0) .. " ресурс")
+        key = "E" .. spellId .. tostring(a1 or "")
+    elseif (ev == "SPELL_HEAL" or ev == "SPELL_PERIODIC_HEAL") and dstMine then
+        line = fmt(ev, spellId, spellName, src, dst, " хил:" .. tostring(a1 or 0) .. (a4 and " КРИТ" or ""))
+        key = "H" .. spellId .. src
+    elseif PalDumpDB.cfg.dmg and (ev == "SPELL_DAMAGE" or ev == "SPELL_PERIODIC_DAMAGE") then
+        line = fmt(ev, spellId, spellName, src, dst, " урон:" .. tostring(a1 or 0) .. (a7 and " КРИТ" or ""))
+        key = "D" .. ev .. spellId .. dst
+    elseif ev == "SPELL_DISPEL" then
+        line = fmt(ev, spellId, spellName, src, dst, " снял: " .. tostring(a2 or "?"))
+        key = nil
+    elseif ev == "SPELL_INTERRUPT" then
+        line = fmt(ev, spellId, spellName, src, dst, " прервал: " .. tostring(a2 or "?"))
+        key = nil
+    else
+        return
+    end
+    addLine(line, key)
+end
+
+---------------------------------------------------------------------
+-- СНИМОК АУР (/paldumplog snap)
+---------------------------------------------------------------------
+local function EachAura(unit, filter, cb)
+    local done = false
+    if AuraUtil and AuraUtil.ForEachAura then
+        done = pcall(AuraUtil.ForEachAura, unit, filter, nil,
+            function(a)
+                if not a then return true end
+                cb(a.name, a.spellId or a.spellID, a.applications, a.expirationTime, a.sourceUnit)
+                return true
+            end)
+    end
+    if not done then
+        for i = 1, 40 do
+            local name, _, count, _, _, expirationTime, _, _, _, spellId = UnitAura(unit, i, filter)
+            if not name then break end
+            cb(name, spellId, count, expirationTime, nil)
+        end
+    end
+end
+
+local function Snapshot()
+    local t = GetTime()
+    local function dump(unit, filter, label)
+        local n = 0
+        EachAura(unit, filter, function(name, id, stacks, exp, srcUnit)
+            n = n + 1
+            local rem = (exp and exp > 0 and exp - t > 0) and string.format(" ост.%ds", math.ceil(exp - t)) or ""
+            local stk = (stacks and stacks > 1) and (" x" .. stacks) or ""
+            local who = ""
+            if srcUnit == "player" then who = " от-меня"
+            elseif srcUnit == "pet" then who = " от-пита"
+            elseif srcUnit then who = " от:" .. tostring(srcUnit) end
+            addLine(string.format("[СНИМОК] %s: %s [%d]%s%s%s", label, tostring(name), id or 0, stk, rem, who), nil)
+            return true
+        end)
+        return n
+    end
+    local b = dump("player", "HELPFUL", "мой-баф")
+    local d = dump("player", "HARMFUL", "мой-дебаф")
+    local tn = 0
+    if UnitExists("target") then
+        tn = dump("target", "HELPFUL", "цель-баф")
+        tn = tn + dump("target", "HARMFUL", "цель-дебаф")
+    end
+    addLine(string.format("=== СНИМОК: у меня бафов %d, дебафов %d, на цели аур %d ===", b, d, tn), nil)
+    print(("[PalLog] Снимок записан: у меня %d бафов / %d дебафов, на цели %d аур"):format(b, d, tn))
+end
+
+---------------------------------------------------------------------
+-- КОМАНДЫ
+---------------------------------------------------------------------
+SLASH_PALDUMPLOG1 = "/paldumplog"
+SlashCmdList["PALDUMPLOG"] = function(msg)
+    msg = tostring(msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+    if msg == "" or msg == "on" or msg == "off" then
+        local v = (msg == "" and not PalDumpDB.cfg.log) or (msg == "on")
+        PalDumpDB.cfg.log = v
+        addLine(v and "=== ЛОГ ВКЛЮЧЁН ===" or "=== ЛОГ ВЫКЛЮЧЕН ===", nil)
+        print("[PalLog] Боевой лог: " .. (v and "ВКЛЮЧЁН (касты, бафы/дебафы, хилы по мне, суммоны)" or "ВЫКЛЮЧЕН"))
+        print("[PalLog] /paldumplog snap — снимок аур | /paldumplog show 30 | /paldumplog dmg on — писать урон | /paldumplog clear")
+        flush()
+    elseif msg == "snap" then
+        Snapshot()
+    elseif msg:match("^show") then
+        local n = tonumber(msg:match("show%s+(%d+)")) or 20
+        local L = PalDumpDB.log
+        for i = math.max(1, #L - n + 1), #L do print("  " .. L[i]) end
+        print(("[PalLog] показано %d из %d (весь файл: WTF\\Account\\<аккаунт>\\SavedVariables\\PalDump.lua)")
+            :format(math.min(n, #L), #L))
+    elseif msg == "dmg on" or msg == "dmg off" then
+        PalDumpDB.cfg.dmg = (msg == "dmg on")
+        print("[PalLog] Писать урон: " .. (PalDumpDB.cfg.dmg and "ВКЛ (лог будет расти быстро)" or "ВЫКЛ"))
+    elseif msg == "clear" then
+        PalDumpDB.log = {}
+        lastKey, lastN, evCount = nil, 0, 0
+        print("[PalLog] Лог очищен")
+    else
+        print("Использование: /paldumplog [on|off|snap|show N|dmg on|dmg off|clear]")
+    end
+end
+
+---------------------------------------------------------------------
+-- СОБЫТИЯ ЖИЗНИ
+---------------------------------------------------------------------
+local f = CreateFrame("Frame")
+f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+f:RegisterEvent("PLAYER_ENTER_WORLD")
+f:RegisterEvent("PLAYER_REGEN_DISABLED")
+f:RegisterEvent("PLAYER_REGEN_ENABLED")
+f:RegisterEvent("PLAYER_LOGOUT")
+f:SetScript("OnEvent", function(_, event)
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        OnCLEU()
+    elseif event == "PLAYER_ENTER_WORLD" then
+        playerGUID = UnitGUID("player")
+        summoned = {}
+        startTime = GetTime()
+        local _, build = GetBuildInfo()
+        -- ужимаем лог, если накопился за много сессий
+        local L = PalDumpDB.log
+        if #L > 6000 then
+            local keep = {}
+            for i = #L - 4000 + 1, #L do keep[#keep + 1] = L[i] end
+            PalDumpDB.log = keep
+        end
+        addLine(string.format("===== СЕССИЯ %s, клиент %s =====", date("%Y-%m-%d %H:%M:%S"), build or "?"), nil)
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        if PalDumpDB.cfg.log then addLine("=== ВСТУПИЛ В БОЙ ===", nil) end
+        flush()
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        if PalDumpDB.cfg.log then addLine("=== ВЫШЕЛ ИЗ БОЯ ===", nil) end
+        flush()
+    elseif event == "PLAYER_LOGOUT" then
+        addLine("=== ВЫХОД ===", nil)
+    end
+end)
+
+---------------------------------------------------------------------
+-- /paldump — выгрузка книги и талантов (как раньше)
+---------------------------------------------------------------------
 local function PlayerBank()
     if Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player then
         return Enum.SpellBookSpellBank.Player
@@ -128,8 +378,6 @@ end
 
 SLASH_PALDUMP1 = "/paldump"
 SlashCmdList["PALDUMP"] = function()
-    PalDumpDB = PalDumpDB or {}
-    PalDumpDB.specs = PalDumpDB.specs or {}
     local specName, specID = SpecInfo()
     local key = tostring(specID)
     local book, skipped = DumpBook()
@@ -142,4 +390,5 @@ SlashCmdList["PALDUMP"] = function()
     print("[PalDump] уже в файле: " .. table.concat(list, ", "))
     print("[PalDump] введите /reload, затем при желании переключите другую спеку и повторите /paldump")
     print('  финальный файл: WTF\\Account\\<имя аккаунта>\\SavedVariables\\PalDump.lua')
+    flush()
 end
