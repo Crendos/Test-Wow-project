@@ -15,6 +15,28 @@
 
 // === CUT HERE ===============================================================
 
+// MSVC не переваривает вложенные braced-списки в designated-инициализаторе
+// CastSpellExtraArgsInit ( SpellValueOverrides = { {mod,val} } ) — собираем через хелпер.
+// Две перегрузки: SpellValueModFloat (BASE_POINT0.., double) и SpellValueMod (DURATION и пр., int32).
+[[nodiscard]] inline CastSpellExtraArgs MakeSpellArgs(TriggerCastFlags flags, Spell const* triggeringSpell, SpellValueModFloat mod, SpellEffectValue val)
+{
+    CastSpellExtraArgs args(flags);
+    if (triggeringSpell)
+        args.TriggeringSpell = triggeringSpell;
+    args.SpellValueOverrides.emplace_back(mod, val);
+    return args;
+}
+
+[[nodiscard]] inline CastSpellExtraArgs MakeSpellArgs(TriggerCastFlags flags, Spell const* triggeringSpell, SpellValueMod mod, int32 val)
+{
+    CastSpellExtraArgs args(flags);
+    if (triggeringSpell)
+        args.TriggeringSpell = triggeringSpell;
+    args.SpellValueOverrides.emplace_back(mod, val);
+    return args;
+}
+
+
 enum PaladinExSpells
 {
     SPELL_EX_CRUSADER_STRIKE                  = 35395,
@@ -316,11 +338,7 @@ class spell_pal_judge_jury_executioner_refund_ex : public AuraScript
         Unit* target = GetTarget();
         int32 holyPowerSpent = *GetHolyPowerCost(eventInfo.GetProcSpell());
 
-        target->CastSpell(target, SPELL_EX_JJE_REFUND, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = eventInfo.GetProcSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, holyPowerSpent } }
-        });
+        target->CastSpell(target, SPELL_EX_JJE_REFUND, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, eventInfo.GetProcSpell(), SPELLVALUE_BASE_POINT0, holyPowerSpent));
 
         if (Aura* aura = GetAura())
             aura->ModStackAmount(-1, AURA_REMOVE_BY_ENEMY_SPELL);

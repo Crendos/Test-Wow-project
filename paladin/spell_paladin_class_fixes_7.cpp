@@ -113,11 +113,7 @@ class spell_pal_hammer_of_light_ex : public SpellScript
                     pct += perTarget->GetAmount() * targetsHit;
 
                 int64 heal = caster->CountPctFromMaxHealth(pct);
-                caster->CastSpell(caster, SPELL_EX7_SACROSANCT_CRUSADE_HEAL, CastSpellExtraArgsInit{
-                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                    .TriggeringSpell = GetSpell(),
-                    .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, int32(heal) } }
-                });
+                caster->CastSpell(caster, SPELL_EX7_SACROSANCT_CRUSADE_HEAL, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, int32(heal)));
             }
         }
     }

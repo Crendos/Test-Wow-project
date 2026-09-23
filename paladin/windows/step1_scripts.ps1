@@ -30,27 +30,50 @@ foreach ($f in $files) { if (-not (Test-Path $f)) { Write-Host "[X] нет фа�
 
 $raw = Get-Content -Raw $pal
 $cur = ([regex]::Matches($raw, [regex]::Escape($marker))).Count
+$hasNew = $raw.Contains('MakeSpellArgs')
 Write-Host "[1/4] маркеров в spell_paladin.cpp сейчас: $cur (нужно 0 или 10)"
+$needRollback = $false
 if ($cur -eq 10) {
-    Write-Host ">>> УЖЕ УСТАНОВЛЕНО — вставка пропущена"
-} else {
-    if ($cur -ne 0) {
-        Write-Host ">>> файл неполный/с дубликатами — откатываю git'ом и ставлю заново"
-        Push-Location $core
-        git checkout -- 'src/server/scripts/Spells/spell_paladin.cpp' 2>$null
-        Pop-Location
+    if ($hasNew) {
+        Write-Host ">>> УЖЕ УСТАНОВЛЕНО (версия MakeSpellArgs) — вставка пропущена"
+    } else {
+        Write-Host ">>> найдена СТАРАЯ версия партий (MSVC-несовместимая) — заменяю на новую"
+        $needRollback = $true
     }
+} elseif ($cur -ne 0) {
+    Write-Host ">>> файл неполный/с дубликатами — нужен откат"
+    $needRollback = $true
+}
+if ($needRollback) {
+    Write-Host ">>> откатываю spell_paladin.cpp через git..."
+    Push-Location $core
+    git checkout -- 'src/server/scripts/Spells/spell_paladin.cpp' 2>$null
+    Pop-Location
+    $cur = ([regex]::Matches((Get-Content -Raw $pal), [regex]::Escape($marker))).Count
+    if ($cur -ne 0) {
+        Write-Host "[X] git не смог откатить файл — выполните ВРУЧНУЮ в этой консоли:" -ForegroundColor Red
+        Write-Host "    cd /d `"$core`""
+        Write-Host "    git checkout -- src/server/scripts/Spells/spell_paladin.cpp"
+        Write-Host "    затем запустите step1_scripts.bat заново"
+        Read-Host "Нажмите Enter для выхода"; exit 1
+    }
+    Write-Host ">>> откат выполнен (0 маркеров)"
+}
+if ($cur -eq 0) {
     Write-Host "[2/4] Дописываю 10 файлов..."
     foreach ($f in $files) {
         $t = Get-Content -Raw $f
         $i = $t.IndexOf($marker)
         if ($i -lt 0) { Write-Host "[X] маркер не найден в $f"; Read-Host Enter; exit 1 }
-        [IO.File]::AppendAllText($pal, "`r`n" + $t.Substring($i))
+        [IO.File]::AppendAllText($pal, "`r`n" + $t.Substring($i), [Text.Encoding]::UTF8)
         Write-Host ("    добавлен: " + (Split-Path -Leaf $f))
     }
-    $now = ([regex]::Matches((Get-Content -Raw $pal), [regex]::Escape($marker))).Count
+    $raw2 = Get-Content -Raw $pal
+    $now = ([regex]::Matches($raw2, [regex]::Escape($marker))).Count
+    $ms  = ([regex]::Matches($raw2, 'MakeSpellArgs')).Count
     Write-Host "[3/4] маркеров стало: $now (нужно 10)"
-    if ($now -eq 10) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН" -ForegroundColor Green }
+    Write-Host "[3b]  MakeSpellArgs в файле: $ms (ожидается 18)"
+    if ($now -eq 10 -and $ms -eq 18) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (MSVC-совместимая версия)" -ForegroundColor Green }
     else { Write-Host "[X] НЕ СХОДИТСЯ — пришлите этот вывод целиком" -ForegroundColor Red; Read-Host Enter; exit 1 }
 }
 

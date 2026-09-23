@@ -108,10 +108,7 @@ public:
             });
 
         if (_caster->HasAura(SPELL_EX8_GLORY_2))
-            _caster->CastSpell(_caster, SPELL_EX8_HOLY_POWER_ENERGIZE, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, 1 } }
-            });
+            _caster->CastSpell(_caster, SPELL_EX8_HOLY_POWER_ENERGIZE, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, nullptr, SPELLVALUE_BASE_POINT0, 1));
 
         if (_caster->HasAura(SPELL_EX8_GLORY_3))
             _caster->CastSpell(_caster, SPELL_EX8_VALOR_BUFF, CastSpellExtraArgsInit{
@@ -312,11 +309,7 @@ class spell_pal_beacon_of_the_savior_transfer_ex : public SpellScript
         if (!savior)
             return;
 
-        caster->CastSpell(savior, SPELL_EX8_BEACON_HEAL_CARRIER, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, CalculatePct(heal, pct) } }
-        });
+        caster->CastSpell(savior, SPELL_EX8_BEACON_HEAL_CARRIER, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, CalculatePct(heal, pct)));
     }
 
     void Register() override
@@ -340,11 +333,7 @@ class spell_pal_seraphic_barrier_ex : public SpellScript
         if (heal <= 0)
             return;
 
-        caster->CastSpell(GetHitUnit(), SPELL_EX8_ABSORB_CARRIER, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, CalculatePct(heal, 18) } }
-        });
+        caster->CastSpell(GetHitUnit(), SPELL_EX8_ABSORB_CARRIER, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, CalculatePct(heal, 18)));
     }
 
     void Register() override
@@ -386,11 +375,7 @@ class spell_pal_overflowing_light_ex : public SpellScript
         if (absorb <= 0)
             return;
 
-        caster->CastSpell(target, SPELL_EX8_ABSORB_CARRIER, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, int32(absorb) } }
-        });
+        caster->CastSpell(target, SPELL_EX8_ABSORB_CARRIER, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, int32(absorb)));
     }
 
     void Register() override

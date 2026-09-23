@@ -299,11 +299,7 @@ class spell_pal_valiant_crusade_ex : public SpellScript
         if (!caster || !caster->HasAura(SPELL_EX3_VALIANT_CRUSADE))
             return;
 
-        caster->CastSpell(caster, SPELL_EX3_SOTR_ARMOR, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_DURATION, 8000 } }
-        });
+        caster->CastSpell(caster, SPELL_EX3_SOTR_ARMOR, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_DURATION, 8000));
     }
 
     void Register() override

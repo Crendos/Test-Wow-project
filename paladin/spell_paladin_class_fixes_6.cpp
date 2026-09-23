@@ -301,11 +301,7 @@ class spell_pal_selfless_healer_ex : public SpellScript
         if (shared <= 0)
             return;
 
-        caster->CastSpell(caster, SPELL_EX6_GOLDEN_PATH_HEAL, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, int32(shared) } }
-        });
+        caster->CastSpell(caster, SPELL_EX6_GOLDEN_PATH_HEAL, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, int32(shared)));
     }
 
     void Register() override

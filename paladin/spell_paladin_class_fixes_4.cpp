@@ -297,11 +297,7 @@ class spell_pal_resplendent_light_ex : public SpellScript
         {
             if (ally == target)
                 continue;
-            caster->CastSpell(ally, SPELL_EX4_BEACON_HEAL_CARRIER, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringSpell = GetSpell(),
-                .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, heal } }
-            });
+            caster->CastSpell(ally, SPELL_EX4_BEACON_HEAL_CARRIER, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, heal));
             if (--_targets <= 0)
                 break;
         }
@@ -325,11 +321,7 @@ namespace
             return;
 
         int32 pct = int32(std::min<int64>(100, (refund * 100 + maxMana / 2) / maxMana));
-        caster->CastSpell(caster, SPELL_EX4_MANA_ENERGIZE_PCT, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = triggeringSpell,
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, pct } }
-        });
+        caster->CastSpell(caster, SPELL_EX4_MANA_ENERGIZE_PCT, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, triggeringSpell, SPELLVALUE_BASE_POINT0, pct));
     }
 }
 
@@ -428,11 +420,7 @@ class spell_pal_divine_revelations_judg_ex : public SpellScript
         if (!caster->HasAura(SPELL_EX4_INFUSION_OF_LIGHT_BUFF))
             return;
 
-        caster->CastSpell(caster, SPELL_EX4_MANA_ENERGIZE_PCT, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, 1 } }
-        });
+        caster->CastSpell(caster, SPELL_EX4_MANA_ENERGIZE_PCT, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, 1));
     }
 
     void Register() override
@@ -569,11 +557,7 @@ class spell_pal_liberation_ex : public SpellScript
         {
             if (!caster->IsValidAttackTarget(enemy) || !enemy->IsWithinLOSInMap(caster))
                 continue;
-            caster->CastSpell(enemy, SPELL_EX4_DAMAGE_CARRIER, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringSpell = GetSpell(),
-                .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, int32(damage) } }
-            });
+            caster->CastSpell(enemy, SPELL_EX4_DAMAGE_CARRIER, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, int32(damage)));
             break;
         }
     }

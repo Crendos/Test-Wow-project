@@ -263,11 +263,7 @@ class spell_pal_saved_by_the_light_ex : public AuraScript
         float missingFrac = 1.f - target->GetHealthPct() / 100.f;
         int32 absorb = int32(300.f * (1.f + 0.09f * missingFrac));
 
-        target->CastSpell(target, SPELL_EX5_SAVED_BY_THE_LIGHT_ABSORB, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = eventInfo.GetProcSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, absorb } }
-        });
+        target->CastSpell(target, SPELL_EX5_SAVED_BY_THE_LIGHT_ABSORB, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, eventInfo.GetProcSpell(), SPELLVALUE_BASE_POINT0, absorb));
     }
 
     void Register() override

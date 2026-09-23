@@ -259,11 +259,7 @@ class spell_pal_bulwark_of_order_ex : public SpellScript
         int64 shield = CalculatePct(static_cast<int64>(GetHitDamage()), 75);
         shield = std::min<int64>(shield, caster->CountPctFromMaxHealth(50));
 
-        caster->CastSpell(caster, SPELL_EX2_BULWARK_OF_ORDER_SHIELD, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, int32(shield) } }
-        });
+        caster->CastSpell(caster, SPELL_EX2_BULWARK_OF_ORDER_SHIELD, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, int32(shield)));
     }
 
     void Register() override
@@ -297,11 +293,7 @@ class spell_pal_light_of_the_titans_ex : public SpellScript
         if (hotBase <= 0)
             return;
 
-        caster->CastSpell(GetHitUnit(), SPELL_EX2_LIGHT_OF_TITANS_HOT, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, hotBase } }
-        });
+        caster->CastSpell(GetHitUnit(), SPELL_EX2_LIGHT_OF_TITANS_HOT, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, hotBase));
     }
 
     void Register() override
@@ -341,11 +333,7 @@ class spell_pal_consecration_prot_ex : public SpellScript
         if (heal <= 0)
             return;
 
-        caster->CastSpell(caster, SPELL_EX2_GOLDEN_PATH_HEAL, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell(),
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, int32(heal) } }
-        });
+        caster->CastSpell(caster, SPELL_EX2_GOLDEN_PATH_HEAL, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, int32(heal)));
     }
 
     void Register() override
