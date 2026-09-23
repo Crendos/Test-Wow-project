@@ -1,10 +1,6 @@
 /*
- * PLAYERBOTS под TrinityCore master — v3 (классовое знание: спелы + когда что кастовать)
- * Источники знания (по приоритету):
- *   1) world.playerbots_combat_spells (legacy per-name),
- *   2) world.playerbots_class_knowledge (per-class, ручные правила),
- *   3) авто-построение из РЕАЛЬНОГО спелбукка персонажа (GetSpellMap),
- *      с классификацией по эффектам SpellInfo.
+ * PLAYERBOTS под TrinityCore master — v4 (активная ротация + системная синергия)
+ * Всё происходит в world-thread (tick из PlayerbotMgr::UpdateAI через WorldScript::OnUpdate).
  */
 #ifndef PLAYERBOT_AI_H
 #define PLAYERBOT_AI_H
@@ -13,11 +9,13 @@
 #include "Knowledge.h"
 #include "ObjectGuid.h"
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 class Player;
 class Unit;
 class SpellInfo;
+class PlayerbotMgr;
 
 class PlayerbotAI
 {
@@ -33,19 +31,27 @@ public:
     void ClearFollow();
     bool IsFollowMode() const { return _followEnabled; }
 
-    // команды
+    // команды (.playerbots ...) 
     void PingMaster();
     void BotSay(std::string const& msg);
     void EmoteMe(uint32 emote);
-    std::vector<uint32> ListKnownSpelIDs() const;   // выгрузка для .playerbots book
+    void EquipBestItems();                         // .playerbots equip — подбор из сумок
+    std::vector<uint32> ListKnownSpelIDs() const;  // .playerbots book
+
+    // для mgr: битва/gravel-филлер после длинного тикта
+    void NotifyCombatEnter();
+    bool HasManualOverride() const { return !m_knowledge.empty() && _manualKnowledge; }
 
 private:
-    // ---- v3: знание ----
-    void BuildKnowledgeFromSpellbook();    // авто-классификация по эффектам
-    void EnsureSelfBuffs();                // поддержка self-бафов (каждый тик вне каста)
-    bool TryDefensive();                   // большая защита при малом HP
-    bool TryHeal();                        // лечение себя/мастера
-    bool TryAttackSpell();                 // основной цикл урона (priority, range, gates)
+    // ---- знание и авто-структурирование ----
+    void BuildKnowledgeFromSpellbook();
+    void EnsureSelfBuffs();
+    bool TryDefensive();
+    bool TryHeal();
+    bool TryAttackSpell();              // + DoT/burst/gate идентификатор
+    bool SpellFits(BotKnowledge const& k, Unit* target) const;
+    void RegisterCastFail(uint32 spellId);  // меморизация невыгодного каста
+    void ClearCastBlacklist();
 
     // состояния
     void DoCombatAI(uint32 diff);
@@ -60,9 +66,14 @@ private:
     bool CastSpellAt(uint32 spellId, Unit* target);
     bool IsSpellReady(uint32 spellId) const;
     bool IsSelfBuffSpell(SpellInfo const* info) const;
-    bool SpellFits(BotKnowledge const& k, Unit* target) const; // range/gates/ready
 
     static float GetDefaultCombatRange(uint8 cls);
+    static int   ClassArmorSubClass(uint8 cls);   // auto-equip: максимум по броне
+
+    // ---- авто-одевание (gear scoring) ----
+    int  ScoreItem(class Item const* item) const;
+    bool ItemFitsClass(class Item const* item, int slot) const;
+    static int SlotForInventoryType(int32 invType);
 
     // plane
     void RandomWander(uint32 diff);
@@ -70,11 +81,15 @@ private:
     void RandomChat(uint32 diff);
 
     Player* _bot;
-    std::vector<BotKnowledge> m_knowledge; // отсортированы по priority DESC
+    std::vector<BotKnowledge> m_knowledge;
+    bool _manualKnowledge = false;
 
     // --- combat ---
     Unit*  m_combatTarget  = nullptr;
-    uint32 m_recastTimerMs = 0;            // v3: общий GCD-подобный анти-спам (1.5с)
+    uint32 m_recastTimerMs = 0;
+    uint32 m_combatEnterMs = 0;          // timestamp входа в бой (для burst-окна)
+    bool   _combatActive   = false;
+    std::unordered_set<uint32> m_castBlacklist; // заброшенные в текущем бою спелы
 
     // --- follow ---
     ObjectGuid _masterGuid;

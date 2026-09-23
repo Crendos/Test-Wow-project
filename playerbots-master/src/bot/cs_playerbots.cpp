@@ -41,6 +41,7 @@ namespace
                 { "followme",    HandleBotFollowMeCommand,       static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "stay",        HandleBotStayCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "book",        HandleBotBookCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "equip",       HandleBotEquipCommand,          static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "roster",      playerbotsRosterCommandTable },
             };
 
@@ -122,6 +123,21 @@ namespace
             }
             ai->ClearFollow();
             handler->SendSysMessage("Бот остановлен.");
+            return true;
+        }
+
+        // .playerbots equip <имя>  — бот наденет лучшее из сумок по классу
+        static bool HandleBotEquipCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                return false;
+            }
+            ai->EquipBestItems();
+            handler->SendSysMessage("Экипировка пересчитана.");
             return true;
         }
 

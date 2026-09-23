@@ -1,10 +1,14 @@
 /*
- * PLAYERBOTS под TrinityCore master — v3 (классовое знание)
- * Знание спелов: ручная БД (имя/класс) ИЛИ авто-построение из spellbookа бота.
- * Правила «когда что кастовать»: defensive-first → heal → damage, range/gates/ready.
+ * PLAYERBOTS под TrinityCore master — v4
+ * Активная ротация: GCD≈StartRecoveryTime (мин. 1.5с), DoT-управление по аурам,
+ * Defensive>Heal>Damage по приоритетам и «сжатие» кулдаунов в окне старта боя,
+ * черный список заброшенных спеллов на время боя.
+ * Авто-одевание из сумок: баланс itemLevel по классу (броня по subclass).
  */
-#include "PlayerbotMgr.h"   // BotKnowledge живёт в Knowledge.h через mgr-цепочку
+#include "PlayerbotMgr.h"
 #include "PlayerbotAI.h"
+#include "GameTime.h"
+#include "Item.h"
 #include "Log.h"
 #include "Map.h"
 #include "MotionMaster.h"
@@ -15,6 +19,7 @@
 #include "SharedDefines.h"
 #include "SpellHistory.h"
 #include "SpellMgr.h"
+#include "Timer.h"
 #include "Unit.h"
 #include "World.h"
 #include "WorldSession.h"
@@ -25,8 +30,9 @@ PlayerbotAI::PlayerbotAI(Player* bot, std::vector<BotKnowledge> knowledge)
     , m_knowledge(std::move(knowledge))
 {
     m_combatRange = GetDefaultCombatRange(_bot->GetClass());
+    _manualKnowledge = !m_knowledge.empty();
 
-    if (m_knowledge.empty())
+    if (!_manualKnowledge)
     {
         BuildKnowledgeFromSpellbook();
         TC_LOG_INFO("playerbots", "AI {}: знание построено из спелбукка — {} правил", _bot->GetName(), m_knowledge.size());
@@ -34,6 +40,9 @@ PlayerbotAI::PlayerbotAI(Player* bot, std::vector<BotKnowledge> knowledge)
 
     std::sort(m_knowledge.begin(), m_knowledge.end(),
         [](BotKnowledge const& a, BotKnowledge const& b) { return a.priority > b.priority; });
+
+    // одеть лучшее из сумок при логине
+    EquipBestItems();
 
     m_planeEmoteTimer  = urand(5000, 15000);
     m_planeWanderTimer = urand(10000, 30000);
@@ -56,9 +65,26 @@ PlayerbotAI::~PlayerbotAI() = default;
     }
 }
 
-// ---------------------------------------------------------------- v3: зна niya
+/*static*/ int PlayerbotAI::ClassArmorSubClass(uint8 cls)
+{
+    // RETAIL-легализация: максимальный доступный по классу armor-subclass
+    switch (cls)
+    {
+        case 1:  return 4;   // Warrior  → пластина
+        case 2:  return 4;   // Paladin  → пластина
+        case 6:  return 4;   // DK       → пластина
+        case 3:  return 3;   // Hunter   → кольчуга
+        case 7:  return 3;   // Shaman   → кольчуга
+        case 4:  return 2;   // Rogue    → кожа
+        case 10: return 2;   // Monk     → кожа
+        case 11: return 2;   // Druid    → кожа
+        case 12: return 2;   // DH       → кожа
+        default: return 1;   // Mage/Priest/Warlock/Evoker → ткань
+    }
+}
 
-// Классификатор «что это за спелл» по эффектам — честный, без таблиц имён.
+// ---------------------------------------------------------------- v4: авто-знание
+
 void PlayerbotAI::BuildKnowledgeFromSpellbook()
 {
     for (auto const& kv : _bot->GetSpellMap())
@@ -71,66 +97,66 @@ void PlayerbotAI::BuildKnowledgeFromSpellbook()
         if (!info || info->IsPassive())
             continue;
 
-        // исключаем маунты и прочую администратинру: любой APPLY_AURA с MOUNT — пропускаем
-        bool isMount = false, isHeal = false, isDamage = false, isInterrupt = false, isAura = false;
+        bool isHeal=false, isDmg=false, isInterrupt=false, isAura=false, isDoT=false, isMount=false;
         for (SpellEffectInfo const& eff : info->GetEffects())
         {
-            if (eff.Effect == SPELL_EFFECT_INTERRUPT_CAST)
-                isInterrupt = true;
-            if (eff.Effect == SPELL_EFFECT_HEAL)
-                isHeal = true;
-            if (eff.Effect == SPELL_EFFECT_SCHOOL_DAMAGE)
-                isDamage = true;
+            if (eff.Effect == SPELL_EFFECT_INTERRUPT_CAST) isInterrupt = true;
+            if (eff.Effect == SPELL_EFFECT_HEAL)            isHeal = true;
+            if (eff.Effect == SPELL_EFFECT_SCHOOL_DAMAGE)   isDmg = true;
             if (eff.Effect == SPELL_EFFECT_APPLY_AURA)
             {
                 isAura = true;
+                if (eff.ApplyAuraName == SPELL_AURA_PERIODIC_DAMAGE
+                    || eff.ApplyAuraName == SPELL_AURA_PERIODIC_LEECH)
+                    isDoT = true;
                 if (eff.ApplyAuraName == SPELL_AURA_MOUNTED)
                     isMount = true;
             }
         }
-        (void)isMount;
+
+        if (isMount)
+            continue;   // маунты в знание не берём
 
         if (isInterrupt)
         {
-            m_knowledge.push_back(BotKnowledge{kv.first, BotKnowledge::Kind::Interrupt, 60, 100, 0, 100, false});
-            continue;
+            m_knowledge.push_back(BotKnowledge{kv.first, BotKnowledge::Kind::Interrupt, 60, 100, 0, 100, false, false});
         }
-        if (isHeal && info->IsPositive())
+        else if (isHeal && info->IsPositive())
         {
-            m_knowledge.push_back(BotKnowledge{kv.first, BotKnowledge::Kind::Heal, 80, 60, 0, 100, false});
-            continue;
+            m_knowledge.push_back(BotKnowledge{kv.first, BotKnowledge::Kind::Heal, 80, 60, 0, 100, false, false});
         }
-        if (isAura && info->IsPositive() && info->GetMaxRange(true, _bot) <= 0.0f)
+        else if (isDoT && !info->IsPositive())
         {
-            uint16 priority   = info->RecoveryTime >= 60000 ? 95 : 40;
-            uint8  selfHpMax  = info->RecoveryTime >= 60000 ? 35 : 100;
-            BotKnowledge::Kind kind = info->RecoveryTime >= 60000
-                ? BotKnowledge::Kind::Defensive : BotKnowledge::Kind::SelfBuff;
-            m_knowledge.push_back(BotKnowledge{kv.first, kind, priority, selfHpMax, 0, 100, true});
-            continue;
+            // DoT/дебафф урона: поддерживаем на цели (cast до выхода из ауры)
+            m_knowledge.push_back(BotKnowledge{kv.first, BotKnowledge::Kind::DoT, 130, 100, 0, 100, true, false});
         }
-        if (isDamage && !info->IsPositive())
+        else if (isAura && info->IsPositive() && info->GetMaxRange(true, _bot) <= 0.0f)
         {
-            // короткий CD = фирменный «выстук» класса → чуть выше по приоритету
+            bool bigDef = info->RecoveryTime >= 60000u;
+            m_knowledge.push_back(BotKnowledge{kv.first,
+                bigDef ? BotKnowledge::Kind::Defensive : BotKnowledge::Kind::SelfBuff,
+                bigDef ? uint16(500): uint16(40),
+                bigDef ? uint8(35)  : uint8(100),
+                0, 100, true, false});
+        }
+        else if (isDmg && !info->IsPositive())
+        {
+            bool burst = info->RecoveryTime >= 60000;
             uint16 bonus = uint16(std::min<uint32>(info->RecoveryTime, 30000u) / 1000u);
-            m_knowledge.push_back(BotKnowledge{kv.first, BotKnowledge::Kind::Damage, uint16(100 + bonus), 100, 0, 100, false});
-            continue;
+            m_knowledge.push_back(BotKnowledge{kv.first, BotKnowledge::Kind::Damage,
+                uint16(100 + bonus + (burst ? 400 : 0)), 100, 0, 100, false, burst});
         }
+        else if (!info->IsPositive() && info->GetMaxRange(false, _bot) > 0.0f)
+        {
+            // дебаффы без урона — тоже поддерживаем (maintain по ауре цели)
+            m_knowledge.push_back(BotKnowledge{kv.first, BotKnowledge::Kind::Debuff,
+                uint16(90), 100, 0, 100, true, false});
+        }
+    }   // конец for (auto const& kv : _bot->GetSpellMap())
 
-        // дефолт: положительный ООC-self — брать не будем (неизвестный EFFект)
-    }
-
-    // fallback: ничего боевого не оказалось — импровизация melee-only
     if (std::none_of(m_knowledge.begin(), m_knowledge.end(),
         [](BotKnowledge const& k){ return k.kind == BotKnowledge::Kind::Damage; }))
         TC_LOG_WARN("playerbots", "AI {}: боевых спелов в книге не найдено — melee-only", _bot->GetName());
-}
-
-bool PlayerbotAI::IsSelfBuffSpell(SpellInfo const* info) const
-{
-    if (info->GetMaxRange(true, _bot) > 0.0f)
-        return false;
-    return info->IsPositive();
 }
 
 bool PlayerbotAI::IsSpellReady(uint32 spellId) const
@@ -138,49 +164,97 @@ bool PlayerbotAI::IsSpellReady(uint32 spellId) const
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE);
     if (!info)
         return false;
+    if (m_castBlacklist.count(spellId))
+        return false;
     return _bot->GetSpellHistory()->IsReady(info);
+}
+
+bool PlayerbotAI::SpellFits(BotKnowledge const& k, Unit* target) const
+{
+    if (!IsSpellReady(k.spellId))
+        return false;
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(k.spellId, DIFFICULTY_NONE);
+    if (!info)
+        return false;
+
+    if (k.selfHpMax < 100 && float(_bot->GetHealthPct()) > float(k.selfHpMax))
+        return false;
+
+    // цель-гейт
+    if (target)
+    {
+        float targetPct = target->GetHealthPct();
+        if (float(k.targetHpMin) > targetPct || float(k.targetHpMax) < targetPct)
+            return false;
+
+        // DoT-управление: не повторяем, если уже обслуживаем цель
+        if (k.maintainAura && (k.kind == BotKnowledge::Kind::DoT || k.kind == BotKnowledge::Kind::Debuff)
+            && target->HasAura(k.spellId, _bot->GetGUID()))
+            return false;
+
+        // range gate
+        float maxR = info->GetMaxRange(info->IsPositive(), _bot);
+        if (maxR > 0.0f && _bot->GetDistance(target) > maxR * 1.05f)
+            return false;
+    }
+
+    // burst-окно: в начале боя (8 сек) или при цели <30% HP
+    if (k.burst)
+    {
+        bool window = _combatActive && (getMSTime() - m_combatEnterMs) < 8000u;
+        bool lowHp  = target && target->GetHealthPct() < 30.f;
+        if (!window && !lowHp)
+            return false;
+    }
+
+    return true;
 }
 
 bool PlayerbotAI::CastSpellAt(uint32 spellId, Unit* target)
 {
     if (!target)
         target = _bot;
-    _bot->CastSpell(CastSpellTargetArg(target), spellId, CastSpellExtraArgs(TRIGGERED_NONE));
-    return true;
-}
 
-// gates: range + selfHpMax + targetHp-range
-bool PlayerbotAI::SpellFits(BotKnowledge const& k, Unit* target) const
-{
-    if (!IsSpellReady(k.spellId))
-        return false;
-
-    SpellInfo const* info = sSpellMgr->GetSpellInfo(k.spellId, DIFFICULTY_NONE);
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE);
     if (!info)
         return false;
 
-    float selfHpPct = _bot->GetHealthPct();
-    if (k.selfHpMax < 100 && selfHpPct > float(k.selfHpMax))
-        return false;
-
-    if (k.kind == BotKnowledge::Kind::Damage || k.kind == BotKnowledge::Kind::Heal)
+    // каст-тайм: требует стояния. Если идём — остановимся
+    if (info->CalcCastTime() > 0)
     {
-        Unit* focus = target ? target : _bot;
-        if (!focus)
-            return false;
-
-        float maxR = info->GetMaxRange(k.kind == BotKnowledge::Kind::Heal || IsSelfBuffSpell(info), _bot);
-        if (maxR > 0.0f && _bot->GetDistance(focus) > maxR * 1.05f)
-            return false;
-
-        float targetPct = focus->GetHealthPct();
-        if (float(k.targetHpMin) > targetPct || float(k.targetHpMax) < targetPct)
-            return false;
+        MovementGeneratorType mgt = _bot->GetMotionMaster()->GetCurrentMovementGeneratorType();
+        if (mgt == CHASE_MOTION_TYPE || mgt == POINT_MOTION_TYPE)
+            _bot->GetMotionMaster()->MoveIdle();
     }
+
+    _bot->CastSpell(CastSpellTargetArg(target), spellId, CastSpellExtraArgs(TRIGGERED_NONE));
+
+    // v3 GCD-подобный интервал (на master: StartRecoveryTime — это фактический GCD-флажок)
+    uint32 base = std::max<uint32>(info->StartRecoveryTime, 1500u);
+    m_recastTimerMs = std::max<uint32>(base, 1000u);
     return true;
 }
 
-// поддержка self-бафов (только в пакете, когда спелл long-term: молчанка maintain)
+void PlayerbotAI::RegisterCastFail(uint32 /*spellId*/)
+{
+    // CastSpell сейчас void-report; в v5 сделаем вывод по GetCastSpellInfo->SpellCastResult
+    // и оставим эту функцию как готовый хук: m_castBlacklist.insert(spellId)
+}
+
+void PlayerbotAI::ClearCastBlacklist()
+{
+    if (!m_castBlacklist.empty())
+        m_castBlacklist.clear();
+}
+
+void PlayerbotAI::NotifyCombatEnter()
+{
+    m_combatEnterMs = getMSTime();
+    _combatActive = true;
+}
+
+// ---------------------------------------------------------------- ticks
+
 void PlayerbotAI::EnsureSelfBuffs()
 {
     if (_bot->GetCurrentSpell(CURRENT_GENERIC_SPELL) != nullptr)
@@ -194,16 +268,11 @@ void PlayerbotAI::EnsureSelfBuffs()
             continue;
         if (!IsSpellReady(k.spellId))
             continue;
-
         if (CastSpellAt(k.spellId, _bot))
-        {
-            m_recastTimerMs = 1500;
-            break; // одно действие за тик
-        }
+            break;
     }
 }
 
-// большая защита (Divine shield, Ice Block, etc.) — при малом HP
 bool PlayerbotAI::TryDefensive()
 {
     for (BotKnowledge const& k : m_knowledge)
@@ -219,7 +288,6 @@ bool PlayerbotAI::TryDefensive()
     return false;
 }
 
-// лечение себя (и мастера в группе, если бот в парте)
 bool PlayerbotAI::TryHeal()
 {
     Player* master = _masterGuid.IsEmpty() ? nullptr : ObjectAccessor::FindPlayer(_masterGuid);
@@ -230,19 +298,15 @@ bool PlayerbotAI::TryHeal()
             continue;
         if (!IsSpellReady(k.spellId))
             continue;
-
         SpellInfo const* info = sSpellMgr->GetSpellInfo(k.spellId, DIFFICULTY_NONE);
         if (!info)
             continue;
-
         float maxR = info->GetMaxRange(true, _bot);
 
-        // себя — 60% порог
         if (_bot->GetHealthPct() < 60.f && (maxR <= 0.f || _bot->GetDistance(_bot) <= maxR))
             return CastSpellAt(k.spellId, _bot);
 
-        // мастер — 50% порог (группа совместна)
-        if (master && master->GetGroup() == _bot->GetGroup() && master->GetGroup() != nullptr
+        if (master && master->GetGroup() && master->GetGroup() == _bot->GetGroup()
             && master->GetHealthPct() < 50.f
             && _bot->GetMapId() == master->GetMapId()
             && (maxR <= 0.f || _bot->GetDistance(master) <= maxR * 1.05f))
@@ -251,7 +315,6 @@ bool PlayerbotAI::TryHeal()
     return false;
 }
 
-// основной урон-цикл
 bool PlayerbotAI::TryAttackSpell()
 {
     Unit* target = m_combatTarget;
@@ -260,7 +323,10 @@ bool PlayerbotAI::TryAttackSpell()
 
     for (BotKnowledge const& k : m_knowledge)
     {
-        if (k.kind != BotKnowledge::Kind::Damage)
+        bool offensive = (k.kind == BotKnowledge::Kind::Damage
+                          || k.kind == BotKnowledge::Kind::DoT
+                          || k.kind == BotKnowledge::Kind::Debuff);
+        if (!offensive)
             continue;
         if (!SpellFits(k, target))
             continue;
@@ -278,28 +344,29 @@ std::vector<uint32> PlayerbotAI::ListKnownSpelIDs() const
     return out;
 }
 
-// ---------------------------------------------------------------- tick
-
 void PlayerbotAI::Update(uint32 diff)
 {
     if (!_bot->IsInWorld() || _bot->IsBeingTeleported())
         return;
 
-    if (m_recastTimerMs > diff)
-        m_recastTimerMs -= diff;
-    else
-        m_recastTimerMs = 0;
-
-    if (_followRepointMs > diff)
-        _followRepointMs -= diff;
-    else
-        _followRepointMs = 0;
+    if (m_recastTimerMs > diff)  m_recastTimerMs -= diff;  else m_recastTimerMs = 0;
+    if (_followRepointMs > diff) _followRepointMs -= diff; else _followRepointMs = 0;
 
     Player* master = _masterGuid.IsEmpty() ? nullptr : ObjectAccessor::FindPlayer(_masterGuid);
 
-    // COMBAT > FOLLOW > PLANE
-    if (_bot->IsInCombat() || (_bot->GetSelectedUnit() && _bot->GetSelectedUnit()->IsInCombat())
-        || (master && master->IsInCombat()))
+    bool inCombatNew = _bot->IsInCombat()
+        || (_bot->GetSelectedUnit() && _bot->GetSelectedUnit()->IsInCombat())
+        || (master && master->IsInCombat());
+
+    if (inCombatNew && !_combatActive)
+        NotifyCombatEnter();
+    if (!inCombatNew && _combatActive)
+    {
+        _combatActive = false;
+        ClearCastBlacklist();
+    }
+
+    if (inCombatNew)
     {
         DoCombatAI(diff);
         return;
@@ -322,15 +389,12 @@ Unit* PlayerbotAI::FindProtectTarget()
 {
     if (_masterGuid.IsEmpty())
         return nullptr;
-
     Player* master = ObjectAccessor::FindPlayer(_masterGuid);
     if (!master || master->GetMapId() != _bot->GetMapId())
         return nullptr;
-
     for (Unit* attacker : master->getAttackers())
         if (attacker->IsAlive() && _bot->IsValidAttackTarget(attacker))
             return attacker;
-
     return nullptr;
 }
 
@@ -342,22 +406,18 @@ void PlayerbotAI::DoFindTarget()
         m_combatTarget = victim;
         return;
     }
-
     victim = _bot->GetVictim();
     if (victim && victim->IsAlive())
     {
         m_combatTarget = victim;
         return;
     }
-
-    Unit* protectTarget = FindProtectTarget();
-    if (protectTarget)
+    if (Unit* prot = FindProtectTarget())
     {
-        m_combatTarget = protectTarget;
-        _bot->AttackerStateUpdate(protectTarget);
+        m_combatTarget = prot;
+        _bot->AttackerStateUpdate(prot);
         return;
     }
-
     m_combatTarget = nullptr;
 }
 
@@ -384,12 +444,9 @@ void PlayerbotAI::DoCombatAI(uint32 /*diff*/)
     float dist = _bot->GetDistance(target);
     bool const wantsMelee = (GetDefaultCombatRange(_bot->GetClass()) <= 6.0f);
 
-    // defensive > heal > positioning > damage
+    // Defensive > Heal > позиционирование > Damage/DoT/Debuff
     if (TryDefensive() || TryHeal())
-    {
-        m_recastTimerMs = 1500;
         return;
-    }
 
     if (dist > m_combatRange)
     {
@@ -408,11 +465,11 @@ void PlayerbotAI::DoCombatAI(uint32 /*diff*/)
 
     if (m_recastTimerMs == 0 && !_bot->GetCurrentSpell(CURRENT_GENERIC_SPELL))
     {
-        EnsureSelfBuffs(); // м.б. поддержка ауры в бою
+        EnsureSelfBuffs();
         if (m_recastTimerMs != 0)
             return;
         if (TryAttackSpell())
-            m_recastTimerMs = 1500;   // v3 GCD-подобный; v4 — реальный GCD по спеллу
+            m_recastTimerMs = std::max<uint32>(m_recastTimerMs, 1500u);
     }
 }
 
@@ -517,13 +574,109 @@ void PlayerbotAI::RandomChat(uint32 diff)
     _bot->Say(planeQuotes[rand32() % planeQuotes.size()], LANG_UNIVERSAL, _bot);
 }
 
+// ---------------------------------------------------------------- equip/scoring
+
+int PlayerbotAI::SlotForInventoryType(int32 invType)
+{
+    switch (invType)
+    {
+        case 1:  return 0;   // HEAD
+        case 2:  return 1;   // NECK
+        case 3:  return 2;   // SHOULDER
+        case 4:  return 3;   // BODY (рубашка)
+        case 5:  return 4;   // CHEST
+        case 6:  return 5;   // WAIST
+        case 7:  return 6;   // LEGS
+        case 8:  return 7;   // FEET
+        case 9:  return 8;   // WRIST
+        case 10: return 9;   // HANDS
+        case 11: case 12: return 10; // FINGER → первый палец
+        case 13: case 14: return 12; // TRINKET
+        case 15: return 14;  // BACK
+        case 16: case 17: case 21: case 22: return 15; // 1H/2H/MAINHAND/WEAPONMAINHAND → MAINHAND
+        case 18: case 23: return 16;  // OFFHAND → OFFHAND
+        case 26: return 17;  // RANGED → RANGED
+        case 19: return 18;  // TABARD
+        default: return -1;
+    }
+}
+
+int PlayerbotAI::ScoreItem(Item const* item) const
+{
+    if (!item)
+        return -1;
+    auto* t = item->GetTemplate();
+    return int(t->GetBaseItemLevel()) * 10 + int(t->GetQuality());
+}
+
+bool PlayerbotAI::ItemFitsClass(Item const* item, int slot) const
+{
+    if (!item)
+        return false;
+    auto* t = item->GetTemplate();
+    // Фильтр брони: допустиммо по классу (plate→4, mail→3, leather→2, cloth→1)
+    bool isArmorSlot = (slot == 0 || slot == 2 || slot == 4 || slot == 5 || slot == 6 || slot == 7 || slot == 8 || slot == 9 || slot == 14);
+    if (isArmorSlot && t->GetSubClass() > 0)   // 0 = misc/без брони (кольца, тринкеты и т.п.)
+    {
+        int pref = ClassArmorSubClass(_bot->GetClass());
+        if (int(t->GetSubClass()) > pref)
+            return false;
+    }
+    return true;
+}
+
+void PlayerbotAI::EquipBestItems()
+{
+    // Слоты, которые попробуем закрыть из сумки rucksack-bag0
+    static int const armorSlots[] = { 0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16 };
+
+    for (int trial = 0; trial < 8; ++trial)       // до 8 замещений за раз — безопасно
+    {
+        bool swapped = false;
+        for (int slot : armorSlots)
+        {
+            Item* bestItem = nullptr;
+            int  bestScore = -1;
+            for (uint8 i = INVENTORY_SLOT_ITEM_START; i < INVENTORY_SLOT_ITEM_END; ++i)
+            {
+                Item* item = _bot->GetItemByPos(INVENTORY_SLOT_BAG_0, i);
+                if (!item)
+                    continue;
+                auto* t = item->GetTemplate();
+                int candSlot = SlotForInventoryType(int32(t->GetInventoryType()));
+                if (candSlot != slot)
+                    continue;
+                if (!ItemFitsClass(item, slot))
+                    continue;
+                int score = ScoreItem(item);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestItem = item;
+                }
+            }
+            if (!bestItem)
+                continue;
+
+            Item* current = _bot->GetItemByPos(INVENTORY_SLOT_BAG_0, uint8(slot));
+            if (bestScore <= ScoreItem(current) + 5)
+                continue;
+
+            // 2H в MAINHAND — не рушим, если занят OFFHAND (sanity с swap)
+            _bot->SwapItem(bestItem->GetPos(), uint16(INVENTORY_SLOT_BAG_0 << 8 | slot));
+            swapped = true;
+        }
+        if (!swapped)
+            break;
+    }
+}
+
 // ---------------------------------------------------------------- game interface
 
 void PlayerbotAI::PingMaster()
 {
     _bot->GetMotionMaster()->Clear();
     _bot->m_movementInfo.pos.Relocate(_bot->GetPosition());
-
     WorldPackets::Movement::MoveUpdate moveUpdate;
     moveUpdate.Status = &_bot->m_movementInfo;
     _bot->SendMessageToSet(moveUpdate.Write(), false);

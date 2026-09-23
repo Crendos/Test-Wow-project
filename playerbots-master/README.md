@@ -9,37 +9,17 @@
 Архитектура и каждый фрагмент кода сверены с исходниками master
 (коммит `a96d897...`, 2026-09-23).
 
-## Состав
-
-**v3 готов:** классовое знание — спелы из реального спелбукка бота
-(авто-классификация эффектов) + ручные правила `world.playerbots_class_knowledge` +
-команда `.playerbots book` для отладки. Детали — `docs/05_KNOWLEDGE.md`.
-
-**v2 готов:** плавное движение ботов (штатная рассылка SMSG_MONSTER_MOVE из
-MoveSplineInit::Launch — без инжекции пакетов), реальный follow-мастер
-(`.playerbots followme`), защита мастера в бою, дальность спелов. Детали —
-`docs/04_V2_MOVEMENT.md`. Патч ядра при этом не менялся.
-
-## Состав
-
-| Путь | Назначение |
-|---|---|
-| `docs/01_ARCHITECTURE.md` | Как устроен вход игрока в master (двухсокетная модель), почему «сессия без сокета» не живёт без патча, полный список точек врезки, дизайн AI, роадмап |
-| `docs/02_CORE_PATCH.md` | Точный перечень правок ядра (WorldSession.h/.cpp, CharacterHandler.cpp) + протокол компиляционной проверки |
-| `patches/0001-core-integration.diff` | **Настоящий** git-патч (генерируется из реального репозитория master `a96d897`; применяется `git apply`/`git apply --3way`) |
-| `sql/` | Схемы world-таблиц `playerbots_rotation` и `playerbots_combat_spells` |
-| `src/bot/PlayerbotMgr.*` | Менеджер ботов: вход/выход, учёт, тик |
-| `src/bot/PlayerbotAI.*` | AI бота: follow, чат-команды, бойовая ротация из SQL-таблицы |
-| `src/bot/cs_playerbots.cpp` | Команда `.playerbot` + WorldScript-тик (точка входа в ядро через scripts/Custom) |
-| `conf/playerbots.conf.dist` | Настройки (копировать в worldserver.conf) |
-
 ## Статус
 
-**Майлстоун «компилируется» достигнут.** Все затронутые объектники ядра +
-все файлы модуля собраны на реальном репозитории master (коммит a96d897,
-gcc-12.2, boost 1.86, mariadb-connector-c 3.3, OpenSSL 3.0.15) — 0 ошибок
-компиляции (протокол см. docs/02_CORE_PATCH.md). Следующий майлстоун —
-чистая сборка на рабочей машине пользователя + v2 (движение).
+- **MVP-каркас** ✅ — логин/логаут бота из characters, follower на AutoFollow-векторе, минимальный AI. `docs/01–03`.
+- **v2 — движение/follow** ✅ — плавное движение через `MovePoint` (ядро само шлёт MonsterMove), followmaster (`.playerbots follow/stay`), защита мастера, дальность спелов. `docs/04`.
+- **v3 — классовое знание** ✅ — авто-билд знания из спелбукка бота, per-class таблица `playerbots_class_knowledge`, команда `.playerbots book`. `docs/05`.
+- **v4 — ротация + авто-экипировка** ✅ — настоящий GCD (`StartRecoveryTime`, мин 1500мс), каст-тайм останавливает движение, DoT/дебаффы поддерживаются по ауре цели (caster GUID), burst-кулдауны (Recovery≥60с) жмутся в первые 8 сек боя или при цели <30% HP, неудачные касты — в перкомбатный blacklist. Авто-шмот: `score = iLvl*10 + quality`, фильтр брони по классу (plate/mail/leather/cloth), `.playerbots equip <имя>`. `docs/06`.
+
+Roadmap v5+: точный GCD с хаст-коррекцией, стат-скоринг шмота по классам,
+босс-механики (engine правил + proof-of-concept на одном боссе), роуты/патрули,
+whisper-управление, компаньоны.
+
 
 ## Порядок внедрения (кратко, детали — в docs/)
 
@@ -62,3 +42,22 @@ gcc-12.2, boost 1.86, mariadb-connector-c 3.3, OpenSSL 3.0.15) — 0 ошибо�
 - **Фаза 2:** данжи как группа (танк/хил/дпс стратегии), БГ, rndbots-население.
 - **Фаза 3:** «Режим приключения» — компаньоны поверх той же базы (персональные
   боты с профилями поведения). Обсуждено: делается ПОСЛЕ основных ботов.
+## Состав
+
+| Путь | Назначение |
+|---|---|
+| `docs/01_ARCHITECTURE.md` | Устройство входа игрока в master, точки врезки патча, дизайн AI, роадмап |
+| `docs/02_CORE_PATCH.md` | Перечень правок ядра + протокол компиляционной проверки |
+| `docs/03_WINDOWS_VS2022.md` | Сборка на Windows (VS 2022, x64 Native Tools prompt) |
+| `docs/04_V2_MOVEMENT.md` | v2: движение/follow |
+| `docs/05_KNOWLEDGE.md` | v3: классовое знание, SQL-таблицы |
+| `docs/06_V4_ROTATION_GEAR.md` | v4: ротационный движок, авто-экипировка, roadmap |
+| `patches/0001-core-integration.diff` | Реальный git-патч ядра master |
+| `sql/` | Схемы world-таблиц (`playerbots_rotation`, `playerbots_combat_spells`, `playerbots_class_knowledge`) |
+| `src/bot/PlayerbotMgr.*` | Менеджер ботов: вход/выход, учёт, тик, резолв знания |
+| `src/bot/PlayerbotAI.*` + `Knowledge.h` | AI бота: follow, бой, ротация, авто-шмот |
+| `src/bot/cs_playerbots.cpp` | Команда `.playerbots` + WorldScript-тик |
+| `conf/playerbots.conf.dist` | Настройки (копировать в worldserver.conf) |
+| `tools/apply_windows.cmd` | Применение изменений на Windows-машине (x64 Native Tools prompt, скрипт только ASCII!) |
+
+
