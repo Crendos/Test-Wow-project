@@ -188,11 +188,10 @@ void PlayerbotMgr::HandlePlayerBotLoggedIn(Player* player)
     // заклинания этого бота (ленивая загрузка из world.playerbots_combat_spells)
     if (m_combatSpells.empty())
         LoadPlayerBotCombatSpells(m_combatSpells);
-    auto sp = m_combatSpells.find(entry.name);
-    if (sp != m_combatSpells.end())
-        entry.combatSpells = sp->second;
+    if (m_combatSpells.empty())
+        LoadPlayerBotCombatSpells(m_combatSpells);
 
-    entry.ai = new PlayerbotAI(player, entry.combatSpells);
+    entry.ai = new PlayerbotAI(player, ResolveKnowledge(entry.name, player->GetClass()));
 
     TC_LOG_INFO("playerbots", "HandlePlayerBotLoggedIn: {} в мире (guid {})", entry.name, player->GetGUID().ToString());
 }
@@ -394,6 +393,55 @@ void PlayerbotMgr::LoadPlayerBots()
     //
     // Для MVP: тикаем ротацию из команд (.playerbots rotate now). Полноценный cron —
     // в следующей итерации (фаза 1 «spawning»).
+}
+
+/* static */ std::unordered_map<uint8, std::vector<BotKnowledge>> PlayerbotMgr::LoadClassKnowledgeTable()
+{
+    std::unordered_map<uint8, std::vector<BotKnowledge>> out;
+    if (QueryResult result = WorldDatabase.Query(
+        "SELECT class_id, spellid, kind, priority, self_hp_max, target_hp_min, target_hp_max, maintain_aura FROM playerbots_class_knowledge ORDER BY class_id, priority DESC"))
+    {
+        do
+        {
+            Field* f = result->Fetch();
+            BotKnowledge k;
+            k.spellId      = f[1].GetUInt32();
+            k.kind         = BotKnowledge::Kind(f[2].GetUInt8());
+            k.priority     = f[3].GetUInt16();
+            k.selfHpMax    = f[4].GetUInt8();
+            k.targetHpMin  = f[5].GetUInt8();
+            k.targetHpMax  = f[6].GetUInt8();
+            k.maintainAura = f[7].GetBool();
+            out[f[0].GetUInt8()].push_back(k);
+        } while (result->NextRow());
+        TC_LOG_INFO("playerbots", "LoadClassKnowledgeTable: загружено {} классовых групп", out.size());
+    }
+    return out;
+}
+
+std::vector<BotKnowledge> PlayerbotMgr::ResolveKnowledge(std::string const& botName, uint8 classId)
+{
+    // 1) legacy per-name (world.playerbots_combat_spells) — обратная совместимость с v0/v2
+    auto const& legacy = m_combatSpells.find(botName);
+    if (legacy != m_combatSpells.end() && !legacy->second.empty())
+    {
+        std::vector<BotKnowledge> out;
+        for (uint32 sid : legacy->second)
+            out.push_back(BotKnowledge{ sid, BotKnowledge::Kind::Damage, 100, 100, 0, 100, false });
+        return out;
+    }
+
+    // 2) пер-class таблица (world.playerbots_class_knowledge)
+    auto& table = m_classKnowledge;
+    if (table.empty())
+        table = LoadClassKnowledgeTable();
+
+    auto itr = table.find(classId);
+    if (itr != table.end())
+        return itr->second;
+
+    // 3) пусто — AI сам построит из спелбукка персонажа
+    return {};
 }
 
 /* static */ void PlayerbotMgr::LoadPlayerBotCombatSpells(std::unordered_map<std::string, std::vector<uint32>>& spells)

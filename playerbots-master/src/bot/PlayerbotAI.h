@@ -1,12 +1,16 @@
 /*
- * PLAYERBOTS под TrinityCore master — v2 (плавное движение + follow-мастер)
- * Поведение одного бота: состояния COMBAT > FOLLOW > PLANE.
- * Всё происходит в world-thread (tick из PlayerbotMgr::UpdateAI через WorldScript::OnUpdate).
+ * PLAYERBOTS под TrinityCore master — v3 (классовое знание: спелы + когда что кастовать)
+ * Источники знания (по приоритету):
+ *   1) world.playerbots_combat_spells (legacy per-name),
+ *   2) world.playerbots_class_knowledge (per-class, ручные правила),
+ *   3) авто-построение из РЕАЛЬНОГО спелбукка персонажа (GetSpellMap),
+ *      с классификацией по эффектам SpellInfo.
  */
 #ifndef PLAYERBOT_AI_H
 #define PLAYERBOT_AI_H
 
 #include "Define.h"
+#include "Knowledge.h"
 #include "ObjectGuid.h"
 #include <string>
 #include <vector>
@@ -18,7 +22,7 @@ class SpellInfo;
 class PlayerbotAI
 {
 public:
-    PlayerbotAI(Player* bot, std::vector<uint32> combatSpells);
+    PlayerbotAI(Player* bot, std::vector<BotKnowledge> knowledge);
     ~PlayerbotAI();
 
     void Update(uint32 diff);
@@ -28,27 +32,35 @@ public:
     void SetMasterAndFollow(Player* master);
     void ClearFollow();
     bool IsFollowMode() const { return _followEnabled; }
-    ObjectGuid GetMasterGUID() const { return _masterGuid; }
 
-    // команды (.playerbots cmd ...)
+    // команды
     void PingMaster();
     void BotSay(std::string const& msg);
     void EmoteMe(uint32 emote);
+    std::vector<uint32> ListKnownSpelIDs() const;   // выгрузка для .playerbots book
 
 private:
+    // ---- v3: знание ----
+    void BuildKnowledgeFromSpellbook();    // авто-классификация по эффектам
+    void EnsureSelfBuffs();                // поддержка self-бафов (каждый тик вне каста)
+    bool TryDefensive();                   // большая защита при малом HP
+    bool TryHeal();                        // лечение себя/мастера
+    bool TryAttackSpell();                 // основной цикл урона (priority, range, gates)
+
     // состояния
     void DoCombatAI(uint32 diff);
     void HandleFollowTick(uint32 diff);
     void HandlePlaneTick(uint32 diff);
 
-    void DoFindTarget();          // свой таргет бота
-    Unit* FindProtectTarget();    // цель-угроза мастера (если мастер есть) 
+    void DoFindTarget();
+    Unit* FindProtectTarget();
     void TargetSelectionIfNeeded();
     float GetMeleeDistance() const { return 4.0f; }
 
-    bool CastSpellAt(uint32 spellId);
+    bool CastSpellAt(uint32 spellId, Unit* target);
     bool IsSpellReady(uint32 spellId) const;
-    bool IsSelfBuff(SpellInfo const* info) const;
+    bool IsSelfBuffSpell(SpellInfo const* info) const;
+    bool SpellFits(BotKnowledge const& k, Unit* target) const; // range/gates/ready
 
     static float GetDefaultCombatRange(uint8 cls);
 
@@ -58,18 +70,18 @@ private:
     void RandomChat(uint32 diff);
 
     Player* _bot;
-    std::vector<uint32> m_combatSpells;   // приоритет: [0] — fallback-базовый
+    std::vector<BotKnowledge> m_knowledge; // отсортированы по priority DESC
 
     // --- combat ---
     Unit*  m_combatTarget  = nullptr;
-    uint32 m_recastTimerMs = 0;           // минимальный интервал между кастами (v2: по GCD)
+    uint32 m_recastTimerMs = 0;            // v3: общий GCD-подобный анти-спам (1.5с)
 
     // --- follow ---
     ObjectGuid _masterGuid;
     bool   _followEnabled  = false;
     float  _followDist     = 3.5f;
-    uint32 _followRepointMs= 0;           // каденс перезапуска сплайна (мс)
-    float  _lastFollowX = 0.0f, _lastFollowY = 0.0f; // анти-спам: дедуп по мастерской точке
+    uint32 _followRepointMs= 0;
+    float  _lastFollowX = 0.0f, _lastFollowY = 0.0f;
 
     // --- plane ---
     float  m_combatRange      = 0.0f;

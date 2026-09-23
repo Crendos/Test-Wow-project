@@ -6,7 +6,9 @@
 #define PLAYERBOT_MGR_H
 
 #include "Define.h"
+#include "Knowledge.h"
 #include "ObjectGuid.h"
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -58,6 +60,11 @@ public:
     static void LoadPlayerBotCombatSpells(std::unordered_map<std::string, std::vector<uint32>>& spells);
     void LoadPlayerBots();
 
+    // v3: знание бота. Возвращает вектор правил (сперва legacy-таблица по имени,
+    // затем таблица по классу; пустой вектор = авто-строить из спелбукка).
+    std::vector<BotKnowledge> ResolveKnowledge(std::string const& botName, uint8 classId);
+    static std::unordered_map<uint8 /*classId*/, std::vector<BotKnowledge>> LoadClassKnowledgeTable();
+
 private:
     PlayerbotMgr();
 
@@ -71,6 +78,7 @@ private:
 
     std::unordered_map<uint32 /*accountId*/, PlayerBotEntry> m_bots;
     std::unordered_map<std::string, std::vector<uint32>> m_combatSpells;
+    std::unordered_map<uint8 /*classId*/, std::vector<BotKnowledge>> m_classKnowledge;
 
     bool     m_enabled = false;
     uint32   m_freeAccountStart = 0, m_freeAccountEnd = 0;

@@ -40,6 +40,7 @@ namespace
                 { "removeall",   HandleBotRemoveAllCommand,      static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "followme",    HandleBotFollowMeCommand,       static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "stay",        HandleBotStayCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "book",        HandleBotBookCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "roster",      playerbotsRosterCommandTable },
             };
 
@@ -121,6 +122,21 @@ namespace
             }
             ai->ClearFollow();
             handler->SendSysMessage("Бот остановлен.");
+            return true;
+        }
+
+        // .playerbots book <имя>  — спелы, известные боту по загруженному знанию
+        static bool HandleBotBookCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                return false;
+            }
+            for (uint32 sid : ai->ListKnownSpelIDs())
+                handler->PSendSysMessage("spell {}", sid);
             return true;
         }
 
