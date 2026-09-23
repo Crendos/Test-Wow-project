@@ -278,6 +278,21 @@ findstr /m /c:"spell_pal_glory_of_the_vanguard_ex" "C:\TrinityCore\build\bin\Rel
 ```
 (напечатает путь к exe, если строка найдена; молчит — если нет).
 
+**⚠️ Если msbuild отработал за несколько секунд, а findstr печатает НЕТ**
+(при этом проверка `MakeSpellArgs` выше даёт 18) — база отслеживания сборки
+рассинхронизировалась (типично после неудачной сборки с ошибками). Форсируйте точечно
+(в x64 Native Tools, worldserver должен быть закрыт; подставьте свой путь к ядру):
+```cmd
+cd /d C:\TrinityCore\build
+del src\server\scripts\scripts.dir\Release\spell_paladin.obj
+copy /b "C:\TrinityCore\src\server\scripts\Spells\spell_paladin.cpp"+,,
+msbuild src\server\scripts\scripts.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+msbuild src\server\worldserver\worldserver.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+```
+Первая сборка займёт несколько минут — в логе должна появиться строка
+`spell_paladin.cpp`. После неё повторите findstr-проверку exe (должен найтись).
+
+
 ### Через командную строку — x64 Native Tools Command Prompt for VS 2022
 
 Кому удобнее консоль (быстрее GUI-сборки, печатает прогресс в процентах, легко повторять):
