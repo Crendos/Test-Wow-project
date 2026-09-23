@@ -3,6 +3,15 @@
 Что делаем: ставим **паладин-фиксы** в ваш сервер: 1 патч ядра + 10 файлов со скриптами + 10 SQL-файлов.
 Порядок строгий: **Шаг 0 → 1 → 2 → 3 → 4**.
 
+> ⚠️ **ВАЖНО ПРО ТЕРМИНАЛ:** bash-команды из этой инструкции **почти никогда не печатают текст при успехе**
+> (это норма для Unix-утилит: «молчит — значит сделал»). Если нужна осязаемая реакция на КАЖДУЮ команду —
+> вставьте в Git Bash этот блок-переключатель ОДИН РАЗ в начале сессии:
+> ```bash
+> apply(){ echo "--- выполняю: $* ---"; "$@" && echo ">>> OK" || echo ">>> ОШИБКА"; }
+> ```
+> после этого пишите `apply git apply --check "путь"` вместо `git apply --check "путь"` —
+> каждая команда будет печатать `--- выполняю… ---` и `>>> OK` / `>>> ОШИБКА`.
+
 Скачайте папку `paladin/` из этого репозитория (зелёная кнопка **Code → Download ZIP**,
 распакуйте, например, в `C:\paladin-fixes\paladin`). Дальше я пишу пути так:
 - `C:\paladin-fixes\paladin` — папка с фиксами (у вас может быть другой);
@@ -94,16 +103,22 @@ git apply "C:/paladin-fixes/paladin/core_patch/0001-core-spell-block-chance.patc
 
 ### 1.1. Вставить код в spell_paladin.cpp
 
-**Автоматически (рекомендую).** Правый клик по `C:\TrinityCore` → **Git Bash Here**:
+**Автоматически (рекомендую).** Правый клик по `C:\TrinityCore` → **Git Bash Here**. Скопируйте блок ЦЕЛИКОМ и вставьте:
 
 ```bash
+echo "=== [1/3] Дописываю 10 файлов в spell_paladin.cpp... ==="
 for i in "" _2 _3 _4 _5 _6 _7 _8 _9 _10; do
   sed -n '/=== CUT HERE ===/,$p' "C:/paladin-fixes/paladin/spell_paladin_class_fixes${i}.cpp" >> src/server/scripts/Spells/spell_paladin.cpp
+  echo "    добавлен: spell_paladin_class_fixes${i}.cpp"
 done
-echo "=== СКРИПТЫ ДОПИСАНЫ ==="
+echo "=== [2/3] Проверяю: сколько партий внутри файла... ==="
+N=$(grep -c "=== CUT HERE ===" src/server/scripts/Spells/spell_paladin.cpp); echo ">>> в файле партий: $N (нужно 10)"
+[ "$N" = "10" ] && echo ">>> ГОТОВО: все 10 партий внутри" || echo ">>> ВНИМАНИЕ: партий не 10 — см. раздел неполадок"
+echo "=== [3/3] Последние строки файла: ==="
 tail -3 src/server/scripts/Spells/spell_paladin.cpp
 ```
-(команда дописывает все 10 файлов в конец spell_paladin.cpp; в хвосте файла должна появиться строка AddSC_paladin_spell_scripts_ex10).
+Ожидаемый вывод: десять строк `добавлен: …`, затем `>>> в файле партий: 10 (нужно 10)` и `>>> ГОТОВО`, а в хвосте — строка `AddSC_paladin_spell_scripts_ex10()`.
+Если повторяете команду второй раз — сначала откатите: `git checkout -- src/server/scripts/Spells/spell_paladin.cpp` (иначе партии лягут вторым слоем и счётчик покажет 20).
 
 **✅ Проверка шага 1.1:**
 ```bash
@@ -150,12 +165,13 @@ void AddSC_paladin_spell_scripts_ex10();
     AddSC_paladin_spell_scripts_ex10();
 ```
 
-**✅ Проверка шага 1.2:**
+**✅ Проверка шага 1.2 (говорящая):**
 ```bash
-grep -c "void AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp
-grep -c "    AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp
+A=$(grep -c "void AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp)
+B=$(grep -c "    AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp)
+echo ">>> объявлений: $A (нужно 9)"; echo ">>> вызовов: $B (нужно 9)"
+[ "$A" = "9" ] && [ "$B" = "9" ] && echo ">>> ЛОАДЕР ГОТОВ" || echo ">>> допишите блоки 1.2а/1.2б вручную (Notepad++)"
 ```
-Обе должны напечатать **9** (первая — объявления, вторая — вызовы).
 
 ### ✅ Всё вместе: проверка шагов 0–1 одним блоком
 ```bash
@@ -190,11 +206,14 @@ echo "--- Проверки завершены ---"
 
 **Через консоль (если `mysql.exe` в PATH) — с подтверждением каждого файла:**
 ```bash
+D=0; F=0
 for i in "" _2 _3 _4 _5 _6 _7 _8 _9 _10; do
-  mysql -u root -pВАШ_ПАРОЛЬ ИМЯ_БАЗЫ < "C:/paladin-fixes/paladin/paladin_class_fixes${i}.sql" && echo "OK: paladin_class_fixes${i}.sql"
+  echo "--- импортирую paladin_class_fixes${i}.sql... ---"
+  if mysql -u root -pВАШ_ПАРОЛЬ ИМЯ_БАЗЫ < "C:/paladin-fixes/paladin/paladin_class_fixes${i}.sql"; then echo ">>> OK: ${i:-1}"; D=$((D+1)); else echo ">>> ОШИБКА на ${i:-1}"; F=$((F+1)); fi
 done
+echo "=== ИТОГ: успешно $D из 10, с ошибками $F ==="
 ```
-Должно напечатать десять строк `OK: paladin_class_fixes…sql`.
+Должно напечатать `ИТОГ: успешно 10 из 10, с ошибками 0`.
 
 **✅ Проверка импорта.** В HeidiSQL откройте вкладку **Query**, выполните (вывод прямо говорит, что применилось):
 ```sql
