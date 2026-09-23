@@ -7,7 +7,8 @@
 // ИСХОДНЫМ, а ключи подменяются в его адресном пространстве ПОСЛЕ полной
 // распаковки образа, до момента коннекта:
 //
-//   * ConnectTo RSA-модуль (256 байт, LE) — подпись SMSG_CONNECT_TO;
+//   * ConnectTo RSA-модуль (256 байт) — подпись SMSG_CONNECT_TO.
+//     Ищется и в LE, и в BE (порядок байт модуля зависит от билда);
 //   * GameCrypto Ed25519 public key (32 байта) — подпись SMSG_ENTER_ENCRYPTED_MODE.
 //
 // Портал ходит через WTF/Config.wtf (SET portal "host:port") — файловых
@@ -53,20 +54,8 @@ namespace fs = std::filesystem;
 
 static void enableUtf8Console()
 {
-    // Кириллица в выводе приводится в UTF-8 — аккуратно в любом терминале.
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
-}
-
-static std::wstring toWide(const std::string &s)
-{
-    if (s.empty())
-        return {};
-    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(n > 0 ? n - 1 : 0, L'\0');
-    if (n > 0)
-        MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), n);
-    return w;
 }
 
 static std::string toUtf8(const std::wstring &w)
@@ -107,7 +96,6 @@ static DWORD findProcessByName(const std::wstring &exeName)
 
 static bool startProcess(const std::wstring &exePath)
 {
-    // Командная строка целиком в кавычках — путь с пробелами обязателен к цитированию.
     std::wstring cmd = L"\"" + exePath + L"\"";
     STARTUPINFOW si{};
     si.cb = sizeof(si);
@@ -125,13 +113,25 @@ static bool startProcess(const std::wstring &exePath)
 
 struct Target
 {
-    std::string           name;
-    wowpatch::Bytes       signature;   // что ищем: первые 8 байт родного ключа Blizzard
-    wowpatch::Bytes       value;       // что пишем поверх: полный ключ TrinityCore
-    wowpatch::Bytes       tcSig;       // первые 8 байт значения (детект «уже стоит»)
+    std::string     name;
+    wowpatch::Bytes signature;    // что ищем: первые 8 байт родного ключа (LE)
+    wowpatch::Bytes value;        // что пишем поверх: полный ключ TrinityCore
+    wowpatch::Bytes tcSig;        // первые 8 байт value (детект «уже стоит»)
+    // Вариант big-endian: если модуль в билде хранится разворотом — ищем его
+    // и пишем соответственно. Пусто = цель без альтернативного порядка.
+    wowpatch::Bytes altSignature;
+    wowpatch::Bytes altValue;
+    wowpatch::Bytes altTcSig;
 };
 
-// Находит в буфере hay все вхождения pattern, вызывая fn(offset).
+struct TargetStatus
+{
+    bool blizzard = false;   // родная сигнатура где-то видна
+    bool tc       = false;   // ключ TrinityCore уже стоит
+    int  patched  = 0;       // заменено участков на этом проходе (всего)
+    bool viaBe    = false;   // последняя замена была по BE-сигнатуре
+};
+
 template <typename Fn>
 static void forEachOccurrence(const wowpatch::Bytes &hay, const wowpatch::Bytes &pattern, Fn &&fn)
 {
@@ -143,32 +143,57 @@ static void forEachOccurrence(const wowpatch::Bytes &hay, const wowpatch::Bytes 
             fn(i);
 }
 
+// Запись в чужую память: обычный WriteProcessMemory, при отказе (страница
+// read-only) — временное VirtualProtectEx(PAGE_EXECUTE_READWRITE) и повтор.
+static bool writeRemote(HANDLE process, uintptr_t address,
+                        const wowpatch::Bytes &value, bool *usedProtect)
+{
+    if (usedProtect) *usedProtect = false;
+    SIZE_T w = 0;
+    if (WriteProcessMemory(process, reinterpret_cast<LPVOID>(address),
+                           value.data(), value.size(), &w)
+        && w == value.size())
+        return true;
+
+    DWORD oldProtect = 0;
+    if (!VirtualProtectEx(process, reinterpret_cast<LPVOID>(address),
+                          value.size(), PAGE_EXECUTE_READWRITE, &oldProtect))
+        return false;
+    if (usedProtect) *usedProtect = true;
+    w = 0;
+    const bool ok = WriteProcessMemory(process, reinterpret_cast<LPVOID>(address),
+                                       value.data(), value.size(), &w)
+                    && w == value.size();
+    DWORD tmp = 0;
+    VirtualProtectEx(process, reinterpret_cast<LPVOID>(address),
+                     value.size(), oldProtect, &tmp);
+    return ok;
+}
+
 // ---------------------------------------------------------------------------
 // Один проход по памяти процесса:
-//  * ищет ключи Blizzard -> перезаписывает ключами TrinityCore + верифицирует;
-//  * отмечает наличие уже стоящих ключей TrinityCore;
-//  * /patchedCount — сколько участков заменено на этом проходе.
+//  * ищет ключи Blizzard (LE и BE) -> перезаписывает ключами TrinityCore
+//    того же порядка + побайтовая верификация;
+//  * фиксирует per-target: виден ли родной ключ, стоит ли TrinityCore.
 // Буфер читается ЦЕЛИКОМ по региону — сигнатура не может «порваться» на стыке.
 // ---------------------------------------------------------------------------
-static bool memoryPass(HANDLE process, const std::vector<Target> &targets,
-                       bool *blizzardSeen, bool *trinitySeen, int *patchedCount)
+static void memoryPass(HANDLE process, const std::vector<Target> &targets,
+                       std::vector<TargetStatus> *st)
 {
-    *blizzardSeen = false;
-    *trinitySeen  = false;
-    *patchedCount = 0;
+    for (TargetStatus &s : *st)
+        s = TargetStatus{};
 
-    const size_t maxRegion = 512ull * 1024 * 1024; // огромные кэши-регионы пропускаем
+    const size_t maxRegion = 512ull * 1024 * 1024;
 
     uintptr_t address = 0;
     while (address < 0x00007FFE00000000ull)
     {
         MEMORY_BASIC_INFORMATION mbi{};
         if (VirtualQueryEx(process, reinterpret_cast<LPCVOID>(address), &mbi, sizeof(mbi)) != sizeof(mbi))
-            break; // конец адресного пространства
-
+            break;
         uintptr_t next = address + mbi.RegionSize;
         if (next < address)
-            break; // переполнение — стоп
+            break;
 
         const bool scan = (mbi.State == MEM_COMMIT)
             && !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD))
@@ -185,48 +210,62 @@ static bool memoryPass(HANDLE process, const std::vector<Target> &targets,
                 buf.resize(got);
                 const uintptr_t base = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
 
-                for (const Target &t : targets)
+                for (size_t ti = 0; ti < targets.size(); ++ti)
                 {
-                    // 1) Все родные ключи Blizzard — заменить.
-                    forEachOccurrence(buf, t.signature, [&](size_t off)
+                    const Target &t = targets[ti];
+                    TargetStatus &s = (*st)[ti];
+
+                    auto replaceAt = [&](size_t off, const wowpatch::Bytes &val, bool be)
                     {
-                        *blizzardSeen = true;
                         const uintptr_t abs = base + static_cast<uintptr_t>(off);
 
-                        // Уже стоит наше значение (напр. дубль сигнатуры)?
-                        wowpatch::Bytes current(t.value.size());
+                        wowpatch::Bytes current(val.size());
                         SIZE_T r = 0;
                         if (ReadProcessMemory(process, reinterpret_cast<LPCVOID>(abs),
                                 current.data(), current.size(), &r)
-                            && r == current.size() && current == t.value)
+                            && r == current.size() && current == val)
+                            return; // уже наше значение
+
+                        bool usedProtect = false;
+                        if (!writeRemote(process, abs, val, &usedProtect))
                             return;
 
-                        SIZE_T w = 0;
-                        if (!WriteProcessMemory(process, reinterpret_cast<LPVOID>(abs),
-                                t.value.data(), t.value.size(), &w)
-                            || w != t.value.size())
-                            return;
-
-                        // Верификация записи.
-                        wowpatch::Bytes back(t.value.size());
+                        wowpatch::Bytes back(val.size());
                         SIZE_T r2 = 0;
                         if (ReadProcessMemory(process, reinterpret_cast<LPCVOID>(abs),
-                                back.data(), back.size(), &r2)
-                            && back == t.value)
-                            ++(*patchedCount);
-                    });
+                                back.data(), back.size(), &r2) && back == val)
+                        {
+                            ++s.patched;
+                            s.viaBe = be;
+                        }
+                    };
 
-                    // 2) Точка уже держит ключ TrinityCore?
+                    // 1) Родный ключ Blizzard (LE) — заменить LE-значением.
+                    forEachOccurrence(buf, t.signature, [&](size_t off)
+                    {
+                        s.blizzard = true;
+                        replaceAt(off, t.value, /*be=*/false);
+                    });
+                    // 1b) Родный ключ в BE-порядке — заменить BE-значением.
+                    if (!t.altSignature.empty())
+                        forEachOccurrence(buf, t.altSignature, [&](size_t off)
+                        {
+                            s.blizzard = true;
+                            replaceAt(off, t.altValue.empty() ? t.value : t.altValue, /*be=*/true);
+                        });
+
+                    // 2) Уже стоит ключ TrinityCore (любым порядком)?
                     bool seen = false;
                     forEachOccurrence(buf, t.tcSig, [&](size_t) { seen = true; });
-                    if (seen)
-                        *trinitySeen = true;
+                    if (seen) s.tc = true;
+                    if (!t.altTcSig.empty())
+                        forEachOccurrence(buf, t.altTcSig, [&](size_t) { seen = true; });
+                    if (seen) s.tc = true;
                 }
             }
         }
         address = next;
     }
-    return true;
 }
 
 // ----------------------------------------------------------- Config.wtf
@@ -236,7 +275,7 @@ static bool writePortalIntoConfig(const std::wstring &clientExePath,
                                   std::string *note)
 {
     fs::path exe(clientExePath);
-    fs::path wtf = exe.parent_path() / "WTF";   // .\_retail_\WTF
+    fs::path wtf = exe.parent_path() / "WTF";
     std::error_code ec;
     fs::create_directories(wtf, ec);
     fs::path cfg = wtf / "Config.wtf";
@@ -314,6 +353,23 @@ static void printUsage()
         "не срабатывает. Ключи заменяются в памяти после полной загрузки.\n");
 }
 
+static void printStatuses(const std::vector<Target> &targets,
+                          const std::vector<TargetStatus> &st, int pass)
+{
+    std::printf("Проход %d:", pass);
+    for (size_t i = 0; i < targets.size(); ++i)
+    {
+        const TargetStatus &s = st[i];
+        std::printf("  %s=%s", targets[i].name.c_str(),
+                    s.tc && !s.blizzard ? "TC" :
+                    s.patched           ? "patched" :
+                    s.blizzard          ? "Blizzard" : "not-seen");
+        if (s.tc && !s.blizzard && s.patched > 0)
+            std::printf("(%d%s)", s.patched, s.viaBe ? ",BE" : ",LE");
+    }
+    std::printf("\n");
+}
+
 int wmain(int argc, wchar_t **argv)
 {
     enableUtf8Console();
@@ -358,9 +414,6 @@ int wmain(int argc, wchar_t **argv)
     }
 
     std::puts("== wow_mem_patcher: живая замена ключей в памяти клиента ==");
-
-    // toWide нужен только клиентам API по строкам — процесс ищем wide-именем.
-    (void)toWide;
 
     // 1) Найти процесс клиента (при желании — запустить).
     DWORD pid = findProcessByName(processName);
@@ -417,14 +470,17 @@ int wmain(int argc, wchar_t **argv)
             std::fprintf(stderr, "! Config.wtf: %s\n", note.c_str());
     }
 
-    // 4) Цели: два ключа Blizzard -> ключи TrinityCore.
+    // 4) Цели: два ключа Blizzard -> ключи TrinityCore (LE и BE на выбор билда).
     std::vector<Target> targets;
     {
         Target t;
-        t.name      = "ConnectTo-RSA";
-        t.signature = wowpatch::blizzardRsaSignature();
-        t.value     = wowpatch::trinityRsaModulusLe();
+        t.name         = "ConnectTo-RSA";
+        t.signature    = wowpatch::blizzardRsaSignature();
+        t.value        = wowpatch::trinityRsaModulusLe();
         t.tcSig.assign(t.value.begin(), t.value.begin() + std::min(size_t(8), t.value.size()));
+        t.altSignature = wowpatch::blizzardRsaSignatureBe();
+        t.altValue     = wowpatch::trinityRsaModulusBe();
+        t.altTcSig.assign(t.altValue.begin(), t.altValue.begin() + std::min(size_t(8), t.altValue.size()));
         targets.push_back(std::move(t));
 
         Target t2;
@@ -434,24 +490,56 @@ int wmain(int argc, wchar_t **argv)
         t2.tcSig.assign(t2.value.begin(), t2.value.begin() + std::min(size_t(8), t2.value.size()));
         targets.push_back(std::move(t2));
     }
+    std::vector<TargetStatus> st(targets.size());
 
-    std::puts("Жду полной загрузки клиента и ищу ключи Blizzard в памяти...");
-    int passNumber = 0;
+    std::puts("Жду полной загрузки клиента и ищу ключи Blizzard в памяти (LE+BE)...");
+    int pass = 0;
+    int stablePasses = 0;
+    int lastPatchedTotal = -1;
     for (;;)
     {
-        ++passNumber;
-        bool blizzardSeen = false, trinitySeen = false;
-        int patched = 0;
-        memoryPass(proc, targets, &blizzardSeen, &trinitySeen, &patched);
+        ++pass;
+        memoryPass(proc, targets, &st);
 
-        if (patched > 0)
-            std::printf("Проход %d: заменено участков: %d\n", passNumber, patched);
-        else if (passNumber % 10 == 1)
-            std::printf("Проход %d: ключей ещё нет (клиент грузится)...\n", passNumber);
-
-        if (trinitySeen && !blizzardSeen && passNumber > 1)
+        int patchedTotal = 0;
+        int pending = 0;       // Blizzard виден, TrinityCore ещё нет
+        int hidden = 0;        // ни того, ни другого — ключ, возможно, обфусцирован
+        for (size_t i = 0; i < targets.size(); ++i)
         {
-            std::puts("\nГотово: в памяти остались только ключи TrinityCore.");
+            patchedTotal += st[i].patched;
+            if (st[i].blizzard && !st[i].tc) ++pending;
+            if (!st[i].blizzard && !st[i].tc) ++hidden;
+        }
+
+        if (patchedTotal != lastPatchedTotal)
+        {
+            printStatuses(targets, st, pass);
+            lastPatchedTotal = patchedTotal;
+        }
+        else if (pass % 15 == 1)
+            printStatuses(targets, st, pass);
+
+        // Успех: ни одного «висящего» ключа (Blizzard без TrinityCore).
+        if (pending == 0)
+            ++stablePasses;
+        else
+            stablePasses = 0;
+
+        if (stablePasses >= 2)
+        {
+            std::puts("\nГотово: в памяти не осталось родных ключей Blizzard.");
+            for (size_t i = 0; i < targets.size(); ++i)
+            {
+                if (st[i].tc)
+                    std::printf("  [%s] ключ TrinityCore на месте%s\n",
+                                targets[i].name.c_str(),
+                                st[i].viaBe ? " (BE-порядок)" : "");
+                else if (!st[i].blizzard && !st[i].tc)
+                    std::printf("  [%s] ВНИМАНИЕ: ни родного, ни нашего ключа не видно — "
+                                "возможно, он обфусцирован и на этом этапе. Если логин "
+                                "падает на ConnectTo — сообщите, нужен отдельный разбор.\n",
+                                targets[i].name.c_str());
+            }
             break;
         }
 
@@ -459,9 +547,11 @@ int wmain(int argc, wchar_t **argv)
             std::chrono::steady_clock::now() - t0).count();
         if (spent > timeoutSec)
         {
-            std::fprintf(stderr,
-                "Таймаут %d с: blizzard=%d trinity=%d. Повторите с большим --timeout.\n",
-                timeoutSec, blizzardSeen ? 1 : 0, trinitySeen ? 1 : 0);
+            std::fprintf(stderr, "Таймаут %d с. Состояние ключей:\n", timeoutSec);
+            for (size_t i = 0; i < targets.size(); ++i)
+                std::fprintf(stderr, "  [%s] blizzard=%d trinity=%d patched=%d\n",
+                             targets[i].name.c_str(), st[i].blizzard, st[i].tc, st[i].patched);
+            std::fprintf(stderr, "Повторите с большим --timeout или пришлите этот вывод.\n");
             CloseHandle(proc);
             return 5;
         }

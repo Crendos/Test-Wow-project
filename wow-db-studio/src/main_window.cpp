@@ -3261,7 +3261,9 @@ void MainWindow::wowDiagnose() {
             const QString state = result->trinityRsaFound
                 ? QStringLiteral("файл УЖЕ пропатчен (ключ TrinityCore на месте)")
                 : (result->blizzardRsaFound ? QStringLiteral("стоит родной ключ Blizzard — файл не пропатчен")
-                                            : QStringLiteral("родной ключ Blizzard не найден — проверьте, тот ли это Wow.exe"));
+                    : (result->blizzardEdFound
+                        ? QStringLiteral("ConnectTo RSA на диске не видна (ни LE, ни BE — вероятна обфускация), но Ed25519 Blizzard НАЙДЕНА — файл настоящий; замену RSA делайте в памяти: кнопка «Пропатчить и запустить (память, Arctium)»")
+                        : QStringLiteral("родной ключ Blizzard не найден — проверьте, тот ли это Wow.exe")));
             wowLog->append(QStringLiteral("Вывод: %1.").arg(state));
         });
 }

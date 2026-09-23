@@ -57,7 +57,9 @@ const Bytes &trinityRsaModulusBe();
 
 // Родные ключи Blizzard. Первые 8 байт каждого — это и есть сигнатура поиска:
 // клиент хранит ключ целиком, и начало ключа уникально в образе.
-const Bytes &blizzardRsaSignature();        // ConnectTo (8 байт)
+const Bytes &blizzardRsaSignature();        // ConnectTo (8 байт, little-endian — LSB модуля)
+const Bytes &blizzardRsaSignatureBe();      // те же 8 байт в обратном порядке: слот, если модуль
+                                            // хранится big-endian (MSB первым)
 const Bytes &blizzardSignatureModulusSig(); // Signature/GameCrypto (8 байт)
 const Bytes &blizzardEd25519Signature();    // GameCrypto Ed25519 (8 байт)
 const Bytes &portalSuffixPattern();         // ".actual.battle.net"

@@ -676,6 +676,52 @@ int main() {
         check(!verifyImage(truncated, img, rep, &out), "обрезанный файл ловится верификацией");
     }
 
+    std::printf("\n== BE-порядок RSA-модуля (модуль хранится разворотом) ==\n");
+    {
+        Fixture fxbe = makePe();
+        Bytes data = fxbe.bytes;
+        // Симулируем билд, где модуль в .rdata лежит big-endian: на месте
+        // LE-сигнатуры пишем разворот (первые 8 байт = BE-сигнатура).
+        const Bytes &be = blizzardRsaSignatureBe();
+        check(be.size() == 8, "BE-сигнатура состоит из 8 байт");
+        check(be != blizzardRsaSignature(), "BE-сигнатура отличается от LE");
+        std::memcpy(data.data() + fxbe.modulusOff, be.data(), be.size());
+
+        const wowpe::Image imgBe = wowpe::parse(data);
+        const Inspect rBe = inspect(data, "12.1.0.69497", "");
+        check(rBe.ok, "BE-образ диагностируется");
+        check(rBe.blizzardRsaFound, "BE-сигнатура принята за родной ключ Blizzard");
+
+        const Detection detBe = detectProfile(data, imgBe, "12.1.0.69497", "");
+        check(detBe.note.find("не Wow.exe") == std::string::npos,
+              "при найденном BE-ключе профиль не считает файл чужим");
+
+        Options optsBe;
+        optsBe.portal = "127.0.0.1:1119";
+        optsBe.port = 1119;
+        optsBe.autoDetect = true;
+        optsBe.requireEd25519 = true;
+        Report repBe;
+        std::vector<std::string> logBe;
+        const bool okBe = patchImage(data, optsBe, detBe, &repBe, &logBe);
+        check(okBe, std::string("BE-патч завершился успешно") + (okBe ? "" : ": " + repBe.error));
+        check(repBe.missedMandatory == 0, "BE: нет пропущенных обязательных патчей");
+        check(std::memcmp(data.data() + fxbe.modulusOff, trinityRsaModulusBe().data(), 256) == 0,
+              "на месте модуль TrinityCore в BE-порядке (256 байт)");
+
+        bool sawRsaBe = false;
+        for (const Record &rc : repBe.records)
+            if (rc.id == "rsa.connectto" && rc.applied) sawRsaBe = true;
+        check(sawRsaBe, "BE: в отчёте есть rsa.connectto");
+
+        const Inspect rBe2 = inspect(data, "12.1.0.69497", "");
+        check(!rBe2.blizzardRsaFound, "после BE-патча родной ключ не находится (LE и BE)");
+        check(rBe2.trinityRsaFound, "после BE-патча ключ TrinityCore виден по BE-пробе");
+
+        const Detection detBe2 = detectProfile(data, imgBe, "12.1.0.69497", "");
+        (void)detBe2;
+    }
+
     std::printf("\n-----------------------------------------\n");
     std::printf("Проверок: %d, провалов: %d\n", g_checks, g_failures);
     if (g_failures == 0) { std::printf("SELFTEST OK\n"); return 0; }

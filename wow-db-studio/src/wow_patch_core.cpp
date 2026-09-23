@@ -583,6 +583,14 @@ const Bytes &trinityEd25519Seed() {
 }
 
 const Bytes &blizzardRsaSignature()        { return patConnectTo(); }
+const Bytes &blizzardRsaSignatureBe() {
+    static const Bytes v = [] {
+        Bytes b = patConnectTo();
+        std::reverse(b.begin(), b.end());
+        return b;
+    }();
+    return v;
+}
 const Bytes &blizzardSignatureModulusSig() { return patSignatureMod(); }
 const Bytes &blizzardEd25519Signature()    { return patGameCryptoEd(); }
 
@@ -751,15 +759,26 @@ Detection detectProfile(const Bytes &data, const wowpe::Image &img,
     // Уточнение по содержимому: если в файле уже стоит ключ TrinityCore, значит
     // клиент уже пропатчен (это важно для режима «рецепт» и для диагностики).
     if (img.valid && !data.empty()) {
-        const bool trinityThere = wowpe::chooseSite(
+        bool trinityThere = wowpe::chooseSite(
             data, img, wowpe::patternFromBytes(trinityRsaModulusLe().data(), 8), /*requirePatchable=*/true).found;
-        const bool blizzardThere = wowpe::chooseSite(
+        trinityThere = trinityThere || wowpe::chooseSite(
+            data, img, wowpe::patternFromBytes(trinityRsaModulusBe().data(), 8), /*requirePatchable=*/true).found;
+        bool blizzardThere = wowpe::chooseSite(
             data, img, wowpe::patternFromBytes(patConnectTo().data(), patConnectTo().size()),
+            /*requirePatchable=*/true).found;
+        blizzardThere = blizzardThere || wowpe::chooseSite(
+            data, img, wowpe::patternFromBytes(blizzardRsaSignatureBe().data(), blizzardRsaSignatureBe().size()),
+            /*requirePatchable=*/true).found;
+        const bool blizzardEdThere = wowpe::chooseSite(
+            data, img, wowpe::patternFromBytes(patGameCryptoEd().data(), patGameCryptoEd().size()),
             /*requirePatchable=*/true).found;
         if (trinityThere && !blizzardThere)
             d.note += " Файл УЖЕ пропатчен (стоит ключ TrinityCore).";
         else if (!trinityThere && !blizzardThere)
-            d.note += " Родной ключ Blizzard не найден — возможно, это не Wow.exe или билд неизвестен.";
+            d.note += blizzardEdThere
+                ? " ConnectTo RSA на диске не видна (ни LE, ни BE — вероятна обфускация ключа), "
+                  "но Ed25519 Blizzard найдена: образ подлинный."
+                : " Родной ключ Blizzard не найден — возможно, это не Wow.exe или билд неизвестен.";
     }
     d.standaloneDiskPatchOk = true;
     return d;
@@ -968,7 +987,9 @@ Bytes normalizeKeyOrder(const Bytes &key, bool assumeBigEndian, std::string *not
 std::vector<Probe> knownProbes() {
     return {
         { "ConnectTo RsaModulus (Blizzard)", patConnectTo(), 256 },
+        { "ConnectTo RsaModulus (Blizzard, BE-порядок)", blizzardRsaSignatureBe(), 256 },
         { "Ключ TrinityCore (уже пропатчен)", Bytes(trinityRsaModulusLe().begin(), trinityRsaModulusLe().begin() + 8), 256 },
+        { "Ключ TrinityCore (уже пропатчен, BE)", Bytes(trinityRsaModulusBe().begin(), trinityRsaModulusBe().begin() + 8), 256 },
         { "Signature RsaModulus (legacy)", patSignatureMod(), 256 },
         { "GameCrypto RsaModulus (legacy)", patGameCryptoRsa(), 256 },
         { "GameCrypto Ed25519 (Blizzard)", patGameCryptoEd(), 32 },
@@ -984,7 +1005,6 @@ std::vector<Step> buildPlan(const Options &opts, const Detection &det,
                             const wowpe::Image &img, const Bytes &data,
                             std::vector<std::string> *log) {
     auto L = [&](const std::string &s) { if (log) log->push_back(s); };
-    (void)img;
     std::vector<Step> steps;
     if (!opts.applySignaturePatches) {
         L("Сигнатурные патчи отключены — применяем только hunks из рецепта.");
@@ -1006,10 +1026,43 @@ std::vector<Step> buildPlan(const Options &opts, const Detection &det,
         ed.clear();
     }
 
-    if (!rsa.empty())
-        steps.push_back({ "rsa.connectto", "ConnectTo RsaModulus",
-                          wowpe::patternFromBytes(patConnectTo().data(), patConnectTo().size()),
-                          rsa, 0, true, "ключ TrinityCore ConnectToRSA (LE, 256 байт)" });
+    if (!rsa.empty()) {
+        // Как лежит модуль в ЭТОМ билде: обычный порядок (LE, LSB первым) или
+        // разворот (BE, MSB первым — «openssl-порядок»). Патчим в том же виде,
+        // в каком нашли родной ключ.
+        const bool leThere = wowpe::chooseSite(
+            data, img, wowpe::patternFromBytes(patConnectTo().data(), patConnectTo().size()),
+            /*requirePatchable=*/true).found;
+        const bool beThere = wowpe::chooseSite(
+            data, img, wowpe::patternFromBytes(blizzardRsaSignatureBe().data(), blizzardRsaSignatureBe().size()),
+            /*requirePatchable=*/true).found;
+        if (beThere && !leThere) {
+            const Bytes rsaBe(rsa.rbegin(), rsa.rend());
+            steps.push_back({ "rsa.connectto", "ConnectTo RsaModulus (BE)",
+                              wowpe::patternFromBytes(blizzardRsaSignatureBe().data(), blizzardRsaSignatureBe().size()),
+                              rsaBe, 0, true,
+                              "ключ TrinityCore ConnectToRSA (big-endian, 256 байт)" });
+            L("RSA-модуль: родной ключ найден в BE-порядке — патч будет записан разворотом (BE).");
+        } else {
+            // Особый случай: родного ключа нет, но BE-вариант TrinityCore уже
+            // стоит (повторный запуск патча на BE-клиенте) — план берём BE,
+            // чтобы applyStep увидел «значение уже стоит».
+            const bool tcBeThere = !leThere && wowpe::chooseSite(
+                data, img, wowpe::patternFromBytes(trinityRsaModulusBe().data(), 8),
+                /*requirePatchable=*/true).found;
+            if (tcBeThere) {
+                const Bytes rsaBe(rsa.rbegin(), rsa.rend());
+                steps.push_back({ "rsa.connectto", "ConnectTo RsaModulus (BE)",
+                                  wowpe::patternFromBytes(blizzardRsaSignatureBe().data(), blizzardRsaSignatureBe().size()),
+                                  rsaBe, 0, true,
+                                  "ключ TrinityCore ConnectToRSA (big-endian, 256 байт)" });
+            } else {
+                steps.push_back({ "rsa.connectto", "ConnectTo RsaModulus",
+                                  wowpe::patternFromBytes(patConnectTo().data(), patConnectTo().size()),
+                                  rsa, 0, true, "ключ TrinityCore ConnectToRSA (LE, 256 байт)" });
+            }
+        }
+    }
 
     const bool needEd = det.usesEd25519 || !opts.autoDetect;
     if (!ed.empty() && needEd)
@@ -1368,13 +1421,18 @@ bool verifyImage(const Bytes &data, const wowpe::Image &img, const Report &rep,
     const wowpe::Site bliz = wowpe::chooseSite(
         data, img, wowpe::patternFromBytes(patConnectTo().data(), patConnectTo().size()),
         /*requirePatchable=*/true);
-    if (!bliz.found) L("[OK] родной ключ Blizzard ConnectTo в секциях данных не найден");
+    const wowpe::Site blizBe = wowpe::chooseSite(
+        data, img, wowpe::patternFromBytes(blizzardRsaSignatureBe().data(), blizzardRsaSignatureBe().size()),
+        /*requirePatchable=*/true);
+    if (!bliz.found && !blizBe.found) L("[OK] родной ключ Blizzard ConnectTo в секциях данных не найден");
     else if (rsaPlanned) {
-        L("[!!] родной ключ Blizzard ConnectTo всё ещё на месте @ 0x" + hex16(bliz.offset) +
-          " (" + bliz.section + ") — RSA-патч не применился");
+        const wowpe::Site &b = bliz.found ? bliz : blizBe;
+        L("[!!] родной ключ Blizzard ConnectTo всё ещё на месте @ 0x" + hex16(b.offset) +
+          " (" + b.section + ") — RSA-патч не применился");
         clean = false;
     } else {
-        L("[i] родной ключ Blizzard ConnectTo на месте @ 0x" + hex16(bliz.offset) +
+        const wowpe::Site &b = bliz.found ? bliz : blizBe;
+        L("[i] родной ключ Blizzard ConnectTo на месте @ 0x" + hex16(b.offset) +
           " — RSA-патч не планировался (режим «только рецепт»)");
     }
     const wowpe::Site blizEd = wowpe::chooseSite(
@@ -1386,7 +1444,10 @@ bool verifyImage(const Bytes &data, const wowpe::Image &img, const Report &rep,
 
     const wowpe::Site tr = wowpe::chooseSite(
         data, img, wowpe::patternFromBytes(trinityRsaModulusLe().data(), 8), /*requirePatchable=*/true);
+    const wowpe::Site trBe = wowpe::chooseSite(
+        data, img, wowpe::patternFromBytes(trinityRsaModulusBe().data(), 8), /*requirePatchable=*/true);
     if (tr.found) L("[OK] ключ TrinityCore ConnectTo присутствует @ 0x" + hex16(tr.offset));
+    else if (trBe.found) L("[OK] ключ TrinityCore ConnectTo присутствует (BE-порядок) @ 0x" + hex16(trBe.offset));
     else if (rsaPlanned) { L("[!!] ключ TrinityCore ConnectTo НЕ найден в результате"); clean = false; }
     else L("[i] ключа TrinityCore ConnectTo нет — в этом режиме он и не подставлялся");
 
@@ -1721,6 +1782,8 @@ Inspect inspect(const Bytes &data, const std::string &version, const std::string
         }
         const bool there = siteData.found;
         if (p.pattern == patConnectTo()) r.blizzardRsaFound = there;
+        else if (p.pattern == blizzardRsaSignatureBe())
+            r.blizzardRsaFound = r.blizzardRsaFound || there;   // LE не нашли — проверили BE
         else if (p.pattern == patSignatureMod()) { /* legacy: только для отчёта */ }
         else if (p.pattern == patGameCryptoEd()) r.blizzardEdFound = there;
         else if (p.pattern == portalSuffixPattern()) r.portalFound = there;
@@ -1730,12 +1793,20 @@ Inspect inspect(const Bytes &data, const std::string &version, const std::string
                  std::memcmp(p.pattern.data(), trinityRsaModulusLe().data(), 8) == 0)
             r.trinityRsaFound = there;
         else if (p.pattern.size() == 8 &&
+                 std::memcmp(p.pattern.data(), trinityRsaModulusBe().data(), 8) == 0)
+            r.trinityRsaFound = r.trinityRsaFound || there;     // LE не нашли — проверили BE
+        else if (p.pattern.size() == 8 &&
                  std::memcmp(p.pattern.data(), trinityEd25519PublicKey().data(), 8) == 0)
             r.trinityEdFound = there;
     }
 
     L("Итог: " + std::string(r.blizzardRsaFound ? "родной ключ Blizzard на месте" : "родного ключа Blizzard нет") +
       ", " + (r.trinityRsaFound ? "ключ TrinityCore УЖЕ стоит" : "ключа TrinityCore нет") + ".");
+    if (!r.blizzardRsaFound && r.blizzardEdFound)
+        L("  Примечание: Ed25519 Blizzard найдена — образ подлинный, а ConnectTo RSA не видна\n"
+          "  ни в LE, ни в BE. Для билдов 12.x такой ключ обычно хранится обфусцированным:\n"
+          "  замените его в памяти запущенного клиента (wow_mem_patcher или кнопка\n"
+          "  «Пропатчить и запустить (память, Arctium)» в Studio).");
     r.ok = true;
     return r;
 }
