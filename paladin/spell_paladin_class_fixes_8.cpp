@@ -76,7 +76,8 @@ class spell_pal_glory_of_the_vanguard_ex : public SpellScript
         Unit* caster = GetCaster();
         if (!caster || !caster->HasAura(SPELL_EX8_GLORY_1))
             return;
-        if (roll_chance(20))
+        // 20% по simc-TWW; по двум логам WCL 12.1 (+20/+18): 152/661 = 23.0% => ставим 23%
+        if (roll_chance(23.0f))
             caster->CastSpell(caster, SPELL_EX8_VANGUARD_BUFF, CastSpellExtraArgsInit{
                 .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
                 .TriggeringSpell = GetSpell()
