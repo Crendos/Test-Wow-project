@@ -1,107 +1,121 @@
-# ПОЛНАЯ ИНСТРУКЦИЯ: фикс паладина 12.1.0 в TrinityCore (полная сборка ядра)
+# 🛠️ ИНСТРУКЦИЯ ДЛЯ ПК — паладин-фиксы 12.1.0 (TrinityCore master, Windows)
 
-Состав поставки:
-```
-paladin/
-├── spell_paladin_class_fixes.cpp     — скрипты, партия 1 (Ретри)
-├── spell_paladin_class_fixes_2.cpp   — скрипты, партия 2 (Ретри-остаток + Защита)
-├── spell_paladin_class_fixes_3.cpp   — скрипты, партия 3 (Защита + Молот гнева в АН)
-├── spell_paladin_class_fixes_4.cpp   — скрипты, партия 4a (Свет, ядро хила)
-├── spell_paladin_class_fixes_5.cpp   — скрипты, партия 4b (Свет, маяки)
-├── spell_paladin_class_fixes_6.cpp   — скрипты, партия 5 (классовое дерево)
-├── spell_paladin_class_fixes_7.cpp   — скрипты, партия 6 (геройские деревья)
-├── spell_paladin_class_fixes_8.cpp   — скрипты, партия 7 (Слава авангарда, Маяк Спасителя,
-│                                        Серафимский барьер, Переполняющий свет)
-├── paladin_class_fixes.sql           — SQL партии 1
-├── paladin_class_fixes_2.sql         — SQL партии 2
-├── paladin_class_fixes_3.sql         — SQL партии 3
-├── paladin_class_fixes_4.sql         — SQL партий 4a+4b
-├── paladin_class_fixes_5.sql         — SQL партии 5+6 (геройские)
-├── paladin_class_fixes_7.sql         — SQL партии 7 (по ID пользователя)
-└── core_patch/
-    └── 0001-core-spell-block-chance.patch  — ПАТЧ ЯДРА (блок заклинаний, мастерство Прота)
-```
+Что делаем: ставим **паладин-фиксы** в ваш сервер: 1 патч ядра + 10 файлов со скриптами + 10 SQL-файлов.
+Порядок строгий: **Шаг 0 → 1 → 2 → 3 → 4**.
 
-Порядок: **Шаг 0 (патч ядра) → Шаг 1 (скрипты) → Шаг 2 (БД) → Шаг 3 (сборка) → Шаг 4 (проверка)**.
+Скачайте папку `paladin/` из этого репозитория (зелёная кнопка **Code → Download ZIP**,
+распакуйте, например, в `C:\paladin-fixes\paladin`). Дальше я пишу пути так:
+- `C:\paladin-fixes\paladin` — папка с фиксами (у вас может быть другой);
+- `C:\TrinityCore` — папка с ИСХОДНИКАМИ вашего ядра (где лежит `src`, `CMakeLists.txt`).
 
 ---
 
-## ШАГ 0. Патч ядра — блок заклинаний (мастерство Защиты «Божественный оплот»)
+## Что должно быть установлено (если сервер уже собирали — пропустите)
 
-Зачем: в TC master аура `SPELL_AURA_MOD_SPELL_BLOCK_CHANCE` (529) не реализована — шанс блока заклинаний никогда не роллится. Патч добавляет ролл в `Unit::CalculateSpellDamageTaken` (шанс = очки мастерства × 2%, как в DBC MValue; при блок-крите ×2; учитывает крит. блок). Проверено: файлы компилируются, proc-маска сама ставит PROC_HIT_BLOCK.
+1. **Git for Windows** — git-scm.com (при установке всё «далее→далее»).
+2. **Visual Studio 2022 Community** — visualstudio.microsoft.com. При установке отметьте
+   рабочую нагрузку **«Разработка классических приложений на C++»**.
+3. **CMake** — идёт вместе с VS (проверьте галочку «CMake tools»), либо cmake.org.
+4. **Boost** (1.78+) — либо prebuilt-архив (boost.org / SourceForge), либо `vcpkg install boost`.
+5. **MySQL Server 8.x** + **HeidiSQL** (GUI для базы, heidisql.com).
+6. **OpenSSL** (сборка TC его требует).
 
-Применение (из корня ВАШЕГО исходника TC):
+---
+
+## ШАГ 0. Патч ядра — блок заклинаний (мастерство Прота)
+
+Что это: без него «Божественный оплот» не блокирует заклинания.
+
+### Вариант А — через командную строку (30 секунд)
+Правый клик по `C:\TrinityCore` → **Git Bash Here**, в открывшемся окне:
 
 ```bash
-git apply --check paladin/core_patch/0001-core-spell-block-chance.patch   # проверка
-git apply paladin/core_patch/0001-core-spell-block-chance.patch           # применить
+git apply --check "C:\paladin-fixes\paladin\core_patch\0001-core-spell-block-chance.patch"
+```
+Если ничего не напечатало — всё чисто. Применяем:
+```bash
+git apply "C:\paladin-fixes\paladin\core_patch\0001-core-spell-block-chance.patch"
 ```
 
-Если `--check` ругается (ваш исходник отличается от master) — примените вручную:
+### Вариант Б — вручную в Notepad++ (если git'у не доверяете)
 
-**Файл 1: `src/server/game/Entities/Unit/Unit.cpp`**
-Найдите функцию `void Unit::CalculateSpellDamageTaken(...)`, внутри неё ветку:
+**Файл 1:** `C:\TrinityCore\src\server\game\Entities\Unit\Unit.cpp`
+1. Ctrl+F → найдите строку: `if (CanApplyResilience())`
+   (нужно вхождение внутри функции `Unit::CalculateSpellDamageTaken` — прямо над ним строка `damage = Unit::SpellCriticalDamageBonus(this, spellInfo, damage, victim);` и пара закрывающих скобок).
+2. **ПЕРЕД** строкой `if (CanApplyResilience())` вставьте этот блок:
+
 ```cpp
-            // Magical Attacks
-            case SPELL_DAMAGE_CLASS_NONE:
-            case SPELL_DAMAGE_CLASS_MAGIC:
-            {
-                // If crit add critical bonus
-                if (crit)
+                // Spell blocking (SPELL_AURA_MOD_SPELL_BLOCK_CHANCE): masteries/talents
+                // (e.g. Protection paladin "Mastery: Divine Bulwark") can block spells.
+                // The DBC MValue coefficient (2% block chance per mastery point) is not
+                // loaded by TC, so the chance is recomputed here from mastery points.
+                if (victim->HasAuraType(SPELL_AURA_MOD_SPELL_BLOCK_CHANCE))
                 {
-                    ...
+                    float spellBlockChance = 0.f;
+                    if (Player* playerVictim = victim->ToPlayer())
+                        spellBlockChance = (playerVictim->GetTotalAuraModifier(SPELL_AURA_MASTERY)
+                            + playerVictim->GetRatingBonusValue(CR_MASTERY)) * 2.0f;
+
+                    if (spellBlockChance > 0.f && roll_chance(spellBlockChance))
+                    {
+                        uint32 value = victim->GetBlockPercent(GetLevel());
+                        if (victim->IsBlockCritical())
+                        {
+                            value *= 2; // double blocked amount if block is critical
+                            value = uint32(value * GetTotalAuraMultiplier(SPELL_AURA_MOD_CRITICAL_BLOCK_AMOUNT));
+                        }
+
+                        damageInfo->blocked = CalculatePct(damage, value);
+                        if (damage <= int32(damageInfo->blocked))
+                        {
+                            damageInfo->blocked = uint32(damage);
+                            damageInfo->fullBlock = true;
+                        }
+                        damage -= damageInfo->blocked;
+                    }
                 }
 
-                if (CanApplyResilience())
 ```
-Между блоком `if (crit) { ... }` и `if (CanApplyResilience())` вставьте 30 строк из патча (блок `if (victim->HasAuraType(SPELL_AURA_MOD_SPELL_BLOCK_CHANCE))` — копия из файла патча, строки с `+`).
 
-**Файл 2: `src/server/game/Spells/Auras/SpellAuraEffects.cpp`**
-Найдите строку (около 601):
+**Файл 2:** `C:\TrinityCore\src\server\game\Spells\Auras\SpellAuraEffects.cpp`
+1. Ctrl+F → найдите: `//529 SPELL_AURA_MOD_SPELL_BLOCK_CHANCE`
+2. Строку
 ```cpp
     &AuraEffect::HandleNULL,                                      //529 SPELL_AURA_MOD_SPELL_BLOCK_CHANCE
 ```
-замените на:
+замените на
 ```cpp
     &AuraEffect::HandleNoImmediateEffect,                         //529 SPELL_AURA_MOD_SPELL_BLOCK_CHANCE implemented in Unit::CalculateSpellDamageTaken
 ```
 
-> Патч опционален: без него всё остальное работает, только Прот не будет блокировать заклинания.
-
 ---
 
-## ШАГ 1. Скрипты (10 файлов)
+## ШАГ 1. Скрипты паладина (10 файлов)
 
-### 1.1. Вставка кода
-Откройте `src/server/scripts/Spells/spell_paladin.cpp`. Прокрутите в САМЫЙ КОНЕЦ файла
-(после последней закрывающей скобки и после `AddSC_paladin_spell_scripts()` — там обычно `// Add all scripts in the proper order` и функция регистрации).
+### 1.1. Вставить код в spell_paladin.cpp
 
-В конец файла вставьте содержимое всех 10 файлов, **строго в этом порядке**:
-1. `spell_paladin_class_fixes.cpp` — всё, что ПОСЛЕ строки `=== CUT HERE ===`
-2. `spell_paladin_class_fixes_2.cpp` — так же
-3. `spell_paladin_class_fixes_3.cpp`
-4. `spell_paladin_class_fixes_4.cpp`
-5. `spell_paladin_class_fixes_5.cpp`
-6. `spell_paladin_class_fixes_6.cpp`
-7. `spell_paladin_class_fixes_7.cpp`
-8. `spell_paladin_class_fixes_8.cpp`
-9. `spell_paladin_class_fixes_9.cpp`
-10. `spell_paladin_class_fixes_10.cpp`
+**Автоматически (рекомендую).** Правый клик по `C:\TrinityCore` → **Git Bash Here**:
 
-Порядок важен: партии 4a–6 используют хелперы (`IsPaladinJudgment`, `GetHolyPowerCost`), объявленные в партии 1.
-
-Быстро из командной строки (из корня репозитория с фиксами):
 ```bash
-for i in "" _2 _3 _4 _5 _6 _7 _8; do
-  sed -n '/=== CUT HERE ===/,$p' paladin/spell_paladin_class_fixes${i}.cpp >> src/server/scripts/Spells/spell_paladin.cpp
+for i in "" _2 _3 _4 _5 _6 _7 _8 _9 _10; do
+  sed -n '/=== CUT HERE ===/,$p' "C:\paladin-fixes\paladin\spell_paladin_class_fixes${i}.cpp" >> src/server/scripts/Spells/spell_paladin.cpp
 done
 ```
+(команда дописывает содержимое всех 10 файлов в самый конец spell_paladin.cpp).
 
-### 1.2. Регистрация в лоадере
-Откройте `src/server/scripts/Spells/spell_script_loader.cpp`:
+**Вручную (если хочется руками):**
+1. Откройте `C:\TrinityCore\src\server\scripts\Spells\spell_paladin.cpp` в Notepad++.
+2. Нажмите **Ctrl+End** (в самый конец файла), поставьте курсор на новую строку.
+3. Для КАЖДОГО из 10 файлов (`spell_paladin_class_fixes.cpp`, `_2.cpp`, `_3.cpp`, `_4.cpp`,
+   `_5.cpp`, `_6.cpp`, `_7.cpp`, `_8.cpp`, `_9.cpp`, `_10.cpp`) из `C:\paladin-fixes\paladin`:
+   откройте его, найдите строку `=== CUT HERE ===`, выделите **от этой строки до конца файла**,
+   скопируйте и вставьте в конец spell_paladin.cpp. **Порядок 1→10 важен.**
 
-**а)** Вверху, к списку объявлений (там где `void AddSC_paladin_spell_scripts();`),
-добавьте ПОСЛЕ него:
+### 1.2. Зарегистрировать скрипты в лоадере
+
+Откройте `C:\TrinityCore\src\server\scripts\Spells\spell_script_loader.cpp`:
+
+**а)** Найдите строку `void AddSC_paladin_spell_scripts();` — **ПОСЛЕ неё** добавьте:
 ```cpp
 void AddSC_paladin_spell_scripts_ex2();
 void AddSC_paladin_spell_scripts_ex3();
@@ -113,9 +127,9 @@ void AddSC_paladin_spell_scripts_ex8();
 void AddSC_paladin_spell_scripts_ex9();
 void AddSC_paladin_spell_scripts_ex10();
 ```
-(части 1 не нужно — её регистрация уже вызывается; х4a объявляется внутри ex4? — НЕТ: ex4 = партия 4a, ex5 = 4b; обе объявляются здесь.)
 
-**б)** Внутри `AddSpellsScripts()` найдите `AddSC_paladin_spell_scripts();` и добавьте ПОСЛЕ него:
+**б)** Найдите строку `AddSC_paladin_spell_scripts();` (внутри функции `AddSpellsScripts()`) —
+**ПОСЛЕ неё** добавьте:
 ```cpp
     AddSC_paladin_spell_scripts_ex2();
     AddSC_paladin_spell_scripts_ex3();
@@ -130,79 +144,89 @@ void AddSC_paladin_spell_scripts_ex10();
 
 ---
 
-## ШАГ 2. База данных
+## ШАГ 2. База данных (HeidiSQL, по кликам)
 
-Выполнить на **world**-базу (та, что указана в `worldserver.conf` → `WorldDatabaseInfo`).
-Все запросы `REPLACE INTO` — повторный прогон безопасен.
+1. Остановите **worldserver** (если запущен).
+2. Откройте HeidiSQL → **New** → Host `127.0.0.1`, User `root`, ваш пароль → **Open**.
+3. Слева раскройте сервер и **кликните один раз** на вашу **world**-базу
+   (имя смотрите в `worldserver.conf`, строка `WorldDatabaseInfo = "127.0.0.1;3306;root;пароль;имябазы"`).
+4. Меню **File → Run SQL file…** → выберите и выполните **по очереди**:
+   - `C:\paladin-fixes\paladin\paladin_class_fixes.sql`
+   - `C:\paladin-fixes\paladin\paladin_class_fixes_2.sql`
+   - `C:\paladin-fixes\paladin\paladin_class_fixes_3.sql`
+   - `C:\paladin-fixes\paladin\paladin_class_fixes_4.sql`
+   - `C:\paladin-fixes\paladin\paladin_class_fixes_5.sql`
+   - `C:\paladin-fixes\paladin\paladin_class_fixes_6.sql`
+   - `C:\paladin-fixes\paladin\paladin_class_fixes_7.sql`
+   - `C:\paladin-fixes\paladin\paladin_class_fixes_8.sql`  ← спираль Благословенного молота
+   - `C:\paladin-fixes\paladin\paladin_class_fixes_9.sql`
+   - `C:\paladin-fixes\paladin\paladin_class_fixes_10.sql`
+   (каждый — отдельный запуск Run SQL file; повторный прогон безопасен).
 
-```bash
-mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes.sql
-mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_2.sql
-mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_3.sql
-mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_4.sql
-mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_5.sql
-mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_6.sql
-mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_7.sql
-mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_8.sql
-mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_9.sql
-mysql -u root -p <имя_world_базы> < paladin/paladin_class_fixes_10.sql
-```
-(например: `mysql -u root -p acore_world < paladin/paladin_class_fixes.sql`)
-
-Что делают:
-- `spell_script_names` — привязывают скрипты к ID заклинаний;
-- `spell_proc` — включают проц-ауры, которые БЕЗ строки в этой таблице не работают вовсе
-  (включая P0-фикс «Крещендо ударов» 406833 и блок-зависимые процы);
-- `_6.sql` — проц-таблица для партии 6 (классовое дерево);
-- `_8.sql` — спираль Благословенного молота: строка `areatrigger_create_properties` (Id 6006)
-  + 49 точек сплайна + привязка AI-скрипта `at_pal_blessed_hammer`.
-
-Проверка спирали молота после импорта:
+**Проверка импорта.** В HeidiSQL откройте вкладку **Query**, выполните:
 ```sql
-SELECT Id, Shape, Speed, SpeedIsTime, ScriptName FROM areatrigger_create_properties WHERE Id=6006 AND IsCustom=0;
-SELECT COUNT(*) FROM areatrigger_create_properties_spline_point WHERE AreaTriggerCreatePropertiesId=6006 AND IsCustom=0;
+SELECT COUNT(*) FROM spell_script_names WHERE ScriptName LIKE 'spell_pal%';
+SELECT Id, Shape, Speed, ScriptName FROM areatrigger_create_properties WHERE Id=6006 AND IsCustom=0;
 ```
-(вторая строка вернёт 49, если спираль создали мы; 0 — если TDB содержит свою розничную строку, это тоже нормально)
+Первая строка должна вернуть несколько десятков (бинды скриптов), вторая — строку 6006 со спиралью молота.
 
 ---
 
-## ШАГ 3. Полная сборка ядра
+## ШАГ 3. Сборка ядра
 
-```bash
-cd <исходник TC>
-mkdir -p build && cd build            # или используйте существующую папку сборки
-cmake .. -DCMAKE_INSTALL_PREFIX=<куда ставить> -DCMAKE_BUILD_TYPE=Release
-cmake --build . -j$(nproc)
-```
-(если собирали раньше — просто `cmake --build . -j$(nproc)`, пересоберутся только изменённые TU: Unit.cpp, SpellAuraEffects.cpp, spell_paladin.cpp, spell_script_loader.cpp)
+### Если сервер УЖЕ собирался:
+1. Откройте `C:\TrinityCore\build\TrinityCore.sln` в Visual Studio.
+2. Сверху выберите конфигурацию **Release**, платформу **x64**.
+3. В окне Solution Explorer правый клик по **ALL_BUILD** → **Build**.
+4. Ждите. В конце должно быть `========== Build: succeeded, 0 failed ==========`.
 
-Дальше стандартно: `install`, обновить карты/DBC не требуется, перезапустить worldserver.
+### Если с нуля (кратко):
+1. **CMake (cmake-gui)**: «Where is the source code» = `C:/TrinityCore`; «Where to build» = `C:/TrinityCore/build` → **Configure** → Visual Studio 17 2022, x64.
+   Если ругнётся на Boost — добавьте запись `BOOST_ROOT` = путь к распакованному Boost и снова **Configure** (до исчезновения красных строк).
+2. **Generate** → **Open Project** → в VS: Release/x64 → ALL_BUILD → Build (займёт 20–60 мин).
+3. Готовые серверы появятся в `C:\TrinityCore\build\bin\Release\` (`worldserver.exe`, `authserver.exe`).
+
+> Ваши правки (шаги 0–1) подхватятся этой же пересборкой — отдельно ничего копировать в исходники не нужно.
 
 ---
 
-## ШАГ 4. Проверка в игре (чек-лист)
+## ШАГ 4. Запуск и проверка в игре
 
-| Тест | Ожидание |
+1. Скопируйте свежие `worldserver.exe`/`authserver.exe` (и `bin\Release\*.dll` рядом, если появятся) туда, где живёт ваш сервер.
+2. Запустите `authserver.exe`, затем `worldserver.exe`. Дождитесь `World initialized`.
+   В логе старта НЕ должно быть ошибок вида `Script 'spell_pal_…' not found`.
+3. Зайдите паладином (можно .learn все таланты) и проверьте хотя бы это:
+
+| Действие | Что должно произойти |
 |---|---|
-| Ретри: автоатака | шанс → «Искусство войны» (бафф, КД Клинка сброшен) |
-| Ретри: трата СС | «Праведная причина» иногда сбрасывает Клинок |
-| Ретри: Удар крестоносца | шанс → 326733 «Сила небес» (Буря бесплатна) |
-| Ретри: Правосудие | иногда «Правосудие Верховного лорда» (багровый взрыв Света) |
-| Прот: 3 траты СоП в Щит | «Сияние»: след. Слово света бесплатно |
-| Прот: Щит мстителя | стаки Оплота праведной ярости / Силы в невзгодах; −1с КД Хранителя за цель |
-| Прот (с патчем): магический урон по вам | блок заклинаний с мастерством (в логах «Blocked») |
-| Свет: любое лечение | больше у цели рядом (мастерство Светоносца), до +1.5%/очко |
-| Свет: крит Правосудия | «Пробуждение» — след. Правосудие автокрит |
-| Гневилище | 5 целей основной способностью |
-| Влоге worldserver при старте | нет ошибок загрузки скриптов |
+| Прот: каст Благословенного молота в 2–3 мобов | видно **вращающийся по спирали молот**; урон каждому врагу по мере прохода; в логах «Blocked» по магии (с мастерством) |
+| Прот: Правосудие до ЩП | с шансом ~23% появляется бафф **Авангард**; следующий Щит мстителя бьёт болтом Света (через ~0.3 с) |
+| Хил: Слово света при активном Благ. горна | цель дополнительно получает **Святое слово** (лечение) |
+| Рет: Клинок справедливости | рядом с обычным уроном летит **Свет в душе** |
+| Любая спека: щиты талантов | Спасенный Светом/Серафимский барьер вешают щит (визуал может быть «прот-овским» — см. «Упрощения») |
 
 ---
 
-## Известные упрощения v1 (см. PALADIN_AUDIT.md)
-- ~~Благословенный молот — AoE-урон без вращающейся спирали~~ → ✅ сделано (партия 8: AT-спираль 6006 + AI-скрипт, SQL `_8.sql`);
+## Если что-то не работает — типовые причины
+
+| Симптом | Причина | Лечение |
+|---|---|---|
+| `git apply` ругается на строки | исходники отличаются от master, к которому писался патч | применяйте Вариант Б (вручную) — там указано «найди/замени» |
+| Ошибка компиляции: `SPELL_EX…: identifier not found` | вставили файлы не по порядку или не все 10 | повторите Шаг 1.1 (порядок 1→10) |
+| Ошибка: `AddSC_paladin_spell_scripts_ex9 undefined` | не добавили блок 1.2-б | допишите вызовы в `AddSpellsScripts()` |
+| В игре скрипты молчат, урон голый | не импортирован SQL (Шаг 2) или worldserver не перезапускался | импортируйте все 10 SQL и перезапустите worldserver |
+| Молот без спирали | не импортирован `_8.sql` | проверьте запрос `areatrigger_create_properties` из Шага 2; работает и без него — будет мгновенный AoE (fallback) |
+
+---
+
+## Известные упрощения v1 (не баги — сознательные допущения)
+
+- Благословенный молот: спираль готова (AT 6006 + AI-скрипт); до импорта `_8.sql` — мгновенный AoE;
 - Страж — задержка распада упрощена (+1с длительности за трату СС);
-- Маяк веры — 2-й маяк с полным переносом (для 70% — примечание в шапке `_5.cpp`);
+- Маяк веры — 2-й маяк с полным переносом (для 70% — примечание в шапке `spell_paladin_class_fixes_5.cpp`);
 - Наставляемая молитва — Слово света полной силы (в игре 60%);
-- Серафимский барьер/Переполняющий свет — щит через носитель 209388 (визуал Прота, значение точное).
-- Маяк Спасителя — перенос 10/20%, пере-выбор цели каждые 2с (условия переноса упрощены).
-- Слава авангарда — болт без задержки 300мс и без «по линии» (цель + ДBC-эффекты 1269175).
+- Серафимский барьер / Переполняющий свет — щит через носитель 209388 (визуал Прота, значение точное);
+- Маяк Спасителя — перенос 10/20%, пере-выбор цели каждые 2с;
+- Слава авангарда — болт без полёта «по линии» (цель + DBC-эффекты 1269175), задержка 300 мс есть.
+
+Полный статус по каждому таланту — `PALADIN_AUDIT.md`; измеренные значения по WCL — `logs_analysis/README.md`.
