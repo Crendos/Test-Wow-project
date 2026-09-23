@@ -444,6 +444,64 @@ std::vector<BotKnowledge> PlayerbotMgr::ResolveKnowledge(std::string const& botN
     return {};
 }
 
+// ---------------------------------------------------------------- v5: босс-правила
+
+static BossRule::Trigger ParseBossTrigger(std::string_view s)
+{
+    if (s == "boss_aura")    return BossRule::Trigger::BossAura;
+    if (s == "bot_aura")     return BossRule::Trigger::BotAura;
+    if (s == "hp_below")     return BossRule::Trigger::BossHpBelow;
+    if (s == "always")       return BossRule::Trigger::Always;
+    return BossRule::Trigger::BossCast;   // "boss_cast" и любой мусор → каст босса
+}
+
+static BossRule::Action ParseBossAction(std::string_view s)
+{
+    if (s == "run_from_boss") return BossRule::Action::RunFromBoss;
+    if (s == "spread")        return BossRule::Action::Spread;
+    if (s == "sidestep")      return BossRule::Action::Sidestep;
+    if (s == "switch_target") return BossRule::Action::SwitchTarget;
+    if (s == "use_defensive") return BossRule::Action::UseDefensive;
+    if (s == "dispel_self")   return BossRule::Action::DispelSelf;
+    if (s == "use_burst")     return BossRule::Action::UseBurst;
+    return BossRule::Action::Interrupt;   // "interrupt" и мусор → interrupt
+}
+
+std::vector<BossRule> const* PlayerbotMgr::GetBossRules(uint32 bossEntry)
+{
+    if (!m_bossRulesLoaded)
+    {
+        m_bossRulesLoaded = true;
+        if (QueryResult result = WorldDatabase.Query(
+            "SELECT boss_entry, trigger_type, trigger_arg, action_type, action_arg, seq, cooldown_ms "
+            "FROM playerbots_boss_rules ORDER BY boss_entry, seq"))
+        {
+            uint32 count = 0;
+            do
+            {
+                Field* f = result->Fetch();
+                BossRule r;
+                r.BossEntry   = f[0].GetUInt32();
+                r.TriggerType = ParseBossTrigger(f[1].GetString());
+                r.TriggerArg  = f[2].GetUInt32();
+                r.ActionType  = ParseBossAction(f[3].GetString());
+                r.ActionArg   = f[4].GetUInt32();
+                r.Seq         = f[5].GetUInt32();
+                r.CooldownMs  = std::max<uint32>(f[6].GetUInt32(), 200u);
+                m_bossRules[r.BossEntry].push_back(r);
+                ++count;
+            } while (result->NextRow());
+            TC_LOG_INFO("playerbots", "GetBossRules: загружено {} правил босс-механик ({} боссов)",
+                count, m_bossRules.size());
+        }
+        else
+            TC_LOG_INFO("playerbots", "GetBossRules: таблица playerbots_boss_rules пуста/отсутствует — без босс-механик");
+    }
+
+    auto itr = m_bossRules.find(bossEntry);
+    return itr == m_bossRules.end() ? nullptr : &itr->second;
+}
+
 /* static */ void PlayerbotMgr::LoadPlayerBotCombatSpells(std::unordered_map<std::string, std::vector<uint32>>& spells)
 {
     spells.clear();

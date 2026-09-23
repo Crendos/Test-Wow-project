@@ -65,6 +65,9 @@ public:
     std::vector<BotKnowledge> ResolveKnowledge(std::string const& botName, uint8 classId);
     static std::unordered_map<uint8 /*classId*/, std::vector<BotKnowledge>> LoadClassKnowledgeTable();
 
+    // v5: босс-механики — правила по creature-entry босса (world.playerbots_boss_rules)
+    std::vector<BossRule> const* GetBossRules(uint32 bossEntry);
+
 private:
     PlayerbotMgr();
 
@@ -79,6 +82,8 @@ private:
     std::unordered_map<uint32 /*accountId*/, PlayerBotEntry> m_bots;
     std::unordered_map<std::string, std::vector<uint32>> m_combatSpells;
     std::unordered_map<uint8 /*classId*/, std::vector<BotKnowledge>> m_classKnowledge;
+    std::unordered_map<uint32 /*bossEntry*/, std::vector<BossRule>> m_bossRules;
+    bool m_bossRulesLoaded = false;
 
     bool     m_enabled = false;
     uint32   m_freeAccountStart = 0, m_freeAccountEnd = 0;

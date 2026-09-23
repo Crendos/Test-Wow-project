@@ -67,6 +67,12 @@ private:
     bool IsSpellReady(uint32 spellId) const;
     bool IsSelfBuffSpell(SpellInfo const* info) const;
 
+    // ---- v5: босс-механики (правила из world.playerbots_boss_rules) ----
+    bool ProcessBossRules(Unit* target);        // true = действие съело тик/GCD
+    bool EvaluateBossTrigger(BossRule const& r, Unit* boss) const;
+    bool ExecuteBossAction(BossRule const& r, Unit* boss);
+    void RuleMoveTo(float x, float y, float z, uint32 blockMs);
+
     static float GetDefaultCombatRange(uint8 cls);
     static int   ClassArmorSubClass(uint8 cls);   // auto-equip: максимум по броне
 
@@ -90,6 +96,12 @@ private:
     uint32 m_combatEnterMs = 0;          // timestamp входа в бой (для burst-окна)
     bool   _combatActive   = false;
     std::unordered_set<uint32> m_castBlacklist; // заброшенные в текущем бою спелы
+
+    // --- v5: босс-механики ---
+    uint32 m_bossEntry     = 0;          // entry босса, чьи правила активны
+    uint32 m_ruleMoveBlockMs = 0;        // обычное позиционирование/follow заморожено (бот двигается по правилу)
+    uint32 m_forceBurstMs  = 0;          // принудительное burst-окно (правило use_burst)
+    std::unordered_map<uint32 /*seq*/, uint32 /*ms*/> m_ruleCooldowns;
 
     // --- follow ---
     ObjectGuid _masterGuid;

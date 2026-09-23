@@ -7,6 +7,7 @@
  */
 #include "PlayerbotMgr.h"
 #include "PlayerbotAI.h"
+#include "Creature.h"
 #include "GameTime.h"
 #include "Item.h"
 #include "Log.h"
@@ -17,6 +18,7 @@
 #include "Player.h"
 #include "Random.h"
 #include "SharedDefines.h"
+#include "Spell.h"
 #include "SpellHistory.h"
 #include "SpellMgr.h"
 #include "Timer.h"
@@ -97,12 +99,13 @@ void PlayerbotAI::BuildKnowledgeFromSpellbook()
         if (!info || info->IsPassive())
             continue;
 
-        bool isHeal=false, isDmg=false, isInterrupt=false, isAura=false, isDoT=false, isMount=false;
+        bool isHeal=false, isDmg=false, isInterrupt=false, isAura=false, isDoT=false, isMount=false, isDispel=false;
         for (SpellEffectInfo const& eff : info->GetEffects())
         {
             if (eff.Effect == SPELL_EFFECT_INTERRUPT_CAST) isInterrupt = true;
             if (eff.Effect == SPELL_EFFECT_HEAL)            isHeal = true;
             if (eff.Effect == SPELL_EFFECT_SCHOOL_DAMAGE)   isDmg = true;
+            if (eff.Effect == SPELL_EFFECT_DISPEL)          isDispel = true;
             if (eff.Effect == SPELL_EFFECT_APPLY_AURA)
             {
                 isAura = true;
@@ -124,6 +127,11 @@ void PlayerbotAI::BuildKnowledgeFromSpellbook()
         else if (isHeal && info->IsPositive())
         {
             m_knowledge.push_back(BotKnowledge{kv.first, BotKnowledge::Kind::Heal, 80, 60, 0, 100, false, false});
+        }
+        else if (isDispel && info->IsPositive())
+        {
+            // v5: диспел/очищение — для правил dispel_self (и нормальных слепых диспелов мимо боёв боссов)
+            m_knowledge.push_back(BotKnowledge{kv.first, BotKnowledge::Kind::Dispel, 85, 100, 0, 100, false, false});
         }
         else if (isDoT && !info->IsPositive())
         {
@@ -198,10 +206,10 @@ bool PlayerbotAI::SpellFits(BotKnowledge const& k, Unit* target) const
             return false;
     }
 
-    // burst-окно: в начале боя (8 сек) или при цели <30% HP
+    // burst-окно: в начале боя (8 сек), при цели <30% HP или принудительно правилом босса (use_burst)
     if (k.burst)
     {
-        bool window = _combatActive && (getMSTime() - m_combatEnterMs) < 8000u;
+        bool window = _combatActive && (m_forceBurstMs > 0 || (getMSTime() - m_combatEnterMs) < 8000u);
         bool lowHp  = target && target->GetHealthPct() < 30.f;
         if (!window && !lowHp)
             return false;
@@ -351,6 +359,13 @@ void PlayerbotAI::Update(uint32 diff)
 
     if (m_recastTimerMs > diff)  m_recastTimerMs -= diff;  else m_recastTimerMs = 0;
     if (_followRepointMs > diff) _followRepointMs -= diff; else _followRepointMs = 0;
+    if (m_ruleMoveBlockMs > diff) m_ruleMoveBlockMs -= diff; else m_ruleMoveBlockMs = 0;
+    if (m_forceBurstMs > diff)    m_forceBurstMs    -= diff; else m_forceBurstMs    = 0;
+    for (auto it = m_ruleCooldowns.begin(); it != m_ruleCooldowns.end();)
+    {
+        if (it->second > diff) { it->second -= diff; ++it; }
+        else it = m_ruleCooldowns.erase(it);
+    }
 
     Player* master = _masterGuid.IsEmpty() ? nullptr : ObjectAccessor::FindPlayer(_masterGuid);
 
@@ -364,6 +379,8 @@ void PlayerbotAI::Update(uint32 diff)
     {
         _combatActive = false;
         ClearCastBlacklist();
+        m_bossEntry = 0;
+        m_ruleCooldowns.clear();
     }
 
     if (inCombatNew)
@@ -446,6 +463,11 @@ void PlayerbotAI::DoCombatAI(uint32 /*diff*/)
 
     // Defensive > Heal > позиционирование > Damage/DoT/Debuff
     if (TryDefensive() || TryHeal())
+        return;
+
+    // v5: босс-механики — до обычной ротации и позиционирования.
+    // Пока бот двигается по правилу (m_ruleMoveBlockMs) — тик свободен, но позицию не трогаем.
+    if (ProcessBossRules(target) || m_ruleMoveBlockMs > 0)
         return;
 
     if (dist > m_combatRange)
@@ -691,4 +713,169 @@ void PlayerbotAI::BotSay(std::string const& msg)
 void PlayerbotAI::EmoteMe(uint32 emote)
 {
     _bot->HandleEmoteCommand(static_cast<Emote>(emote));
+}
+
+// ---------------------------------------------------------------- v5: босс-механики
+
+void PlayerbotAI::RuleMoveTo(float x, float y, float z, uint32 blockMs)
+{
+    _bot->GetMotionMaster()->Clear();
+    _bot->GetMotionMaster()->MovePoint(0, x, y, z);
+    m_ruleMoveBlockMs = blockMs;
+}
+
+bool PlayerbotAI::EvaluateBossTrigger(BossRule const& r, Unit* boss) const
+{
+    switch (r.TriggerType)
+    {
+        case BossRule::Trigger::BossCast:
+        {
+            Spell const* s = boss->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+            return s && s->m_spellInfo && s->m_spellInfo->Id == r.TriggerArg;
+        }
+        case BossRule::Trigger::BossAura:
+            return boss->HasAura(r.TriggerArg);
+        case BossRule::Trigger::BotAura:
+            return _bot->HasAura(r.TriggerArg);
+        case BossRule::Trigger::BossHpBelow:
+            return boss->GetHealthPct() < float(r.TriggerArg);
+        case BossRule::Trigger::Always:
+            return true;
+    }
+    return false;
+}
+
+// true = действие съело GCD/тик; false = либо не смогли, либо исполнили без GCD
+// (движение/переключение/burst-окно — это различает ProcessBossRules по маркерам).
+bool PlayerbotAI::ExecuteBossAction(BossRule const& r, Unit* boss)
+{
+    switch (r.ActionType)
+    {
+        case BossRule::Action::Interrupt:
+            for (BotKnowledge const& k : m_knowledge)
+            {
+                if (k.kind != BotKnowledge::Kind::Interrupt || !SpellFits(k, boss))
+                    continue;
+                CastSpellAt(k.spellId, boss);
+                return true;
+            }
+            return false;
+
+        case BossRule::Action::RunFromBoss:
+        {
+            float dist = float(r.ActionArg ? r.ActionArg : 12u);
+            float ang  = boss->GetAbsoluteAngle(_bot);
+            RuleMoveTo(_bot->GetPositionX() + std::cos(ang) * dist,
+                       _bot->GetPositionY() + std::sin(ang) * dist,
+                       _bot->GetPositionZ(), 1200u);
+            return false;   // движение — GCD свободен, дальше по списку
+        }
+
+        case BossRule::Action::Spread:
+        {
+            float dist = float(r.ActionArg ? r.ActionArg : 8u);
+            Player* ally = _bot->SelectNearestPlayer(dist);
+            if (!ally || ally == _bot)
+                return false;   // никто рядом — уже не толпимся
+            float ang = ally->GetAbsoluteAngle(_bot);
+            RuleMoveTo(_bot->GetPositionX() + std::cos(ang) * dist,
+                       _bot->GetPositionY() + std::sin(ang) * dist,
+                       _bot->GetPositionZ(), 1200u);
+            return false;
+        }
+
+        case BossRule::Action::Sidestep:
+        {
+            float dist = float(r.ActionArg ? r.ActionArg : 8u);
+            float ang  = frand(0.0f, 6.2831853f);
+            RuleMoveTo(_bot->GetPositionX() + std::cos(ang) * dist,
+                       _bot->GetPositionY() + std::sin(ang) * dist,
+                       _bot->GetPositionZ(), 1000u);
+            return false;
+        }
+
+        case BossRule::Action::SwitchTarget:
+        {
+            Creature* c = _bot->FindNearestCreature(r.ActionArg, 80.0f, true);
+            if (!c || !_bot->IsValidAttackTarget(c))
+                return false;   // цели нет/она friendly (Nibbles до превращения) — правило молчит
+            if (m_combatTarget != c)
+            {
+                m_combatTarget = c;
+                _bot->Attack(c, true);
+            }
+            return false;
+        }
+
+        case BossRule::Action::UseDefensive:
+            if (TryDefensive())
+                return true;
+            return false;
+
+        case BossRule::Action::DispelSelf:
+            for (BotKnowledge const& k : m_knowledge)
+            {
+                if (k.kind != BotKnowledge::Kind::Dispel || !SpellFits(k, _bot))
+                    continue;
+                CastSpellAt(k.spellId, _bot);
+                return true;
+            }
+            return false;
+
+        case BossRule::Action::UseBurst:
+            m_forceBurstMs = 5000;
+            return false;
+    }
+    return false;
+}
+
+// Отдельная схема «не смогли исполнить» vs «исполнили без GCD»:
+// - ExecuteBossAction false + движение поставлено → это "result 2".
+// Кодируем: если действие была движением/переключением/форс-бурстом — после вызова
+// m_ruleMoveBlockMs>0 или m_forceBurstMs изменилось или цель сменилась.
+// Поэтому ProcessBossRules проверяет исполнение косвенно и по кулдауну.
+bool PlayerbotAI::ProcessBossRules(Unit* target)
+{
+    Creature* boss = target->ToCreature();
+    if (!boss)
+        return false;
+
+    m_bossEntry = boss->GetEntry();
+    std::vector<BossRule> const* rules = sPlayerbotMgr.GetBossRules(m_bossEntry);
+    if (!rules)
+        return false;
+
+    for (BossRule const& r : *rules)
+    {
+        auto cd = m_ruleCooldowns.find(r.Seq);
+        if (cd != m_ruleCooldowns.end() && cd->second > 0)
+            continue;
+        if (!EvaluateBossTrigger(r, boss))
+            continue;
+
+        // запоминаем маркеры до исполнения
+        uint32 moveBefore  = m_ruleMoveBlockMs;
+        Unit* targetBefore = m_combatTarget;
+        bool consumed = ExecuteBossAction(r, boss);
+
+        bool movedToNew = (r.ActionType == BossRule::Action::RunFromBoss
+                        || r.ActionType == BossRule::Action::Spread
+                        || r.ActionType == BossRule::Action::Sidestep)
+                        && m_ruleMoveBlockMs > moveBefore;
+        bool switched  = (r.ActionType == BossRule::Action::SwitchTarget) && m_combatTarget != targetBefore;
+        bool burstOpen = (r.ActionType == BossRule::Action::UseBurst) && m_forceBurstMs > 0;
+
+        if (consumed)
+        {
+            m_ruleCooldowns[r.Seq] = r.CooldownMs;
+            return true;
+        }
+        if (movedToNew || switched || burstOpen)
+        {
+            m_ruleCooldowns[r.Seq] = r.CooldownMs;
+            return false;   // без GCD — тик жив, следующие правила не трогаем: одно действие за тик
+        }
+        // else: не смогли — пробуем следующее правило
+    }
+    return false;
 }
