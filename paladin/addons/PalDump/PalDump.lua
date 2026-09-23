@@ -23,7 +23,7 @@ PalDumpDB.cfg   = PalDumpDB.cfg   or { log = false, dmg = false }
 PalDumpDB.log   = PalDumpDB.log   or {}
 
 local MAX_LOG = 8000          -- кольцевой буфер строк
-local FLUSH_EVERY = 400       -- автосейв каждые N событий
+local FLUSH_EVERY = 50        -- автосейв каждые N событий (форензика краша)
 
 local playerGUID = nil
 local summoned = {}           -- GUID питомцев/стражей из SPELL_SUMMON
@@ -224,6 +224,13 @@ f:RegisterEvent("PLAYER_ENTER_WORLD")
 f:RegisterEvent("PLAYER_REGEN_DISABLED")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
 f:RegisterEvent("PLAYER_LOGOUT")
+-- страховка для форензики: пишем на диск каждые 10 секунд, пока лог включён,
+-- чтобы после краша сервера в файле были последние секунды боя
+if C_Timer and C_Timer.NewTicker then
+    C_Timer.NewTicker(10, function()
+        if PalDumpDB.cfg.log and evCount > 0 then flush() end
+    end)
+end
 f:SetScript("OnEvent", function(_, event)
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         OnCLEU()
