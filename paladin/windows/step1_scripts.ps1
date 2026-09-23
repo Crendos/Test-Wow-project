@@ -79,8 +79,15 @@ if ($cur -eq 0) {
 
 Write-Host "[4/4] Лоадер"
 $ld = Get-Content -Raw $loader
-if ($ld -match 'void AddSC_paladin_spell_scripts_ex10\(\);') {
-    Write-Host ">>> лоадер: объявления ex2..ex10 на месте" -ForegroundColor Green
+$decl = $ld -match 'void AddSC_paladin_spell_scripts_ex10\(\);'
+$call = $ld -match '(?m)^\s*AddSC_paladin_spell_scripts_ex10\(\);'
+if ($decl -and $call) {
+    Write-Host ">>> лоадер: объявления И вызовы ex2..ex10 на месте" -ForegroundColor Green
+} elseif ($decl) {
+    Write-Host ">>> ЛОАДЕР: объявления ЕСТЬ, но ВЫЗОВОВ НЕТ (1.2б) — скрипты не зарегистрируются!" -ForegroundColor Yellow
+    Write-Host "    файл: $loader"
+    Write-Host '    после строки      AddSC_paladin_spell_scripts();'
+    Write-Host '    добавьте 9 строк вызовов:      AddSC_paladin_spell_scripts_ex2(); ... _ex10();'
 } else {
     Write-Host ">>> ЛОАДЕР ждёт ручных правок (Notepad++, 2 минуты):" -ForegroundColor Yellow
     Write-Host "    файл: $loader"
