@@ -32,6 +32,10 @@ gcc-12.2, boost 1.86, mariadb-connector-c 3.3, OpenSSL 3.0.15) — 0 ошибо�
 
 ## Порядок внедрения (кратко, детали — в docs/)
 
+**Windows/VS2022:** готовый скрипт `tools/apply_windows.cmd` (запускать из
+«x64 Native Tools Command Prompt for VS 2022») + пошаговая инструкция
+`docs/03_WINDOWS_VS2022.md`.
+
 1. Клонировать master, нанести `patches/0001-core-integration.diff` (git apply --3way при частичных конфликтах)
    (правки только в `WorldSession.h/.cpp`, ~80 строк).
 2. Скопировать `src/bot/*` в `src/server/scripts/Custom/playerbots/`
