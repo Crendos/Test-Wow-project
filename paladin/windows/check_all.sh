@@ -19,7 +19,7 @@ chk 3 "блок spellBlockChance в Unit.cpp" grep -c "spellBlockChance" src/ser
 chk 1 "замена 529 в SpellAuraEffects.cpp" grep -c "HandleNoImmediateEffect,                         //529" src/server/game/Spells/Auras/SpellAuraEffects.cpp
 
 echo "=== Шаг 1.1: партии ==="
-chk 10 "маркеров CUT HERE в spell_paladin.cpp" grep -c "=== CUT HERE ===" src/server/scripts/Spells/spell_paladin.cpp
+chk 10 "маркеров CUT HERE в spell_paladin.cpp" grep -c "^// === CUT HERE" src/server/scripts/Spells/spell_paladin.cpp
 
 echo "=== Шаг 1.2: лоадер ==="
 chk 9 "объявлений ex2..ex10" grep -c "void AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp

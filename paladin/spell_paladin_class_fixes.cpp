@@ -2,7 +2,7 @@
 // Paladin 12.1.0 class fixes — часть 1: Воздаяние (Retribution) + P0-фиксы.
 //
 // КАК СТАВИТЬ:
-//   1) Всё содержимое ниже строки "=== CUT HERE ===" вставить в КОНЕЦ
+//   1) Всё содержимое ниже строки-маркера CUT HERE вставить в КОНЕЦ
 //      src/server/scripts/Spells/spell_paladin.cpp ПЕРЕД функцией
 //      AddSC_paladin_spell_scripts() (или после неё — до конца файла).
 //   2) В src/server/scripts/Spells/spell_script_loader.cpp добавить:
