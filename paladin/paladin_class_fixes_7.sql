@@ -25,9 +25,10 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (82326,  'spell_pal_beacon_of_the_savior_transfer_ex'),
 (156322, 'spell_pal_beacon_of_the_savior_transfer_ex'),
 (20473,  'spell_pal_beacon_of_the_savior_transfer_ex'),
--- Серафимский барьер
+-- Серафимский барьер (в 12.x спендеры Холи: Вечное пламя + Свет Зари)
 (85673,  'spell_pal_seraphic_barrier_ex'),
 (85222,  'spell_pal_seraphic_barrier_ex'),
+(156322, 'spell_pal_seraphic_barrier_ex'), -- Вечное пламя (12.x: подтверждено логом +20 Вестник, 145 кастов/бой)
 -- Переполняющий свет (хил Св. сияния)
 (25914,  'spell_pal_overflowing_light_ex');
 
