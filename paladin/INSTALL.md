@@ -104,7 +104,15 @@ git apply "C:/paladin-fixes/paladin/core_patch/0001-core-spell-block-chance.patc
 
 ### 1.1. Вставить код в spell_paladin.cpp
 
-**Вариант «скриптом» (САМЫЙ ПРОСТОЙ, консоль почти не нужна).**
+**Вариант «bat-скриптом в консоли VS» (БЕЗ Git Bash вообще).**
+Откройте **x64 Native Tools Command Prompt for VS 2022** (или обычный cmd) и выполните одну строку:
+```bat
+"C:\Users\USER\Desktop\new\paladin\windows\step1_scripts.bat" "C:\Users\USER\Desktop\new\paladin" "C:\Users\USER\Desktop\new\test\TrinityCore"
+```
+Скрипт сам допишет все 10 файлов (через `more +N` — аналог sed), посчитает партии,
+проверит лоадер и напечатает итог. Всё общение с консолью — на чистом Windows-инструментарии.
+
+**Вариант «sh-скриптом» (через Git Bash, консоль почти не нужна).**
 Наберите руками две короткие строки (Ctrl+V тут не работает — набор вручную надёжен):
 
 ```
@@ -260,6 +268,12 @@ SELECT CONCAT('4) Проц-строки (Спасенный/Наказание):
 4. Ждите. В конце должно быть `========== Build: succeeded, 0 failed ==========` (любое число failed — кидайте мне текст ошибки).
 
 **Общая проверка всего (0–1 + сборка) одним скриптом:**
+
+— через cmd/консоль VS (без Git Bash):
+```bat
+"C:\Users\USER\Desktop\new\paladin\windows\check_all.bat" "C:\Users\USER\Desktop\new\paladin" "C:\Users\USER\Desktop\new\test\TrinityCore"
+```
+— через Git Bash:
 ```
 bash <(tr -d '\r' < "C:/Users/USER/Desktop/new/paladin/windows/check_all.sh")
 ```
