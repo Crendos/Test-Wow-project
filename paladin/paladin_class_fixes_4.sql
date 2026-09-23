@@ -64,7 +64,7 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- spell_proc ------------------------------------------------------------------
 -- 157047 Спасение светом: цель с маяком получает урон (успех фильтруется скриптом)
 -- ProcFlags: 0x00aa220 (TAKE melee/spell/periodic damage)
-REPLACE INTO `spell_proc` VALUES (157047,0x00,10,0,0,0,0,0x00AA220,0x0,0x1,0x2,0x0,0x0,0x0,0,100,30000,0);
+REPLACE INTO `spell_proc` VALUES (157047,0x00,10,0,0,0,0,0x00AA220,0x0,0x1,0x2,0x0,0x0,0x0,0,100,10000,0);
 -- 469883 Очищающий огонь: Щит мстителя (FamMask 0x4000/0x0/0x2/0x0)
 REPLACE INTO `spell_proc` VALUES (469883,0x00,10,0x4000,0x0,0x2,0x0,0x10,0x0,0x1,0x2,0x3,0x0,0x0,0,100,0,0);
 
