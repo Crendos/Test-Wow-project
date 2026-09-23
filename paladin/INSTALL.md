@@ -30,11 +30,11 @@
 Правый клик по `C:\TrinityCore` → **Git Bash Here**, в открывшемся окне:
 
 ```bash
-git apply --check "C:\paladin-fixes\paladin\core_patch\0001-core-spell-block-chance.patch"
+git apply --check "C:/paladin-fixes/paladin/core_patch/0001-core-spell-block-chance.patch"
 ```
-Если ничего не напечатало — всё чисто. Применяем:
+Если ничего не напечатало — всё чисто (git apply молчит при успехе). Применяем:
 ```bash
-git apply "C:\paladin-fixes\paladin\core_patch\0001-core-spell-block-chance.patch"
+git apply "C:/paladin-fixes/paladin/core_patch/0001-core-spell-block-chance.patch" && echo "=== ПАТЧ УСТАНОВЛЕН ==="
 ```
 
 ### Вариант Б — вручную в Notepad++ (если git'у не доверяете)
@@ -98,10 +98,12 @@ git apply "C:\paladin-fixes\paladin\core_patch\0001-core-spell-block-chance.patc
 
 ```bash
 for i in "" _2 _3 _4 _5 _6 _7 _8 _9 _10; do
-  sed -n '/=== CUT HERE ===/,$p' "C:\paladin-fixes\paladin\spell_paladin_class_fixes${i}.cpp" >> src/server/scripts/Spells/spell_paladin.cpp
+  sed -n '/=== CUT HERE ===/,$p' "C:/paladin-fixes/paladin/spell_paladin_class_fixes${i}.cpp" >> src/server/scripts/Spells/spell_paladin.cpp
 done
+echo "=== СКРИПТЫ ДОПИСАНЫ ==="
+tail -3 src/server/scripts/Spells/spell_paladin.cpp
 ```
-(команда дописывает содержимое всех 10 файлов в самый конец spell_paladin.cpp).
+(команда дописывает все 10 файлов в конец spell_paladin.cpp; в хвосте файла должна появиться строка AddSC_paladin_spell_scripts_ex10).
 
 **Вручную (если хочется руками):**
 1. Откройте `C:\TrinityCore\src\server\scripts\Spells\spell_paladin.cpp` в Notepad++.
@@ -210,6 +212,11 @@ SELECT Id, Shape, Speed, ScriptName FROM areatrigger_create_properties WHERE Id=
 ## Если что-то не работает — типовые причины
 
 | Симптом | Причина | Лечение |
+|---|---|---|
+| `git apply` НЕ напечатал ничего | **Это успех!** git apply молчит при успехе | проверка: `git diff --stat` — должны появиться Unit.cpp (+30) и SpellAuraEffects.cpp (+2/-1) |
+| `^[[200~` прилип к команде | мусор терминала при вставке (bracketed paste) | не страшно: наберите команду руками или используйте прямые слэши `/` в пути |
+| перед командой вводили `bash` | не нужно: Git Bash уже открыт (MINGW64 в приглашении) | вводите сразу `git apply ...` |
+| повторный `git apply`: `already exists` / `patch failed` | патч уже стоит с прошлого раза | ничего не делайте — переходите к Шагу 1 |
 |---|---|---|
 | `git apply` ругается на строки | исходники отличаются от master, к которому писался патч | применяйте Вариант Б (вручную) — там указано «найди/замени» |
 | Ошибка компиляции: `SPELL_EX…: identifier not found` | вставили файлы не по порядку или не все 10 | повторите Шаг 1.1 (порядок 1→10) |
