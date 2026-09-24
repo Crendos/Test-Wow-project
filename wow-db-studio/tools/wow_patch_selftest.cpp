@@ -722,6 +722,113 @@ int main() {
         (void)detBe2;
     }
 
+    std::printf("\n== явный слот RSA (--rsa-slot / Step.forceOffset) ==\n");
+    {
+        const Fixture fx = makePe();
+        Bytes data1 = fx.bytes;
+        const wowpe::Image img1 = wowpe::parse(data1);
+        const std::size_t slotOff = fx.modulusOff;  // .rdata — патча-секция
+        Bytes mod(256);
+        for (std::size_t i = 0; i < mod.size(); ++i) mod[i] = std::uint8_t(i ^ 0x5A);
+
+        // buildPlan с rsaSlotOffset: план обязан содержать forceOffset.
+        Options o;
+        o.rsaModulus = wowpatch::trinityRsaModulusLe();
+        o.rsaSlotOffset = static_cast<std::int64_t>(slotOff);
+        o.patchLegacyGameCryptoRsa = false;  // legacy-сайтов в фикстуре нет
+        std::vector<std::string> plog;
+        const Detection detPlan = detectProfile(data1, img1, "12.1.0.69497", "");
+        const auto plan = buildPlan(o, detPlan, img1, data1, &plog);
+        bool planForced = false;
+        for (const auto &pst : plan)
+            if (pst.id == "rsa.connectto")
+                planForced = (pst.forceOffset == static_cast<std::int64_t>(slotOff));
+        check(planForced, "явный слот: buildPlan прокинул forceOffset в шаг rsa");
+
+        Step st;
+        st.id = "rsa.connectto";
+        st.label = "явный слот";
+        st.value = mod;
+        st.forceOffset = static_cast<std::int64_t>(slotOff);
+
+        // .text и заголовки — отказ без записи (ДО успешной записи, иначе
+        // value-probe «значение уже стоит» найдёт наш же модуль в .rdata).
+        Step bad = st;
+        bad.forceOffset = static_cast<std::int64_t>(fx.textOff);  // .text
+        const StepResult r2 = applyStep(data1, img1, bad, nullptr, nullptr, nullptr);
+        check(r2 == StepResult::NotFound, "явный слот: .text -> отказ");
+        Step bad2 = st;
+        bad2.forceOffset = 0x150;  // заголовки PE (не патча-секция)
+        const StepResult r3 = applyStep(data1, img1, bad2, nullptr, nullptr, nullptr);
+        check(r3 == StepResult::NotFound, "явный слот: заголовки -> отказ");
+
+        // applyStep: точная запись 256 байт по заданному offset в .rdata.
+        Record rec;
+        std::vector<UsedRange> used;
+        const StepResult r = applyStep(data1, img1, st, &rec, &used, nullptr);
+        check(r == StepResult::Applied, "явный слот: запись Applied");
+        check(rec.offset == static_cast<std::int64_t>(slotOff),
+              "явный слот: offset ровно заданный");
+        check(std::memcmp(data1.data() + slotOff, mod.data(), 256) == 0,
+              "явный слот: 256 байт лежат по адресу");
+    }
+
+    std::printf("\n== findslot: слот RSA по контексту между билдами ==\n");
+    {
+        // Эталон «работающего клиента»: ключ TrinityCore в слоте + богатый
+        // соседний контекст (для реального exe это чистые оригинальные байты).
+        Bytes ref(4096, 0x11);
+        const std::size_t refSlot = 1000;
+        std::memcpy(ref.data() + refSlot, wowpatch::trinityRsaModulusLe().data(), 256);
+        for (std::size_t i = 0; i < 64; ++i) {
+            ref[refSlot - 64 + i] = std::uint8_t(0x40 + i * 3);   // левый контекст
+            ref[refSlot + 256 + i] = std::uint8_t(0xC0 - i * 2);  // правый контекст
+        }
+
+        // Другой билд «12.1.0»: слот в другом месте, внутри — НОВЫЕ байты,
+        // тот же левый/правый контекст.
+        Bytes tgt(8192, 0x22);
+        const std::size_t tgtSlot = 3000;
+        Bytes newMod(256);
+        for (std::size_t i = 0; i < newMod.size(); ++i) newMod[i] = std::uint8_t(i * 7 + 3);
+        std::memcpy(tgt.data() + tgtSlot, newMod.data(), 256);
+        for (std::size_t i = 0; i < 64; ++i) {
+            tgt[tgtSlot - 64 + i] = std::uint8_t(0x40 + i * 3);
+            tgt[tgtSlot + 256 + i] = std::uint8_t(0xC0 - i * 2);
+        }
+
+        const wowpatch::SlotHunt h = wowpatch::huntRsaSlot(ref, tgt, 64);
+        check(h.found, "findslot: слот найден по контексту");
+        check(h.offset == static_cast<std::int64_t>(tgtSlot), "findslot: offset точный");
+        check(h.window == 64, "findslot: окно контекста 64");
+        check(h.content == newMod, "findslot: содержимое слота прочитано (новый модуль)");
+        check(h.note.find("НОВЫЕ байты") != std::string::npos,
+              "findslot: отчёт сообщает про новый модуль");
+
+        // Цель без перенесённого контекста — отказ, не угадываем.
+        Bytes tgt2(8192, 0x22);
+        std::memcpy(tgt2.data() + tgtSlot, newMod.data(), 256);
+        const wowpatch::SlotHunt h2 = wowpatch::huntRsaSlot(ref, tgt2, 64);
+        check(!h2.found, "findslot: без контекста слот не находится");
+
+        // Два одинаковых участка контекста — неоднозначность, отказ.
+        Bytes tgt3(16384, 0x44);
+        for (std::size_t base : {std::size_t(2000), std::size_t(9000)}) {
+            std::memcpy(tgt3.data() + base, newMod.data(), 256);
+            for (std::size_t i = 0; i < 64; ++i) {
+                tgt3[base - 64 + i] = std::uint8_t(0x40 + i * 3);
+                tgt3[base + 256 + i] = std::uint8_t(0xC0 - i * 2);
+            }
+        }
+        const wowpatch::SlotHunt h3 = wowpatch::huntRsaSlot(ref, tgt3, 64);
+        check(!h3.found, "findslot: два слота — контекст неоднозначен, отказ");
+
+        // Эталон без ключа TrinityCore и без родной сигнатуры — отказ.
+        Bytes refBad(4096, 0x33);
+        const wowpatch::SlotHunt h4 = wowpatch::huntRsaSlot(refBad, tgt, 64);
+        check(!h4.found, "findslot: чистый эталон даёт отказ");
+    }
+
     std::printf("\n-----------------------------------------\n");
     std::printf("Проверок: %d, провалов: %d\n", g_checks, g_failures);
     if (g_failures == 0) { std::printf("SELFTEST OK\n"); return 0; }

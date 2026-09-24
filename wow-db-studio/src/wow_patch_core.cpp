@@ -1026,7 +1026,14 @@ std::vector<Step> buildPlan(const Options &opts, const Detection &det,
         ed.clear();
     }
 
-    if (!rsa.empty()) {
+    if (!rsa.empty() && opts.rsaSlotOffset >= 0) {
+        steps.push_back({ "rsa.connectto", "ConnectTo RsaModulus (слот явный)",
+                          wowpe::Pattern(), rsa, 0, true,
+                          "RSA-слот задан явно (findslot / --rsa-slot)",
+                          opts.rsaSlotOffset });
+        L("RSA-модуль: явный слот 0x" + hex16(static_cast<std::uint64_t>(opts.rsaSlotOffset)) +
+          " — сигнатурный поиск отключён.");
+    } else if (!rsa.empty()) {
         // Как лежит модуль в ЭТОМ билде: обычный порядок (LE, LSB первым) или
         // разворот (BE, MSB первым — «openssl-порядок»). Патчим в том же виде,
         // в каком нашли родной ключ.
@@ -1186,6 +1193,113 @@ std::vector<Step> buildPlan(const Options &opts, const Detection &det,
 }
 
 // ===========================================================================
+// huntRsaSlot (findslot): слот RSA-модуля в другом билде по контексту эталона
+// ===========================================================================
+SlotHunt huntRsaSlot(const Bytes &reference, const Bytes &target, int maxWindow) {
+    SlotHunt h;
+    auto L = [&](const std::string &s) { h.log.push_back(s); };
+    if (maxWindow <= 0) maxWindow = 64;
+    if (maxWindow > 256) maxWindow = 256;
+
+    // --- 1. Кандидаты на слот в эталоне ---
+    struct Cand { std::int64_t off; std::string desc; };
+    std::vector<Cand> cands;
+    const Bytes &tcLe = trinityRsaModulusLe();
+    const Bytes &tcBe = trinityRsaModulusBe();
+    const Bytes tcLe8(tcLe.begin(), tcLe.begin() + 8);
+    const Bytes tcBe8(tcBe.begin(), tcBe.begin() + 8);
+
+    // Ключи TrinityCore знаем целиком (256 байт) — полная проверка.
+    auto addFull = [&](const Bytes &sig, const Bytes &full, const std::string &desc) {
+        const auto hits = wowpe::findAll(reference, wowpe::patternFromBytes(sig.data(), sig.size()), 32);
+        for (std::size_t off : hits) {
+            if (off + full.size() > reference.size()) continue;
+            if (std::memcmp(reference.data() + off, full.data(), full.size()) != 0) continue;
+            cands.push_back({ static_cast<std::int64_t>(off), desc });
+            L("Эталон: " + desc + " @ 0x" + hex16(off) + " (полные 256 байт совпали)");
+        }
+    };
+    // Родной Blizzard знаем только по 8-байтной сигнатуре — так и помечаем.
+    auto addSig = [&](const Bytes &sig, const std::string &desc) {
+        const auto hits = wowpe::findAll(reference, wowpe::patternFromBytes(sig.data(), sig.size()), 8);
+        int n = 0;
+        for (std::size_t off : hits) {
+            if (off + 256 > reference.size()) continue;
+            cands.push_back({ static_cast<std::int64_t>(off), desc });
+            L("Эталон: " + desc + " @ 0x" + hex16(off) + " (по 8-байтной сигнатуре)");
+            if (++n >= 4) break;
+        }
+    };
+    addFull(tcLe8, tcLe, "ключ TrinityCore (LE)");
+    addFull(tcBe8, tcBe, "ключ TrinityCore (BE)");
+    if (cands.empty()) addSig(patConnectTo(), "родной ключ Blizzard (LE)");
+    if (cands.empty()) addSig(blizzardRsaSignatureBe(), "родной ключ Blizzard (BE)");
+    if (cands.empty()) {
+        h.note = "в эталоне не найден ни ключ TrinityCore, ни родной Blizzard — нужен патченый эталон";
+        L("[!!] " + h.note);
+        return h;
+    }
+
+    // --- 2. Уникальный контекст вокруг слота в target ---
+    const std::int64_t rSize = static_cast<std::int64_t>(reference.size());
+    for (const Cand &c : cands) {
+        for (int w = maxWindow; w >= 16; w -= 4) {
+            if (c.off < w || c.off + 256 + w > rSize) continue;
+            const Bytes left(reference.begin() + (c.off - w), reference.begin() + c.off);
+            const Bytes right(reference.begin() + c.off + 256, reference.begin() + c.off + 256 + w);
+            int nz = 0;
+            for (std::size_t i = 0; i < left.size(); ++i)
+                if (left[i] || right[i]) ++nz;
+            if (nz * 2 < static_cast<int>(left.size())) continue;  // «пустой» контекст -> ложь
+
+            const auto hits = wowpe::findAll(target, wowpe::patternFromBytes(left.data(), left.size()), 64);
+            std::vector<std::size_t> ok;
+            for (std::size_t hit : hits) {
+                const std::size_t slot = hit + static_cast<std::size_t>(w);
+                if (slot + 256 + static_cast<std::size_t>(w) > target.size()) continue;
+                if (std::memcmp(target.data() + slot + 256, right.data(),
+                                static_cast<std::size_t>(w)) != 0) continue;
+                ok.push_back(slot);
+            }
+            if (ok.size() == 1) {
+                const std::size_t slot = ok[0];
+                h.found = true;
+                h.offset = static_cast<std::int64_t>(slot);
+                h.window = w;
+                h.content.assign(target.begin() + slot, target.begin() + slot + 256);
+                h.refNote = c.desc + " @ 0x" + hex16(static_cast<std::uint64_t>(c.off));
+                const std::uint8_t *p = h.content.data();
+                if (std::memcmp(p, tcLe8.data(), 8) == 0)
+                    h.note = "слот уже содержит ключ TrinityCore (LE) — файл пропатчен";
+                else if (std::memcmp(p, tcBe8.data(), 8) == 0)
+                    h.note = "слот уже содержит ключ TrinityCore (BE) — файл пропатчен";
+                else if (std::memcmp(p, patConnectTo().data(), 8) == 0)
+                    h.note = "слот содержит родной ключ Blizzard (LE-порядок)";
+                else if (std::memcmp(p, blizzardRsaSignatureBe().data(), 8) == 0)
+                    h.note = "слот содержит родной ключ Blizzard (BE-порядок)";
+                else
+                    h.note = "НОВЫЕ байты: модуль не совпал ни с одной известной сигнатурой — "
+                             "вероятно, новый ключ Blizzard этого билда";
+                L("[+] слот найден: файловый offset 0x" +
+                  hex16(static_cast<std::uint64_t>(h.offset)) + ", окно контекста " +
+                  str(w) + " байт (эталон: " + h.refNote + ")");
+                L("[+] что сейчас в слоте: " + h.note);
+                return h;
+            }
+            if (ok.size() > 1) {
+                L("[i] окно " + str(w) + ": контекст неоднозначен (" + str(ok.size()) +
+                  " совпадений) — пробую другого кандидата");
+                break;  // меньшее окно совпадёт ещё чаще
+            }
+        }
+    }
+    h.note = "слот по контексту эталона не найден: соседние байты изменились между билдами "
+             "или контекст неоднозначен — дальше память (wow_mem_patcher) либо ручной разбор";
+    L("[!!] " + h.note);
+    return h;
+}
+
+// ===========================================================================
 // Применение
 // ===========================================================================
 StepResult applyStep(Bytes &data, const wowpe::Image &img, const Step &st,
@@ -1194,7 +1308,21 @@ StepResult applyStep(Bytes &data, const wowpe::Image &img, const Step &st,
     auto L = [&](const std::string &s) { if (log) log->push_back(s); };
     if (rec) { rec->id = st.id; rec->label = st.label; rec->mandatory = st.mandatory; }
 
-    const wowpe::Site site = wowpe::chooseSite(data, img, st.pattern, /*requirePatchable=*/true);
+    wowpe::Site site;
+    if (st.forceOffset >= 0) {
+        // Явный слот (--rsa-slot после huntRsaSlot): минуем сигнатурный поиск.
+        const std::size_t off = static_cast<std::size_t>(st.forceOffset);
+        const std::size_t need = std::max<std::size_t>(st.value.size(), 1);
+        site.offset = off;
+        site.section = img.locationName(off);
+        site.patchable = img.isDiskPatchableOffset(off);
+        site.found = site.patchable && off + need <= data.size();
+        site.note = site.found ? "слот задан явно (--rsa-slot)"
+                     : (site.patchable ? "слот выходит за конец файла"
+                                       : "секция " + site.section + " на диске не правится");
+    } else {
+        site = wowpe::chooseSite(data, img, st.pattern, /*requirePatchable=*/true);
+    }
     if (!site.found) {
         // Сигнатуры (родного ключа Blizzard) уже нет. Прежде чем объявлять
         // провал, проверим: может быть, нужное значение УЖЕ стоит в секции

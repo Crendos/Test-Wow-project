@@ -10,6 +10,7 @@
 // Команды:
 //   keys                                 самопроверка ключей TrinityCore
 //   diagnose <Wow.exe> [--version V]     полный отчёт: PE, секции, все сайты
+//   findslot <patched.exe> <target.exe>  слот RSA-модуля в другом билде по контексту
 //   patch <src> [dst] --portal H[:P] …   патч «как Firestorm»: самостоятельный exe
 //   recipe <orig> <patched> <out.json>   снять рецепт с чужого пропатченного клиента
 //   apply-recipe <src> <dst> <r.json>…   перенести рецепт на свой билд
@@ -178,8 +179,9 @@ struct Args {
     std::vector<std::string> positional;
     std::vector<std::string> recipes;
     std::string portal, domain, version, rsaPem, edPem, rsaHex, edHex, certBundleUrl, certBundleFile;
-    std::string versionUrl, cdnsUrl, configPath, name;
+    std::string versionUrl, cdnsUrl, configPath, name, rsaSlot;
     int port = 0;
+    int window = 0;  // --window для findslot (0 = дефолт ядра)
     bool noSuffix = false, wholeSlot = false, be = false, checksum = false, stripSig = false;
     bool noVerify = false, noConfig = false, legacyRsa = true, noEd = false, launcherReg = false;
     bool urls = false, help = false;
@@ -208,6 +210,8 @@ bool parseArgs(int argc, char **argv, Args *a, std::string *err) {
         else if (s == "--config")       { if (!(v = need(i, "--config"))) return false; a->configPath = v; }
         else if (s == "--name")         { if (!(v = need(i, "--name"))) return false; a->name = v; }
         else if (s == "--recipe")       { if (!(v = need(i, "--recipe"))) return false; a->recipes.push_back(v); }
+        else if (s == "--rsa-slot")     { if (!(v = need(i, "--rsa-slot"))) return false; a->rsaSlot = v; }
+        else if (s == "--window")       { if (!(v = need(i, "--window"))) return false; a->window = std::atoi(v); }
         else if (s == "--no-suffix")    a->noSuffix = true;
         else if (s == "--whole-slot")   a->wholeSlot = true;
         else if (s == "--be")           a->be = true;
@@ -235,6 +239,13 @@ void usage() {
         "  wow_patch_cli diagnose <Wow.exe> [--version 12.1.0.69497]\n"
         "      Отчёт: PE, секции, все известные сайты, Config.wtf, версия.\n"
         "\n"
+        "  wow_patch_cli findslot <patched-reference.exe> <target.exe> [--window N]\n"
+        "      Найти слот ConnectTo-модуля в target по контексту соседних байтов\n"
+        "      из уже пропатченного эталона (работает между билдами, где сигнатуры\n"
+        "      Blizzard сменились). Печатает текущее содержимое слота (новый\n"
+        "      модуль) и готовую команду patch с --rsa-slot. --window: окно\n"
+        "      контекста с каждой стороны (по умолчанию 64, минимум 16).\n"
+        "\n"
         "  wow_patch_cli patch <src.exe> [dst.exe] --portal <host[:port]> [параметры]\n"
         "      Основной режим: самостоятельный пропатченный exe на диске.\n"
         "      dst не указан -> пишем поверх src, оригинал сохраняется в <src>.orig.\n"
@@ -249,6 +260,8 @@ void usage() {
         "        --ed-hex H         ключ Ed25519 в hex (32 байта)\n"
         "        --be               hex-ключи заданы в big-endian (формат openssl) -> развернуть\n"
         "        --recipe F.json    применить рецепт (можно несколько раз)\n"
+        "        --rsa-slot OFF    явный файловый слот RSA (hex 0x… или десятичный\n"
+        "                         из findslot) — пишем модуль точно по адресу\n"
         "        --checksum         пересчитать PE CheckSum\n"
         "        --strip-sig        снять Authenticode-подпись (станет невалидной в любом случае)\n"
         "        --no-verify        не перепроверять результат\n"
@@ -314,6 +327,52 @@ int cmdDiagnose(const fs::path &exe, const Args &a) {
     return 0;
 }
 
+// --rsa-slot: hex (0x…) либо десятичный файловый offset.
+std::int64_t parseOffsetArg(const std::string &s, std::string *err) {
+    if (s.empty()) { if (err) *err = "пустое значение"; return -1; }
+    char *end = nullptr;
+    const long long v = std::strtoll(s.c_str(), &end, 0);
+    if (end == s.c_str() || (end && *end != '\0') || v < 0) {
+        if (err) *err = "не число: " + s + " (нужен 0x… или десятичный offset)";
+        return -1;
+    }
+    return static_cast<std::int64_t>(v);
+}
+
+int cmdFindSlot(const fs::path &refPath, const fs::path &tgtPath, const Args &a) {
+    Bytes ref, tgt;
+    std::string err;
+    if (!readFile(refPath, &ref, &err)) { std::printf("[!!] %s\n", err.c_str()); return 1; }
+    if (!readFile(tgtPath, &tgt, &err)) { std::printf("[!!] %s\n", err.c_str()); return 1; }
+    std::printf("Эталон (патченый): %s — %zu байт\n", refPath.string().c_str(), ref.size());
+    std::printf("Цель:               %s — %zu байт\n", tgtPath.string().c_str(), tgt.size());
+    const int w = a.window > 0 ? a.window : 64;
+    const wowpatch::SlotHunt h = wowpatch::huntRsaSlot(ref, tgt, w);
+    printAll(h.log);
+    if (!h.found) { std::printf("[!!] %s\n", h.note.c_str()); return 1; }
+
+    std::printf("\n[+] СЛОТ НАЙДЕН\n");
+    std::printf("    файловый offset: 0x%llX (%lld)\n",
+                static_cast<long long>(h.offset), static_cast<long long>(h.offset));
+    const wowpe::Image img = wowpe::parse(tgt);
+    if (img.valid) {
+        std::printf("    секция: %s, RVA: 0x%X, на диске правится: %s\n",
+                    img.locationName(static_cast<std::size_t>(h.offset)).c_str(),
+                    img.fileOffsetToRva(static_cast<std::size_t>(h.offset)),
+                    img.isDiskPatchableOffset(static_cast<std::size_t>(h.offset)) ? "ДА" : "НЕТ");
+    }
+    std::printf("    эталон: %s\n", h.refNote.c_str());
+    std::printf("    содержимое: %s\n", h.note.c_str());
+    std::printf("    модуль сейчас (256 байт, hex):\n");
+    for (std::size_t i = 0; i + 32 <= h.content.size(); i += 32)
+        std::printf("      %s\n", wowpe::toHex(h.content.data() + i, 32).c_str());
+    std::printf("\nСледующий шаг (печатаем как одну строку):\n");
+    std::printf("  wow_patch_cli patch \"%s\" --portal 127.0.0.1:1119 "
+                "--rsa-slot 0x%llX --version <версия>\n",
+                tgtPath.string().c_str(), static_cast<long long>(h.offset));
+    return 0;
+}
+
 int cmdPatch(const fs::path &src, const fs::path &dstIn, const Args &a) {
     std::string err;
     Bytes data;
@@ -347,6 +406,14 @@ int cmdPatch(const fs::path &src, const fs::path &dstIn, const Args &a) {
     opts.cdnsUrl = a.cdnsUrl;
     opts.certBundleUrl = a.certBundleUrl;
     opts.patchLauncherRegistry = a.launcherReg;
+    if (!a.rsaSlot.empty()) {
+        std::string perr;
+        const std::int64_t off = parseOffsetArg(a.rsaSlot, &perr);
+        if (off < 0) { std::printf("[!!] --rsa-slot: %s\n", perr.c_str()); return 1; }
+        opts.rsaSlotOffset = off;
+        std::printf("RSA-слот задан явно: файловый offset 0x%llX (сигнатурный поиск отключён)\n",
+                    static_cast<long long>(off));
+    }
 
     if (!a.rsaPem.empty()) {
         std::string pem;
@@ -584,6 +651,13 @@ int main(int argc, char **argv) {
     if (cmd == "diagnose") {
         if (a.positional.empty()) { std::printf("[!!] нужен путь к Wow.exe\n"); return 2; }
         return cmdDiagnose(fs::path(a.positional[0]), a);
+    }
+    if (cmd == "findslot") {
+        if (a.positional.size() != 2) {
+            std::printf("[!!] нужно: findslot <patched-reference.exe> <target.exe> [--window N]\n");
+            return 2;
+        }
+        return cmdFindSlot(fs::path(a.positional[0]), fs::path(a.positional[1]), a);
     }
     if (cmd == "patch") {
         if (a.positional.empty()) { std::printf("[!!] нужен путь к исходному Wow.exe\n"); return 2; }
