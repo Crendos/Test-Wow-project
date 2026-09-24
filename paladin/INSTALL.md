@@ -476,6 +476,18 @@ findstr /c:"each Holy Power spent" src\server\scripts\Spells\spell_paladin.cpp
 В "x64 Native Tools Command Prompt for VS 2022" — те же команды, что в разделе 8, Шаг 2
 (del obj для spell_paladin.cpp -> msbuild scripts -> msbuild worldserver). Тишина = ОК.
 
+### Шаг 4.1. Если DBErrors.log раздулся (сотни МБ) — свод вместо заливки
+Файл пишется построчно с добавлением (append) и НЕ ротируется — копит ошибки всех
+прошлых запусков, целиком передавать его НЕ нужно и некуда (лимит 25 МБ).
+1. Возьми из ZIP `paladin\windows\dberrors_report.bat` (+ рядом лежащий .ps1).
+2. Запусти bat (можно прямо перетащить DBErrors.log на него). Жди прогресс
+   "обработано N строк" — на 875 МБ это несколько минут.
+3. Получишь рядом с логом: `DBErrors_unique.txt` — уникальные ошибки со счётчиком
+   (обычно сотни строк, килобайты), плюс head/tail по 100 строк.
+4. Пришли мне `DBErrors_unique.txt` — по нему я назову точные исправления.
+5. Сам DBErrors.log безопасно удалить/переименовать при ОСТАНОВЛЕННОМ сервере —
+   это просто журнал.
+
 ### Шаг 4. Запуск и проверка
 - МАРКЕР ФИКСА живёт НЕ в Server.log (логгер sql.sql пишется в DBErrors.log,
   worldserver.conf.dist: Logger.sql.sql=5,Console DBErrors). После РЕСТАРТА сервера:
