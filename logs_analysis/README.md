@@ -109,7 +109,12 @@ CSV «Бафы» агрегирован по ВСЕМ игрокам рейда 
 - «Summon Murloc B5» (world.serverside_spell 37932, Effect 41 → creature 21920) — кастомный сосед с совпавшим номером, НЕ владелец (EffectAura=0).
 - Наш код (b9, spell_pal_divine_toll_templar_ex): кастует 198034 ОДИН раз после ТДА (375576); тикер 2с кастует 198137 (урон) на себя max 5 тиков — сам тикер не ре-аплаит 198034. Частые перевески («3-4 бафа каждые 1-2с после любой способности») = НЕ наш скрипт; подозрение: прок-опции у 198034 в данных (пак) → Q7-запросы.
 - Фикс ошибки: `paladin/areatrigger_37932_stub.sql` (сфера r=2 инерт; визуал молота заглушкой не вернуть — AT без SpellForVisuals невидим; урон уже даёт наш тикер 198137).
-- Охота за циклом-проком (юser, hotfix-база): Q7a `SELECT SpellID,EffectIndex,DifficultyID,Effect,EffectAura,EffectMiscValue1,EffectTriggerSpell,VerifiedBuild FROM spell_effect WHERE SpellID IN (198034,198137)` (все строки+версии, дубли слияния); Q7b `SELECT * FROM spell_aura_options WHERE SpellID IN (198034,198137)` (TypeMask/Chance — если прок ≠ 0, молот прокает от каждой способности = цикл юзера).
+## Q7 РАЗБОР (структура молота; прок ИСКЛЮЧЁН)
+- Q7a (hotfix spell_effect): 198034 E0 = Effect 6 / аура 23 (PERIODIC_TRIGGER → EffectTriggerSpell=198137, родной тик урона); 198034 E1 = аура 395 → AT 37932 (игла); 198137 E0 = School Damage. VerifiedBuild=0 у всех трёх (строки слитого домена). Это РОДНАЯ ретейл-структура Divine Hammer.
+- Q7b (spell_aura_options 198034/198137): ПУСТО → прок-цикл ИСКЛЮЧЁН. Обновлятор — внешний: (а) spell_linked_spell (198137→198034 — линк «тиком ре-кастует молот» = самоподдерживающийся цикл 2с), (б) чужой спелл с EffectTriggerSpell=198034/198137 (не проверено в hotfix!), (в) smart_scripts.
+- 14 AT-ошибок ≈ 2 тикера по 2с (родной E0-периодик + наш b9-тикер 198137) ≈ 1 перевеска/сек × ~14с. Наш b9: тикер кастует ТОЛЬКО 198137 (макс 5 тиков), ре-аплаит 198034 ТОЛЬКО spell_pal_divine_toll_templar_ex один раз на каст 375576; spell_proc наших партий на 198034/198137 нет; spell_linked_spell мы не ставили.
+- Замечание: слияние hotfix-таблиц юзером с wago — ОК для охоты; при фиксах ключить на (SpellID,EffectIndex,DifficultyID) и помнить про дубли с разным VerifiedBuild.
+- Финальные запросы: hotfix `EffectTriggerSpell IN (198034,198137)` (кто ещё кастует молот); период 198034 E0 (EffectAuraPeriod/EffectAmplitude); world spell_linked_spell по 198034/198137; world smart_scripts action_param1 IN (198034,198137). Параллельно — PalDump v4 (назовёт кастера каждой перевески).
 
 ## SQL-охота AT 37932 (Navicat → world, чистый блок)
 ```sql
