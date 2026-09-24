@@ -1,0 +1,36 @@
+-- ============================================================================
+-- Paladin class fixes — часть 5: классовое дерево
+-- Спутник к paladin/spell_paladin_class_fixes_6.cpp
+-- ============================================================================
+
+REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+-- Гневилище: основной каст + Резонансы
+(375576, 'spell_pal_divine_toll_ex'),
+-- Резонанс света (Воздаяние): ре-каст Правосудий
+(1266308, 'spell_pal_divine_resonance_ret_ex'),
+-- Резонанс света (Защита): периодические Щиты мстителя
+(386730, 'spell_pal_divine_resonance_prot_ex'),
+-- Золотая тропа (тики Освящения)
+(81297,  'spell_pal_golden_path_ex'),
+-- Бескорыстный целитель
+(19750,  'spell_pal_selfless_healer_ex'),
+(82326,  'spell_pal_selfless_healer_ex'),
+-- Наказание (интеррапты)
+(403530, 'spell_pal_punishment_ex'),
+-- Исцеляющие длани (ЛаО)
+(633,    'spell_pal_healing_hands_loh_ex'),
+-- Исцеляющие длани (Слово света на себя)
+(85673,  'spell_pal_healing_hands_wog_ex'),
+-- Наставляемая молитва
+(404357, 'spell_pal_guided_prayer_ex'),
+-- Ауры твердыни (обучение аурам)
+(385633, 'spell_pal_auras_of_the_resolute_ex');
+
+-- spell_proc ------------------------------------------------------------------
+-- Наказание: успешный каст Реприманда/Щита мстителя
+-- (ProcFlags2 = 0x4 CAST_SUCCESSFUL; фильтр по ID — в скрипте)
+REPLACE INTO `spell_proc` VALUES (403530,0x00,10,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,0,0,0);
+-- Резонанс света (Рет): успешный каст Правосудия (гейт — в скрипте)
+REPLACE INTO `spell_proc` VALUES (1266308,0x00,10,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,0,0,0);
+-- Наставляемая молитва: получен урон при <25% HP, ICD 60с
+REPLACE INTO `spell_proc` VALUES (404357,0x00,10,0,0,0,0,0x00AA220,0x0,0x1,0x2,0x0,0x0,0x0,0,100,60000,0);
