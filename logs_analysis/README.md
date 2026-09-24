@@ -104,6 +104,13 @@ CSV «Бафы» агрегирован по ВСЕМ игрокам рейда 
 - Прочее: Hotfix.log чист; Player::AddSpell: 371571 does not exist (кастом-пак выдаёт несуществующий спелл при логине, не критично); t8_2p_bonus::Validate кадры в дампах #2/#3 — фантомы стека (идентичны байт-в-байт, спелл 64891 существует, 373457 — пристский Crystalline Reflection).
 - Статус: ждаём от юзера (а) вывод SQL-охоты по 37932 (serverside_spell_effect, см. ниже), (б) PalDump v4 лог цикла (маркеры «!!! ЦИКЛ?/АУРА-ШТОРМ»).
 
+## ВЛАДЕЛЕЦ AT 37932 ОПОЗНАН (Q6)
+- `spell_effect` (hotfix-домен, слитый с wago у юзера): **198034 «Божественный молот» (Divine Hammer, Темплар)**, EffectIndex=1, Effect=6 (APPLY_AURA), EffectAura=395, EffectMiscValue1=37932, DifficultyID=0. Ретейл-механика: вращающийся молот вокруг паладина. Пропсы AT 37932 отсутствуют везде (клиент 69497, wago 69952 = 404) → тот же класс, что краш#1 (БМ 204019/6006), но без краша (return false).
+- «Summon Murloc B5» (world.serverside_spell 37932, Effect 41 → creature 21920) — кастомный сосед с совпавшим номером, НЕ владелец (EffectAura=0).
+- Наш код (b9, spell_pal_divine_toll_templar_ex): кастует 198034 ОДИН раз после ТДА (375576); тикер 2с кастует 198137 (урон) на себя max 5 тиков — сам тикер не ре-аплаит 198034. Частые перевески («3-4 бафа каждые 1-2с после любой способности») = НЕ наш скрипт; подозрение: прок-опции у 198034 в данных (пак) → Q7-запросы.
+- Фикс ошибки: `paladin/areatrigger_37932_stub.sql` (сфера r=2 инерт; визуал молота заглушкой не вернуть — AT без SpellForVisuals невидим; урон уже даёт наш тикер 198137).
+- Охота за циклом-проком (юser, hotfix-база): Q7a `SELECT SpellID,EffectIndex,DifficultyID,Effect,EffectAura,EffectMiscValue1,EffectTriggerSpell,VerifiedBuild FROM spell_effect WHERE SpellID IN (198034,198137)` (все строки+версии, дубли слияния); Q7b `SELECT * FROM spell_aura_options WHERE SpellID IN (198034,198137)` (TypeMask/Chance — если прок ≠ 0, молот прокает от каждой способности = цикл юзера).
+
 ## SQL-охота AT 37932 (Navicat → world, чистый блок)
 ```sql
 -- Q1: все серверные ауры 395 (SPELL_AURA_AREA_TRIGGER) — владелец AT
