@@ -27,12 +27,14 @@ REPLACE INTO `areatrigger_template` (`Id`,`IsCustom`,`Flags`,`ActionSetId`,`Acti
 VALUES (37932,0,0,0,0);
 
 -- Шаг 2. Пропсы создания: создать, если строки нет...
+-- Колонки сверены со схемой СБОРОЧНОГО коммита ядра (a96d8977): 27 колонок,
+-- PositionalSoundKitId/Roll/Pitch/Yaw в этой версии ещё НЕ существуют.
 INSERT INTO `areatrigger_create_properties`
   (`Id`,`IsCustom`,`AreaTriggerId`,`IsAreatriggerCustom`,`Flags`,`MoveCurveId`,`ScaleCurveId`,`MorphCurveId`,`FacingCurveId`,
-   `AnimId`,`AnimKitId`,`DecalPropertiesId`,`SpellForVisuals`,`PositionalSoundKitId`,`TimeToTargetScale`,`Speed`,`SpeedIsTime`,
+   `AnimId`,`AnimKitId`,`DecalPropertiesId`,`SpellForVisuals`,`TimeToTargetScale`,`Speed`,`SpeedIsTime`,
    `Shape`,`ShapeData0`,`ShapeData1`,`ShapeData2`,`ShapeData3`,`ShapeData4`,`ShapeData5`,`ShapeData6`,`ShapeData7`,
-   `Roll`,`Pitch`,`Yaw`,`TargetRoll`,`TargetPitch`,`TargetYaw`,`ScriptName`,`VerifiedBuild`)
-SELECT 37932,0,37932,0,0,0,0,0,0,-1,0,0,NULL,0,0,0,0,0,2.0,2.0,0,0,0,0,0,0,0,0,0,0,0,0,'',0
+   `ScriptName`,`VerifiedBuild`)
+SELECT 37932,0,37932,0,0,0,0,0,0,-1,0,0,NULL,0,0,0,0,2.0,2.0,0,0,0,0,0,0,'',0
 WHERE NOT EXISTS (SELECT 1 FROM `areatrigger_create_properties` WHERE `Id`=37932 AND `IsCustom`=0);
 
 -- Шаг 2а. ...и починить, если строка ЕСТЬ, но битая (ядро её отложило при загрузке:
