@@ -27447,7 +27447,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0xA918D930
 						MovementInfo m_movementInfo = 00007FF6AA1D8450
 						EventProcessor m_Events = 00007FF6AA1D8520
-						std::string m_name = "Û¥ﬂ¥
+						std::string m_name = "ÔøΩÔøΩﬂ¥
 						bool m_isActive = 0xB0
 						bool m_isFarVisible = 0xB8
 						std::optional<float> m_visibilityDistanceOverride = 0xA94B977000007FF6
@@ -29645,7 +29645,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0xA918D930
 						MovementInfo m_movementInfo = 00007FF6AA1D8450
 						EventProcessor m_Events = 00007FF6AA1D8520
-						std::string m_name = "Û¥ﬂ¥
+						std::string m_name = "ÔøΩÔøΩﬂ¥
 						bool m_isActive = 0xB0
 						bool m_isFarVisible = 0xB8
 						std::optional<float> m_visibilityDistanceOverride = 0xA94B977000007FF6
@@ -31948,7 +31948,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0xA918D930
 						MovementInfo m_movementInfo = 00007FF6AA1D8450
 						EventProcessor m_Events = 00007FF6AA1D8520
-						std::string m_name = "Û¥ﬂ¥
+						std::string m_name = "ÔøΩÔøΩﬂ¥
 						bool m_isActive = 0xB0
 						bool m_isFarVisible = 0xB8
 						std::optional<float> m_visibilityDistanceOverride = 0xA94B977000007FF6
@@ -36111,7 +36111,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0xA918D930
 						MovementInfo m_movementInfo = 00007FF6AA1D8450
 						EventProcessor m_Events = 00007FF6AA1D8520
-						std::string m_name = "Û¥ﬂ¥
+						std::string m_name = "ÔøΩÔøΩﬂ¥
 						bool m_isActive = 0xB0
 						bool m_isFarVisible = 0xB8
 						std::optional<float> m_visibilityDistanceOverride = 0xA94B977000007FF6
@@ -42126,7 +42126,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0xA918D930
 						MovementInfo m_movementInfo = 00007FF6AA1D8450
 						EventProcessor m_Events = 00007FF6AA1D8520
-						std::string m_name = "Û¥ﬂ¥
+						std::string m_name = "ÔøΩÔøΩﬂ¥
 						bool m_isActive = 0xB0
 						bool m_isFarVisible = 0xB8
 						std::optional<float> m_visibilityDistanceOverride = 0xA94B977000007FF6
@@ -44325,7 +44325,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0xA918D930
 						MovementInfo m_movementInfo = 00007FF6AA1D8450
 						EventProcessor m_Events = 00007FF6AA1D8520
-						std::string m_name = "Û¥ﬂ¥
+						std::string m_name = "ÔøΩÔøΩﬂ¥
 						bool m_isActive = 0xB0
 						bool m_isFarVisible = 0xB8
 						std::optional<float> m_visibilityDistanceOverride = 0xA94B977000007FF6
@@ -49136,7 +49136,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0xA918D930
 						MovementInfo m_movementInfo = 00007FF6AA1D8450
 						EventProcessor m_Events = 00007FF6AA1D8520
-						std::string m_name = "Û¥ﬂ¥
+						std::string m_name = "ÔøΩÔøΩﬂ¥
 						bool m_isActive = 0xB0
 						bool m_isFarVisible = 0xB8
 						std::optional<float> m_visibilityDistanceOverride = 0xA94B977000007FF6
@@ -57337,7 +57337,7 @@ Address   Frame     Function      SourceFile
 			std::vector<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,std::allocator<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > > _registeredAddonPrefixes
 				_Reallocation_guard
 					std::allocator<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >& _Al = NULL
-					std::string* _New_begin = "ÓÑâi
+					std::string* _New_begin = "ÔøΩÓÑâi
 					unsigned int _New_capacity = 0x26986C1C6B0
 					std::string* _Constructed_first = 0000026986C1C6B0 <Unable to read memory>
 					std::string* _Constructed_last = 000000000000003F <Unable to read memory>
@@ -57361,7 +57361,7 @@ Address   Frame     Function      SourceFile
 			rbac::RBACData* _RBACData = 0x26986C144C0
 				unsigned int _id = 0x8B9404F0
 				std::string _name = "p
-îãi
+ÔøΩÔøΩi
 				int _realmId = 0x8B9404F0
 				unsigned int _secLevel = 0x69
 				std::set<unsigned int,std::less<unsigned int>,std::allocator<unsigned int> > _grantedPerms = 0000026986C144F0
@@ -60632,7 +60632,7 @@ Address   Frame     Function      SourceFile
 			std::allocator<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >& _Al = NULL
 			std::string* _New_begin = NULL
 			unsigned int _New_capacity = 0x0
-			std::string* _Constructed_first = "∑`∞I ¡ûÀB+åÓ‘nÅÀ
+			std::string* _Constructed_first = "ÔøΩ`ÔøΩIÔøΩÔøΩÔøΩÔøΩB+ÔøΩÔøΩÔøΩnÔøΩÔøΩ
 			std::string* _Constructed_last = NULL
 		_Simple_reallocation_guard
 			<user defined> _Al = 0x0

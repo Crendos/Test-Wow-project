@@ -19,7 +19,7 @@
 ---------------------------------------------------------------------
 PalDumpDB = PalDumpDB or {}
 PalDumpDB.specs = PalDumpDB.specs or {}
-PalDumpDB.cfg   = PalDumpDB.cfg   or { log = false, dmg = false }
+PalDumpDB.cfg   = PalDumpDB.cfg   or { log = true, dmg = false }
 PalDumpDB.log   = PalDumpDB.log   or {}
 
 local MAX_LOG = 8000          -- кольцевой буфер строк
@@ -30,6 +30,14 @@ local summoned = {}           -- GUID питомцев/стражей из SPELL
 local startTime = GetTime()
 local evCount = 0
 local lastKey, lastN = nil, 0
+
+-- детектор циклов аур (см. OnCLEU): окно/пороги
+local AURA_WINDOW, AURA_BURST = 15, 6    -- >=6 наложений одного спелла за 15с
+local STORM_WINDOW, STORM_BURST = 10, 15 -- >=15 аура-событий за 10с
+local auraTrack = {}          -- [spellId] = {времена наложений}
+local stormRing = {}          -- недавние аура-события на игроке
+local stormNames = {}         -- [spellId] = имя
+local lastStormMark = -999
 
 local function nowStr()
     return string.format("%7.1f", GetTime() - startTime)
@@ -77,6 +85,37 @@ local function OnCLEU()
     local petG = UnitGUID("pet")
     local _, ev, _, sGUID, sName, _, _, dGUID, dName, _, _, spellId, spellName, _, a1, a2, a3, a4, a5, a6, a7 = CombatLogGetCurrentEventInfo()
     if not ev then return end
+
+    -- ЛОВЛЯ ЦИКЛА АУР (баг храмовника: бафы обновляются каждые 1-2 сек вне боя)
+    local isPlayerAuraLoopEvent = dGUID == playerGUID and
+        (ev == "SPELL_AURA_APPLIED" or ev == "SPELL_AURA_APPLIED_DOSE" or ev == "SPELL_AURA_REFRESH")
+    if isPlayerAuraLoopEvent then
+        local t = GetTime()
+        local lst = auraTrack[spellId]
+        if not lst then lst = {}; auraTrack[spellId] = lst end
+        lst[#lst + 1] = t
+        while lst[1] and lst[1] < t - AURA_WINDOW do table.remove(lst, 1) end
+        local n = #lst
+        if n >= AURA_BURST and (n == AURA_BURST or (n - AURA_BURST) % 20 == 0) then
+            addLine(string.format("!!! ЦИКЛ? [%d] %s — %d наложений за %dс", spellId or 0, tostring(spellName or "?"), n, AURA_WINDOW), nil)
+        end
+        stormRing[#stormRing + 1] = { t = t, id = spellId, name = spellName }
+        stormNames[spellId] = spellName
+        while stormRing[1] and stormRing[1].t < t - STORM_WINDOW do table.remove(stormRing, 1) end
+        if #stormRing >= STORM_BURST and t - lastStormMark > 30 then
+            local counts, order = {}, {}
+            for _, e in ipairs(stormRing) do
+                if not counts[e.id] then order[#order + 1] = e.id; counts[e.id] = 0 end
+                counts[e.id] = counts[e.id] + 1
+            end
+            local parts = {}
+            for _, id in ipairs(order) do
+                parts[#parts + 1] = string.format("[%d]%s x%d", id or 0, tostring(stormNames[id] or "?"), counts[id])
+            end
+            addLine(string.format("!!! АУРА-ШТОРМ: %d аура-событий за %dс: %s", #stormRing, STORM_WINDOW, table.concat(parts, ", ")), nil)
+            lastStormMark = t
+        end
+    end
 
     local petS = petG and sGUID == petG
     local petD = petG and dGUID == petG
@@ -216,48 +255,8 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
 end
 
 ---------------------------------------------------------------------
--- СОБЫТИЯ ЖИЗНИ
+-- СОБЫТИЯ ЖИЗНИ и АВТО-ДАМП — в конце файла (нужны локалы из /paldump)
 ---------------------------------------------------------------------
-local f = CreateFrame("Frame")
-f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-f:RegisterEvent("PLAYER_ENTER_WORLD")
-f:RegisterEvent("PLAYER_REGEN_DISABLED")
-f:RegisterEvent("PLAYER_REGEN_ENABLED")
-f:RegisterEvent("PLAYER_LOGOUT")
--- страховка для форензики: пишем на диск каждые 10 секунд, пока лог включён,
--- чтобы после краша сервера в файле были последние секунды боя
-if C_Timer and C_Timer.NewTicker then
-    C_Timer.NewTicker(10, function()
-        if PalDumpDB.cfg.log and evCount > 0 then flush() end
-    end)
-end
-f:SetScript("OnEvent", function(_, event)
-    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-        OnCLEU()
-    elseif event == "PLAYER_ENTER_WORLD" then
-        playerGUID = UnitGUID("player")
-        summoned = {}
-        startTime = GetTime()
-        local _, build = GetBuildInfo()
-        -- ужимаем лог, если накопился за много сессий
-        local L = PalDumpDB.log
-        if #L > 6000 then
-            local keep = {}
-            for i = #L - 4000 + 1, #L do keep[#keep + 1] = L[i] end
-            PalDumpDB.log = keep
-        end
-        addLine(string.format("===== СЕССИЯ %s, клиент %s =====", date("%Y-%m-%d %H:%M:%S"), build or "?"), nil)
-    elseif event == "PLAYER_REGEN_DISABLED" then
-        if PalDumpDB.cfg.log then addLine("=== ВСТУПИЛ В БОЙ ===", nil) end
-        flush()
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        if PalDumpDB.cfg.log then addLine("=== ВЫШЕЛ ИЗ БОЯ ===", nil) end
-        flush()
-    elseif event == "PLAYER_LOGOUT" then
-        addLine("=== ВЫХОД ===", nil)
-    end
-end)
-
 ---------------------------------------------------------------------
 -- /paldump — выгрузка книги и талантов (как раньше)
 ---------------------------------------------------------------------
@@ -398,4 +397,67 @@ SlashCmdList["PALDUMP"] = function()
     print("[PalDump] введите /reload, затем при желании переключите другую спеку и повторите /paldump")
     print('  финальный файл: WTF\\Account\\<имя аккаунта>\\SavedVariables\\PalDump.lua')
     flush()
+end
+
+-- АВТО-ДАМП: книга + таланты текущей спеки пишутся в файл сами при входе
+-- и при смене спеки — руками вызывать /paldump больше не обязательно.
+local function AutoDump()
+    local specName, specID = SpecInfo()
+    local book, skipped = DumpBook()
+    if #book == 0 then return end -- книга ещё не загрузилась, попробует при смене спеки
+    local tal = DumpTalents()
+    PalDumpDB.specs[tostring(specID)] = {
+        name = specName, book = book, talents = tal,
+        time = date("%Y-%m-%d %H:%M"), auto = true,
+    }
+    addLine(string.format("=== АВТО-ДАМП спек %s (%s): способностей %d (пропущено %d), талантов %d ===",
+        tostring(specName), tostring(specID), #book, skipped, #tal), nil)
+    print(("[PalDump] авто-дамп: %s (%s): способностей %d, талантов %d — сохранено")
+        :format(tostring(specName), tostring(specID), #book, #tal))
+    flush()
+end
+
+local f = CreateFrame("Frame")
+f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+f:RegisterEvent("PLAYER_ENTER_WORLD")
+f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+f:RegisterEvent("PLAYER_REGEN_DISABLED")
+f:RegisterEvent("PLAYER_REGEN_ENABLED")
+f:RegisterEvent("PLAYER_LOGOUT")
+f:SetScript("OnEvent", function(_, event)
+    if event == "COMBAT_LOG_EVENT_UNFILTERED" then
+        OnCLEU()
+    elseif event == "PLAYER_ENTER_WORLD" then
+        playerGUID = UnitGUID("player")
+        summoned = {}
+        auraTrack, stormRing, stormNames = {}, {}, {}
+        startTime = GetTime()
+        local _, build = GetBuildInfo()
+        -- ужимаем лог, если накопился за много сессий
+        local L = PalDumpDB.log
+        if #L > 6000 then
+            local keep = {}
+            for i = #L - 4000 + 1, #L do keep[#keep + 1] = L[i] end
+            PalDumpDB.log = keep
+        end
+        addLine(string.format("===== СЕССИЯ %s, клиент %s =====", date("%Y-%m-%d %H:%M:%S"), build or "?"), nil)
+        if C_Timer and C_Timer.After then C_Timer.After(5, AutoDump) end
+    elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
+        if C_Timer and C_Timer.After then C_Timer.After(3, AutoDump) end
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        if PalDumpDB.cfg.log then addLine("=== ВСТУПИЛ В БОЙ ===", nil) end
+        flush()
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        if PalDumpDB.cfg.log then addLine("=== ВЫШЕЛ ИЗ БОЯ ===", nil) end
+        flush()
+    elseif event == "PLAYER_LOGOUT" then
+        addLine("=== ВЫХОД ===", nil)
+    end
+end)
+-- страховка для форензики: пишем на диск каждые 10 секунд, пока лог включён,
+-- чтобы после краша сервера в файле были последние секунды боя
+if C_Timer and C_Timer.NewTicker then
+    C_Timer.NewTicker(10, function()
+        if PalDumpDB.cfg.log and evCount > 0 then flush() end
+    end)
 end

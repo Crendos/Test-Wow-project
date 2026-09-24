@@ -1958,7 +1958,7 @@ Address   Frame     Function      SourceFile
 				unsigned int LastUsedScriptID = 0x20926B00
 				MovementInfo m_movementInfo = 00000159FB755938
 				EventProcessor m_Events = 00000159FB755A08
-				std::string m_name = " Zu˚Y
+				std::string m_name = " ZuÔøΩY
 				bool m_isActive = 0x0
 				bool m_isFarVisible = 0x0
 				std::optional<float> m_visibilityDistanceOverride = 0x825C2B00000000
@@ -2562,7 +2562,7 @@ Address   Frame     Function      SourceFile
 					unsigned int LastUsedScriptID = 0xFB756AD0
 					MovementInfo m_movementInfo = 00000159FB756DD8
 					EventProcessor m_Events = 00000159FB756EA8
-					std::string m_name = "∞ou˚Y
+					std::string m_name = "ÔøΩouÔøΩY
 					bool m_isActive = 0xEF
 					bool m_isFarVisible = 0xC5
 					std::optional<float> m_visibilityDistanceOverride = 0x1CC5F6100000156
@@ -2814,7 +2814,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0xFB756D70
 						MovementInfo m_movementInfo = 00000159FB756DA8
 						EventProcessor m_Events = 00000159FB756E78
-						std::string m_name = "nu˚Y
+						std::string m_name = "ÔøΩnuÔøΩY
 						bool m_isActive = 0xB2
 						bool m_isFarVisible = 0xD2
 						std::optional<float> m_visibilityDistanceOverride = 0x1C95F6400000159
@@ -4982,7 +4982,7 @@ Address   Frame     Function      SourceFile
 				unsigned int LastUsedScriptID = 0xA5C1E4A0
 				MovementInfo m_movementInfo = 00007FF6A68C1B18
 				EventProcessor m_Events = 00007FF6A68C1BE8
-				std::string m_name = "Û‹SÖ
+				std::string m_name = "ÔøΩÔøΩSÔøΩ
 				bool m_isActive = 0x10
 				bool m_isFarVisible = 0x53
 				std::optional<float> m_visibilityDistanceOverride = 0xA5EA3AB000007FF6
@@ -13102,7 +13102,7 @@ Address   Frame     Function      SourceFile
 				unsigned int m_time = 0x0
 				std::multimap<unsigned __int64,BasicEvent *,std::less<unsigned __int64>,std::allocator<std::pair<unsigned __int64 const ,BasicEvent *> > > m_events = 0000015A2BD25650
 			std::string m_name = "
-?ƒDHkâ≈™`ÄA∞?
+?ÔøΩDHkÔøΩ≈™`ÔøΩAÔøΩ?
 			bool m_isActive = 0xE0
 			bool m_isFarVisible = 0x86
 			std::optional<float> m_visibilityDistanceOverride
@@ -18969,7 +18969,7 @@ Address   Frame     Function      SourceFile
 					std::_Optional_destruct_base<int,1>
 						int _Value = 0xFA8DF460
 						bool _Has_value = 0x59
-			std::string Name = "ã»∑”¡·Dã¿ˇ —âW AãO3L$HA3œ3 
+			std::string Name = "ÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩDÔøΩÔøΩÔøΩÔøΩ—âW AÔøΩO3L$HA3ÔøΩ3ÔøΩ
 		std::optional<WorldPackets::Duration<std::chrono::duration<__int64,std::ratio<1,1000> >,unsigned int> > ReceiveTime
 			std::_Optional_construct_base<WorldPackets::Duration<std::chrono::duration<__int64,std::ratio<1,1000> >,unsigned int> >
 				std::_Optional_destruct_base<WorldPackets::Duration<std::chrono::duration<__int64,std::ratio<1,1000> >,unsigned int>,1>
@@ -18997,7 +18997,7 @@ Address   Frame     Function      SourceFile
 		WorldPackets::Array<WorldPackets::Spells::SpellCraftingReagent,6> CraftingReagents
 			short_alloc::arena<168,8> _allocatorResource
 				char[168] buf_ = "
-				char* ptr_ = "HÖ¿Ñ "
+				char* ptr_ = "HÔøΩÔøΩÔøΩ "
 			std::vector<WorldPackets::Spells::SpellCraftingReagent,short_alloc::short_alloc<WorldPackets::Spells::SpellCraftingReagent,168,8> > _storage
 				_Reallocation_guard
 					short_alloc::short_alloc<WorldPackets::Spells::SpellCraftingReagent,168,8>& _Al = NULL
@@ -19010,8 +19010,8 @@ Address   Frame     Function      SourceFile
 				std::_Compressed_pair<short_alloc::short_alloc<WorldPackets::Spells::SpellCraftingReagent,168,8>,std::_Vector_val<std::_Simple_types<WorldPackets::Spells::SpellCraftingReagent> >,0> _Mypair = 00000012F87FF130
 		WorldPackets::Array<WorldPackets::Spells::SpellCraftingReagent,6> RemovedReagents
 			short_alloc::arena<168,8> _allocatorResource
-				char[168] buf_ = "0Ú¯
-				char* ptr_ = "`Ùç˙Y"
+				char[168] buf_ = "0ÔøΩÔøΩ
+				char* ptr_ = "`ÔøΩÔøΩY"
 			std::vector<WorldPackets::Spells::SpellCraftingReagent,short_alloc::short_alloc<WorldPackets::Spells::SpellCraftingReagent,168,8> > _storage
 				_Reallocation_guard
 					short_alloc::short_alloc<WorldPackets::Spells::SpellCraftingReagent,168,8>& _Al = NULL
@@ -19089,7 +19089,7 @@ Address   Frame     Function      SourceFile
 		unsigned int ItemId = 0x2D9050BD
 		unsigned int SenderCreatureId = 0x7FF8
 		std::string Subject = "
-		std::string Body = "`˙ã¶ˆ
+		std::string Body = "`ÔøΩÔøΩÔøΩÔøΩ
 		unsigned int MailTemplateId = 0x7F800000
 	Local unsigned int id = 00000012F87FEE90
 	Local AchievementEntry* achievement = <Unable to read memory>
@@ -19226,7 +19226,7 @@ Address   Frame     Function      SourceFile
 				char*[12] _Elems
 					[0] = ""
 					[1] = ""
-					[2] = "∞p=JY"
+					[2] = "ÔøΩp=JY"
 					[3] = ""
 					[4] = "42044"
 					[5] = "0"
@@ -19439,9 +19439,9 @@ Address   Frame     Function      SourceFile
 			std::vector<char *,std::allocator<char *> > _stringPool
 				_Reallocation_guard
 					std::allocator<char *>& _Al = 0x7FF6A65F2B11
-					char** _New_begin = "0ÔoDZ"
+					char** _New_begin = "0ÔøΩoDZ"
 					unsigned int _New_capacity = 0x12F87F6070
-					char** _Constructed_first = "Óü*¶ˆ"
+					char** _Constructed_first = "ÔøΩ*ÔøΩÔøΩ"
 					char** _Constructed_last = NULL
 				_Simple_reallocation_guard
 					<user defined> _Al = 0x7FF6A65F2B11
@@ -30680,7 +30680,7 @@ Address   Frame     Function      SourceFile
 					unsigned int LastUsedScriptID = 0x7C6A
 					MovementInfo m_movementInfo = 00000159FB842BE8
 					EventProcessor m_Events = 00000159FB842CB8
-					std::string m_name = "`íí˚Y
+					std::string m_name = "`ÔøΩÔøΩÔøΩY
 					bool m_isActive = 0x38
 					bool m_isFarVisible = 0x9F
 					std::optional<float> m_visibilityDistanceOverride = 0xFAE89F3800000159
@@ -30932,7 +30932,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0x13758
 						MovementInfo m_movementInfo = 00000159FB822EB8
 						EventProcessor m_Events = 00000159FB822F88
-						std::string m_name = "0vs˚Y
+						std::string m_name = "0vsÔøΩY
 						bool m_isActive = 0x98
 						bool m_isFarVisible = 0xBF
 						std::optional<float> m_visibilityDistanceOverride = 0xFB7DBF9800000159
@@ -31638,7 +31638,7 @@ Address   Frame     Function      SourceFile
 					unsigned int LastUsedScriptID = 0xAFFCEFE0
 					MovementInfo m_movementInfo = 00000159FAE89D58
 					EventProcessor m_Events = 00000159FAE89E28
-					std::string m_name = "0Ç"úV
+					std::string m_name = "0ÔøΩ"ÔøΩV
 					bool m_isActive = 0x70
 					bool m_isFarVisible = 0xF0
 					std::optional<float> m_visibilityDistanceOverride = 0x4F0806900000156
@@ -33919,12 +33919,12 @@ Address   Frame     Function      SourceFile
 			std::string m_Address = 00000159FAE8CEA8 <Unable to read memory>
 			int _security = 0x7F68563
 			unsigned int _accountId = 0x8807BA56
-			std::string _accountName = "PëU™V
+			std::string _accountName = "PÔøΩUÔøΩV
 			std::unique_ptr<Battlenet::Account,std::default_delete<Battlenet::Account> > _battlenetAccount
 				std::_Compressed_pair<std::default_delete<Battlenet::Account>,Battlenet::Account *,1> _Mypair = 0x156AFFCFD60
 			unsigned int m_accountExpansion = 0x60
 			unsigned int m_expansion = 0x85
-			std::string _os = "∞éU™V
+			std::string _os = "ÔøΩÔøΩUÔøΩV
 			unsigned int _clientBuild = 0xAFFCFD60
 			ClientBuild::VariantId _clientBuildVariant
 				FourCC<ClientBuild::Platform> Platform = 0x156
@@ -34047,7 +34047,7 @@ Address   Frame     Function      SourceFile
 					std::string* _New_begin = 88080A56082684B3 <Unable to read memory>
 					unsigned int _New_capacity = 0x156AFFD0030
 					std::string* _Constructed_first = 88080B56081984B2 <Unable to read memory>
-					std::string* _Constructed_last = "–î–æ–±–ª–µ—Å—Ç–Ω—ã–µ –∫–æ–≤–∞–Ω—ã–µ –ü–ª–µ—..."
+					std::string* _Constructed_last = "–î–æ–±–ª–µ—Å—Ç–Ω—ã–µ –∫–æ–≤–∞–Ω—ã–µ –ü–ª–µÔøΩ..."
 				_Simple_reallocation_guard
 					<user defined> _Al = 0x156AFFD0150
 					<user defined> _New_begin = 0x88080A56082684B3
@@ -34055,7 +34055,7 @@ Address   Frame     Function      SourceFile
 				_Vaporization_guard
 					std::vector<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,std::allocator<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > >* _Target = 00000156AFFD0150
 					<user defined> _Vaporized_first = 0x88080A56082684B3
-					std::string* _Vaporized_last = "–î–æ–±–ª–µ—Å—Ç–Ω—ã–µ –∫–æ–≤–∞–Ω—ã–µ –ü–ª–µ—..."
+					std::string* _Vaporized_last = "–î–æ–±–ª–µ—Å—Ç–Ω—ã–µ –∫–æ–≤–∞–Ω—ã–µ –ü–ª–µÔøΩ..."
 					<user defined> _Destroyed_first = 0x88080B56081984B2
 				std::_Compressed_pair<std::allocator<std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,std::_Vector_val<std::_Simple_types<std::basic_string<char,std::char_traits<char>,std::allocator<char> > > >,1> _Mypair = 00000159FAE8D3C0
 			bool _filterAddonMessages = 0xB2
@@ -34161,7 +34161,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0xA22D
 						MovementInfo m_movementInfo = 00000159FBAEA468
 						EventProcessor m_Events = 00000159FBAEA538
-						std::string m_name = "0.Õ˚Y
+						std::string m_name = "0.ÔøΩÔøΩY
 						bool m_isActive = 0x8
 						bool m_isFarVisible = 0xE
 						std::optional<float> m_visibilityDistanceOverride = 0xFBA40E0800000159
@@ -34617,7 +34617,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0x5D69
 						MovementInfo m_movementInfo = 00000159FB84D2E8
 						EventProcessor m_Events = 00000159FB84D3B8
-						std::string m_name = "‡,q˚Y
+						std::string m_name = "ÔøΩ,qÔøΩY
 						bool m_isActive = 0x78
 						bool m_isFarVisible = 0xCA
 						std::optional<float> m_visibilityDistanceOverride = 0xFAE8CA7800000159
@@ -35401,7 +35401,7 @@ Address   Frame     Function      SourceFile
 						unsigned int LastUsedScriptID = 0x49BF1
 						MovementInfo m_movementInfo = 00000159FBCEC008
 						EventProcessor m_Events = 00000159FBCEC0D8
-						std::string m_name = "∞ºŒ˚Y
+						std::string m_name = "ÔøΩÔøΩÔøΩÔøΩY
 						bool m_isActive = 0xA8
 						bool m_isFarVisible = 0xB8
 						std::optional<float> m_visibilityDistanceOverride = 0xFBCDB8A800000159
@@ -36931,7 +36931,7 @@ Address   Frame     Function      SourceFile
 					unsigned int LastUsedScriptID = 0x11D0
 					MovementInfo m_movementInfo = 00000159898A2148
 					EventProcessor m_Events = 00000159898A2218
-					std::string m_name = "–àÚâY
+					std::string m_name = "–àÔøΩY
 					bool m_isActive = 0xB0
 					bool m_isFarVisible = 0x91
 					std::optional<float> m_visibilityDistanceOverride = 0x8BAE04A000000159
@@ -37183,7 +37183,7 @@ Address   Frame     Function      SourceFile
 					unsigned int LastUsedScriptID = 0x898A1F30
 					MovementInfo m_movementInfo = 000001598466A9B8
 					EventProcessor m_Events = 000001598466AA88
-					std::string m_name = "0äâY
+					std::string m_name = "0ÔøΩÔøΩY
 					bool m_isActive = 0x30
 					bool m_isFarVisible = 0x1F
 					std::optional<float> m_visibilityDistanceOverride = 0x898A1F3000000159
@@ -37434,7 +37434,7 @@ Address   Frame     Function      SourceFile
 					unsigned int LastUsedScriptID = 0x0
 					MovementInfo m_movementInfo = 000001598466C9B8
 					EventProcessor m_Events = 000001598466CA88
-					std::string m_name = "‡94ÜY
+					std::string m_name = "ÔøΩ94ÔøΩY
 					bool m_isActive = 0xF0
 					bool m_isFarVisible = 0x40
 					std::optional<float> m_visibilityDistanceOverride = 0x7D9A40F000000159
@@ -41109,7 +41109,7 @@ Address   Frame     Function      SourceFile
 	Parameter int argc = 00000012F86FF5A0
 	Parameter int argc = 00000012F87F5978
 	Parameter int argc = 00000012F86FF8F0
-	Parameter char** argv = "÷ú÷/Ïª/ÑvœÆ◊`É"
+	Parameter char** argv = "÷úÔøΩ/ÔøΩ/ÔøΩvœÆÔøΩ`ÔøΩ"
 	Parameter char** argv = NULL
 	Local std::unique_ptr<boost::dll::shared_library,Trinity::Impl::stateful_unique_ptr_deleter<boost::dll::shared_library *,`main'::`2'::<lambda_1> > > winmm
 		std::_Compressed_pair<Trinity::Impl::stateful_unique_ptr_deleter<boost::dll::shared_library *,`main'::`2'::<lambda_1> >,boost::dll::shared_library *,0> _Mypair
@@ -41586,7 +41586,7 @@ Address   Frame     Function      SourceFile
 00007FF6A583C664  00000012F8AFF440  [inline] std::operator++11  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 3188
 00007FF6A583C664  00000012F8AFF440  boost::program_options::typed_value<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,char>::name+684  C:\local\boost_1_92_0\boost\program_options\detail\value_semantic.hpp line 36
 	Local boost::program_options::typed_value<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,char>* this = NULL
-	Local std::string msg = "Go¶ˆ
+	Local std::string msg = "ÔøΩGoÔøΩÔøΩ
 
 00007FF6A583C253  00000012F8AFF4A0  [inline] std::basic_string<char,std::char_traits<char>,std::allocator<char> >::append+51  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 1522
 00007FF6A583C253  00000012F8AFF4A0  [inline] std::basic_string<char,std::char_traits<char>,std::allocator<char> >::append+51  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 1534
@@ -41629,7 +41629,7 @@ Address   Frame     Function      SourceFile
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Left = 00007FF6A5823720
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = 00007FF6A5823730
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Right = 00007FF6A5823640
-				char _Color = "∞"
+				char _Color = "ÔøΩ"
 				char _Isnil = "5"
 				std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval = 00007FF6A66F3C48
 			std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = 0xB2AB117A257EDFD1
@@ -41644,7 +41644,7 @@ Address   Frame     Function      SourceFile
 			char _Isnil = "
 			std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
 				std::string first = ""
-				std::string second = "(<o¶ˆ
+				std::string second = "(<oÔøΩÔøΩ
 		char _Color = ""
 		char _Isnil = "
 		std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
@@ -41876,7 +41876,7 @@ Address   Frame     Function      SourceFile
 00007FF6A583C664  00000012F8BFF5C0  [inline] std::operator++11  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 3188
 00007FF6A583C664  00000012F8BFF5C0  boost::program_options::typed_value<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,char>::name+684  C:\local\boost_1_92_0\boost\program_options\detail\value_semantic.hpp line 36
 	Local boost::program_options::typed_value<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,char>* this = NULL
-	Local std::string msg = "Go¶ˆ
+	Local std::string msg = "ÔøΩGoÔøΩÔøΩ
 
 00007FF6A583C253  00000012F8BFF620  [inline] std::basic_string<char,std::char_traits<char>,std::allocator<char> >::append+51  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 1522
 00007FF6A583C253  00000012F8BFF620  [inline] std::basic_string<char,std::char_traits<char>,std::allocator<char> >::append+51  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 1534
@@ -41919,7 +41919,7 @@ Address   Frame     Function      SourceFile
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Left = 00007FF6A5823720
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = 00007FF6A5823730
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Right = 00007FF6A5823640
-				char _Color = "∞"
+				char _Color = "ÔøΩ"
 				char _Isnil = "5"
 				std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval = 00007FF6A66F3C48
 			std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = 0xB2AB117A257EDFD1
@@ -41934,7 +41934,7 @@ Address   Frame     Function      SourceFile
 			char _Isnil = "
 			std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
 				std::string first = ""
-				std::string second = "(<o¶ˆ
+				std::string second = "(<oÔøΩÔøΩ
 		char _Color = ""
 		char _Isnil = "
 		std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
@@ -43463,7 +43463,7 @@ Address   Frame     Function      SourceFile
 		std::string m_Address = 00000156F2579BC8 <Unable to read memory>
 		int _security = 0xF0E97031
 		unsigned int _accountId = 0x8D005656
-		std::string _accountName = "Õ
+		std::string _accountName = "ÔøΩ
 		std::unique_ptr<Battlenet::Account,std::default_delete<Battlenet::Account> > _battlenetAccount
 			std::_Compressed_pair<std::default_delete<Battlenet::Account>,Battlenet::Account *,1> _Mypair
 				Battlenet::Account* _Myval2 = 00000156F2004345
@@ -45359,7 +45359,7 @@ Address   Frame     Function      SourceFile
 			std::shared_ptr<WorldSocket>[2] _Elems
 				[0] = 00000156F25E71E8
 				[1] = 00000156F25E71F8
-		std::string m_Address = "Õ÷}èqÂÔ¥L> …1ˇªÄÑ#„A;„vw{‡j—ÑÂ7âõπ¬ﬂ…..."
+		std::string m_Address = "ÔøΩÔøΩ}ÔøΩqÔøΩÔøΩL> ÔøΩ1ÔøΩÔøΩÔøΩÔøΩ#ÔøΩA;ÔøΩvw{ÔøΩj—ÑÔøΩ7ÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩ..."
 		int _security = 0x3
 		unsigned int _accountId = 0x0
 		std::string _accountName = 00000156F25E7230 <Unable to read memory>
@@ -54326,7 +54326,7 @@ Address   Frame     Function      SourceFile
 	Parameter int argc = 00000012F92FFB68
 	Parameter int argc = 00000012F92FFBB0
 	Parameter int argc = 00000012F92FFF00
-	Parameter char** argv = "Hâ\$Hât$Hâ|$UATAUAVAWHãÏHÅÏÄ"
+	Parameter char** argv = "HÔøΩ\$HÔøΩt$HÔøΩ|$UATAUAVAWHÔøΩÔøΩHÔøΩÔøΩ"
 	Parameter char** argv = NULL
 	Local std::unique_ptr<boost::dll::shared_library,Trinity::Impl::stateful_unique_ptr_deleter<boost::dll::shared_library *,`main'::`2'::<lambda_1> > > winmm
 		std::_Compressed_pair<Trinity::Impl::stateful_unique_ptr_deleter<boost::dll::shared_library *,`main'::`2'::<lambda_1> >,boost::dll::shared_library *,0> _Mypair

@@ -2374,7 +2374,7 @@ Address   Frame     Function      SourceFile
 				unsigned int LastUsedScriptID = 0x2D03E4A0
 				MovementInfo m_movementInfo = 00007FF62DCE1B18
 				EventProcessor m_Events = 00007FF62DCE1BE8
-				std::string m_name = "Û‹SÖ
+				std::string m_name = "ÔøΩÔøΩSÔøΩ
 				bool m_isActive = 0x10
 				bool m_isFarVisible = 0x53
 				std::optional<float> m_visibilityDistanceOverride = 0x2D2C3AB000007FF6
@@ -9759,7 +9759,7 @@ Address   Frame     Function      SourceFile
 			EventProcessor m_Events
 				unsigned int m_time = 0x0
 				std::multimap<unsigned __int64,BasicEvent *,std::less<unsigned __int64>,std::allocator<std::pair<unsigned __int64 const ,BasicEvent *> > > m_events = 000001AEA3DCC300
-			std::string m_name = "=æDGÑä≈$ú≤A?ïx@
+			std::string m_name = "=ÔøΩDGÔøΩÔøΩÔøΩ$ÔøΩÔøΩA?ÔøΩx@
 			bool m_isActive = 0xF0
 			bool m_isFarVisible = 0xE
 			std::optional<float> m_visibilityDistanceOverride
@@ -15654,7 +15654,7 @@ Address   Frame     Function      SourceFile
 		WorldPackets::Array<WorldPackets::Spells::SpellCraftingReagent,6> CraftingReagents
 			short_alloc::arena<168,8> _allocatorResource
 				char[168] buf_ = "
-				char* ptr_ = "(¥$"
+				char* ptr_ = "(ÔøΩ$ÔøΩ"
 			std::vector<WorldPackets::Spells::SpellCraftingReagent,short_alloc::short_alloc<WorldPackets::Spells::SpellCraftingReagent,168,8> > _storage
 				_Reallocation_guard
 					short_alloc::short_alloc<WorldPackets::Spells::SpellCraftingReagent,168,8>& _Al = 0x300905A4D
@@ -15667,8 +15667,8 @@ Address   Frame     Function      SourceFile
 				std::_Compressed_pair<short_alloc::short_alloc<WorldPackets::Spells::SpellCraftingReagent,168,8>,std::_Vector_val<std::_Simple_types<WorldPackets::Spells::SpellCraftingReagent> >,0> _Mypair = 000000A8C5CFF430
 		WorldPackets::Array<WorldPackets::Spells::SpellCraftingReagent,6> RemovedReagents
 			short_alloc::arena<168,8> _allocatorResource
-				char[168] buf_ = "†ıœ≈®
-				char* ptr_ = "‡ä@{Æ"
+				char[168] buf_ = "ÔøΩÔøΩÔøΩ≈®
+				char* ptr_ = "ÔøΩÔøΩ@{ÔøΩ"
 			std::vector<WorldPackets::Spells::SpellCraftingReagent,short_alloc::short_alloc<WorldPackets::Spells::SpellCraftingReagent,168,8> > _storage
 				_Reallocation_guard
 					short_alloc::short_alloc<WorldPackets::Spells::SpellCraftingReagent,168,8>& _Al = NULL
@@ -15747,7 +15747,7 @@ Address   Frame     Function      SourceFile
 		unsigned int SenderCreatureId = 0x7FF8
 		std::string Subject = "
 
-		std::string Body = "`˙Õ-ˆ
+		std::string Body = "`ÔøΩÔøΩ-ÔøΩ
 		unsigned int MailTemplateId = 0x7F800000
 	Local unsigned int id = 000000A8C5CFF190
 	Local AchievementEntry* achievement = <Unable to read memory>
@@ -16097,9 +16097,9 @@ Address   Frame     Function      SourceFile
 			std::vector<char *,std::allocator<char *> > _stringPool
 				_Reallocation_guard
 					std::allocator<char *>& _Al = 0x7FF62DA12B01
-					char** _New_begin = "∞ÇqƒÆ"
+					char** _New_begin = "ÔøΩÔøΩqƒÆ"
 					unsigned int _New_capacity = 0xA8C5CF6370
-					char** _Constructed_first = "Óül-ˆ"
+					char** _Constructed_first = "ÔøΩl-ÔøΩ"
 					char** _Constructed_last = NULL
 				_Simple_reallocation_guard
 					<user defined> _Al = 0x7FF62DA12B01
@@ -31099,7 +31099,7 @@ Address   Frame     Function      SourceFile
 					unsigned int LastUsedScriptID = 0xC3FAD8B4
 					MovementInfo m_movementInfo = 000001AE099C8888
 					EventProcessor m_Events = 000001AE099C8958
-					std::string m_name = "0v"Æ
+					std::string m_name = "0v"ÔøΩ
 					bool m_isActive = 0xD0
 					bool m_isFarVisible = 0x8B
 					std::optional<float> m_visibilityDistanceOverride = 0x99D1ED0000001AE
@@ -31351,7 +31351,7 @@ Address   Frame     Function      SourceFile
 					unsigned int LastUsedScriptID = 0x99C8670
 					MovementInfo m_movementInfo = 000001AE04797C58
 					EventProcessor m_Events = 000001AE04797D28
-					std::string m_name = "pÜú	Æ
+					std::string m_name = "pÔøΩÔøΩ	ÔøΩ
 					bool m_isActive = 0x70
 					bool m_isFarVisible = 0x86
 					std::optional<float> m_visibilityDistanceOverride = 0x99C8670000001AE
@@ -31602,7 +31602,7 @@ Address   Frame     Function      SourceFile
 					unsigned int LastUsedScriptID = 0x99C8210
 					MovementInfo m_movementInfo = 000001AE04799C58
 					EventProcessor m_Events = 000001AE04799D28
-					std::string m_name = "Çú	Æ
+					std::string m_name = "ÔøΩÔøΩ	ÔøΩ
 					bool m_isActive = 0x10
 					bool m_isFarVisible = 0x82
 					std::optional<float> m_visibilityDistanceOverride = 0x99C8210000001AE
@@ -35277,7 +35277,7 @@ Address   Frame     Function      SourceFile
 	Parameter int argc = 000000A8C596FA70
 	Parameter int argc = 000000A8C5CF5C78
 	Parameter int argc = 000000A8C596FDC0
-	Parameter char** argv = "?hˆ/|È"ÛAOöµ"
+	Parameter char** argv = "?hÔøΩ/|ÔøΩ"ÔøΩAOÔøΩÔøΩ"
 	Parameter char** argv = NULL
 	Local std::unique_ptr<boost::dll::shared_library,Trinity::Impl::stateful_unique_ptr_deleter<boost::dll::shared_library *,`main'::`2'::<lambda_1> > > winmm
 		std::_Compressed_pair<Trinity::Impl::stateful_unique_ptr_deleter<boost::dll::shared_library *,`main'::`2'::<lambda_1> >,boost::dll::shared_library *,0> _Mypair
@@ -35766,14 +35766,14 @@ Address   Frame     Function      SourceFile
 00007FF62CC5C664  000000A8C5FFF860  [inline] std::operator++11  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 3188
 00007FF62CC5C664  000000A8C5FFF860  boost::program_options::typed_value<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,char>::name+684  C:\local\boost_1_92_0\boost\program_options\detail\value_semantic.hpp line 36
 	Local boost::program_options::typed_value<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,char>* this = NULL
-	Local std::string msg = "G±-ˆ
+	Local std::string msg = "ÔøΩGÔøΩ-ÔøΩ
 
 00007FF62CC5C253  000000A8C5FFF8C0  [inline] std::basic_string<char,std::char_traits<char>,std::allocator<char> >::append+51  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 1522
 00007FF62CC5C253  000000A8C5FFF8C0  [inline] std::basic_string<char,std::char_traits<char>,std::allocator<char> >::append+51  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 1534
 00007FF62CC5C253  000000A8C5FFF8C0  [inline] std::operator++51  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 3246
 00007FF62CC5C253  000000A8C5FFF8C0  boost::program_options::typed_value<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,char>::name+273  C:\local\boost_1_92_0\boost\program_options\detail\value_semantic.hpp line 30
 	Local boost::program_options::typed_value<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,char>* this = NULL
-	Local std::string msg = "G±-ˆ
+	Local std::string msg = "ÔøΩGÔøΩ-ÔøΩ
 
 00007FF62CC55913  000000A8C5FFF920  [inline] std::_Tree_val<std::_Tree_simple_types<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > > >::_Lrotate+1A  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xtree line 491
 00007FF62CC55913  000000A8C5FFF920  std::_Tree_val<std::_Tree_simple_types<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > > >::_Insert_node+213  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xtree line 729
@@ -35817,25 +35817,25 @@ Address   Frame     Function      SourceFile
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = 00007FF62CC570F0
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Right = 00007FF62CC5E430
 				char _Color = "@"
-				char _Isnil = "Â"
+				char _Isnil = "ÔøΩ"
 				std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval = 00007FF62DB14D40
 			std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = NULL
 			std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Right = 0x1AE35C39618
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Left = 000001AE3D519190
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = 000001AE3D519190
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Right = NULL
-				char _Color = "à"
-				char _Isnil = "ø"
+				char _Color = "ÔøΩ"
+				char _Isnil = "ÔøΩ"
 				std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval = 000001AE35C39638
 			char _Color = "P"
 			char _Isnil = "A"
 			std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
-				std::string first = "t`<◊.\
+				std::string first = "t`<ÔøΩ.\
 				std::string second = ""
-		char _Color = "ò"
+		char _Color = "ÔøΩ"
 		char _Isnil = "e"
 		std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
-			std::string first = "òeX\´
+			std::string first = "ÔøΩeX\ÔøΩ
 			std::string second = "
 	Local std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Pnode = 0xA8C5FFF720
 		std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Left = NULL
@@ -35845,7 +35845,7 @@ Address   Frame     Function      SourceFile
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Left = 00007FF62CC43720
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = 00007FF62CC43730
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Right = 00007FF62CC43640
-				char _Color = "∞"
+				char _Color = "ÔøΩ"
 				char _Isnil = "5"
 				std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval = 00007FF62DB13C48
 			std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = 0xB2AB117A257EDFD1
@@ -35860,7 +35860,7 @@ Address   Frame     Function      SourceFile
 			char _Isnil = "
 			std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
 				std::string first = ""
-				std::string second = "(<±-ˆ
+				std::string second = "(<ÔøΩ-ÔøΩ
 		char _Color = ""
 		char _Isnil = "
 		std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
@@ -36092,7 +36092,7 @@ Address   Frame     Function      SourceFile
 00007FF62CC5C664  000000A8C60FF760  [inline] std::operator++11  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 3188
 00007FF62CC5C664  000000A8C60FF760  boost::program_options::typed_value<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,char>::name+684  C:\local\boost_1_92_0\boost\program_options\detail\value_semantic.hpp line 36
 	Local boost::program_options::typed_value<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,char>* this = NULL
-	Local std::string msg = "G±-ˆ
+	Local std::string msg = "ÔøΩGÔøΩ-ÔøΩ
 
 00007FF62CC5C253  000000A8C60FF7C0  [inline] std::basic_string<char,std::char_traits<char>,std::allocator<char> >::append+51  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 1522
 00007FF62CC5C253  000000A8C60FF7C0  [inline] std::basic_string<char,std::char_traits<char>,std::allocator<char> >::append+51  C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Tools\MSVC\14.44.35207\include\xstring line 1534
@@ -36138,7 +36138,7 @@ Address   Frame     Function      SourceFile
 				std::string second = 00007FF62CC56804 <Unable to read memory>
 		std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = NULL
 		std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Right = NULL
-		char _Color = "ò"
+		char _Color = "ÔøΩ"
 		char _Isnil = "e"
 		std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
 			std::string first = ""
@@ -36151,7 +36151,7 @@ Address   Frame     Function      SourceFile
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Left = 00007FF62CC43720
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = 00007FF62CC43730
 				std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Right = 00007FF62CC43640
-				char _Color = "∞"
+				char _Color = "ÔøΩ"
 				char _Isnil = "5"
 				std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval = 00007FF62DB13C48
 			std::_Tree_node<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,void *>* _Parent = 0xB2AB117A257EDFD1
@@ -36166,7 +36166,7 @@ Address   Frame     Function      SourceFile
 			char _Isnil = "
 			std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
 				std::string first = ""
-				std::string second = "(<±-ˆ
+				std::string second = "(<ÔøΩ-ÔøΩ
 		char _Color = ""
 		char _Isnil = "
 		std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> > const ,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > _Myval
@@ -38116,7 +38116,7 @@ Address   Frame     Function      SourceFile
 				unsigned int m_GUIDLow = 0x90009C00BBCC5BD0
 				Player* _player = NULL
 				std::array<std::shared_ptr<WorldSocket>,2> m_Socket = 000001AB5FF572C8
-				std::string m_Address = "’[…ª
+				std::string m_Address = "ÔøΩ[…ª
 				int _security = 0x0
 				unsigned int _accountId = 0x0
 				std::string _accountName = 000001AB5FF57310 <Unable to read memory>
@@ -39292,7 +39292,7 @@ Address   Frame     Function      SourceFile
 			std::shared_ptr<WorldSocket>[2] _Elems
 				[0] = 000001AB5FF943A8
 				[1] = 000001AB5FF943B8
-		std::string m_Address = "«òh∫
+		std::string m_Address = "«òhÔøΩ
 		int _security = 0x0
 		unsigned int _accountId = 0x0
 		std::string _accountName = 000001AB5FF943F0 <Unable to read memory>
@@ -39703,7 +39703,7 @@ Address   Frame     Function      SourceFile
 				unsigned int m_GUIDLow = 0x9000C400B8478D97
 				Player* _player = 0000000000000002
 				std::array<std::shared_ptr<WorldSocket>,2> m_Socket = 000001AB5FF816D8
-				std::string m_Address = "îç@∏
+				std::string m_Address = "ÔøΩÔøΩ@ÔøΩ
 				int _security = 0x0
 				unsigned int _accountId = 0x0
 				std::string _accountName = "
@@ -41304,7 +41304,7 @@ Address   Frame     Function      SourceFile
 				unsigned int m_GUIDLow = 0x90005000BAE3C829
 				Player* _player = 0000000000000001
 				std::array<std::shared_ptr<WorldSocket>,2> m_Socket = 000001AB5FFC4D38
-				std::string m_Address = ".»Ï∫
+				std::string m_Address = ".ÔøΩÔøΩ
 				int _security = 0x0
 				unsigned int _accountId = 0x0
 				std::string _accountName = 000001AB5FFC4D80 <Unable to read memory>
@@ -46398,7 +46398,7 @@ Address   Frame     Function      SourceFile
 	Parameter int argc = 000000A8C67FFE48
 	Parameter int argc = 000000A8C67FFE90
 	Parameter int argc = 000000A8C68001E0
-	Parameter char** argv = "Hâ\$Hât$Hâ|$UATAUAVAWHãÏHÅÏÄ"
+	Parameter char** argv = "HÔøΩ\$HÔøΩt$HÔøΩ|$UATAUAVAWHÔøΩÔøΩHÔøΩÔøΩ"
 	Parameter char** argv = <Unable to read memory>
 	Local std::unique_ptr<boost::dll::shared_library,Trinity::Impl::stateful_unique_ptr_deleter<boost::dll::shared_library *,`main'::`2'::<lambda_1> > > winmm
 		std::_Compressed_pair<Trinity::Impl::stateful_unique_ptr_deleter<boost::dll::shared_library *,`main'::`2'::<lambda_1> >,boost::dll::shared_library *,0> _Mypair
