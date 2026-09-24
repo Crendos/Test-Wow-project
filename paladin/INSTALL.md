@@ -461,20 +461,27 @@ findstr /c:"each Holy Power spent" src\server\scripts\Spells\spell_paladin.cpp
 ```
 Каждая команда должна вывести ровно одну строку. Тишина = скрипты не обновились.
 
-### Шаг 2. SQL (Navicat, правый клик по базе world -> Execute SQL File...)
-Выполни оба файла и посмотри грид результата последнего запроса каждого:
-- `paladin\areatrigger_37932_stub.sql` — заглушка пропсов AT 37932 (две строки, в обеих cnt=1);
-- `paladin\fix_432929_retail.sql` — отключение генерик-прока (одна строка: 432929, Chance 0, Cooldown 0).
-Если раньше ставил `fix_432929_proc_icd.sql` — ничего не удаляй: REPLACE перезапишет его строку.
+### Шаг 2. SQL — ВНИМАНИЕ, теперь ДВЕ базы
+1. Открой `paladin\fix_432929_root.sql` и выполни его ДВЕ ЧАСТИ раздельно:
+   - ЧАСТЬ 1 — в hotfix-БАЗЕ (где делал Q6/Q7): UPDATE отключает прок-флаги 432929
+     у источника (ProcTypeMask (0,4)="Cast Successful" -> (0,0)). Грид: ProcTypeMask1=0, ProcTypeMask2=0.
+   - ЧАСТЬ 2 — в базе world: REPLACE со страховочным Chance=0.01. Грид: Chance=0.01.
+2. `paladin\areatrigger_37932_stub.sql` — заглушка пропсов AT 37932, в базе world
+   (две строки, в обеих cnt=1). ВАЖНО: свежая версия файла (27 колонок под схему
+   сборочного коммита a96d8977) — старая падала с "Unknown column".
+Старые fix_432929_proc_icd.sql / fix_432929_retail.sql устарели: если ставил —
+ничего не удаляй, ЧАСТЬ 2 перезапишет их строку.
 
 ### Шаг 3. Пересобрать ядро (только scripts + worldserver)
 В "x64 Native Tools Command Prompt for VS 2022" — те же команды, что в разделе 8, Шаг 2
 (del obj для spell_paladin.cpp -> msbuild scripts -> msbuild worldserver). Тишина = ОК.
 
 ### Шаг 4. Запуск и проверка
-- Server.log при старте: строка
-  `The `spell_proc` table entry for spellId 432929 doesn't have any `ProcFlags` value defined, proc will not be triggered.`
-  — ЭТО ОЖИДАЕМО (так выглядит отключённый нами прок), не ошибка.
+- Server.log при старте: `findstr /i "ProcFlags" Server.log` ДОЛЖЕН показать строку
+  `spellId 432929 doesn't have any ProcFlags value defined, proc will not be triggered`
+  — это ДОКАЗАТЕЛЬСТВО корневого фикса (ЧАСТЬ 1 доехала). Если строки НЕТ — ЧАСТЬ 1
+  не применилась (UPDATE делался не в ту базу?); цикл всё равно держит ремень
+  ЧАСТИ 2 (шанс 0.01%), но сообщи мне об этом.
 - Строк «AreaTrigger ... 37932 ... Invalid areatrigger create properties id» быть НЕ должно.
 - В игре храмовником: молот появляется ТОЛЬКО после ТДА (375576); каждая потраченная ОС
   продлевает его на 0.5с; маунт/предмет/атаки бафы НЕ обновляют. Проверь 2-3 минуты —
