@@ -95,6 +95,45 @@ CSV «Бафы» агрегирован по ВСЕМ игрокам рейда 
 - Значит цикл (бафы обновляются 1-2с) НЕ в наших партиях — апстрим/кастомный контент (юзер: было до правок).
 - Новый след: всплеск 14 подряд "AreaTrigger 37932 not created. Invalid areatrigger create properties id" (Server.log строки 933-947) сразу после логина. Механика: аура SPELL_AURA_AREA_TRIGGER (395) при КАЖДОМ apply создаёт AT {MiscValue, false} (SpellAuraEffects.cpp HandleCreateAreaTrigger); спеллы: SPELL_EFFECT_CREATE_AREATRIGGER=179 / _2=353 (SpellEffects.cpp, MiscValue эффекта). 37932 отсутствует в areatrigger_create_properties клиента 12.1.0.69497.
 - 14 перевешиваний ~ "3-4 бафа x 3-4 обновления" — отпечаток цикла юзера.
-- Поиск владельца: findstr /s /c:"37932" *.sql по папке контента; SQL: spell_dbc WHERE EffectMiscValue{1,2,3}=37932 / EffectApplyAuraName{1,2,3}=395 / Effect{1,2,3} IN (179,353).
+- Поиск владельца (ОБНОВЛЕНО, схема a96d89772a96): таблица — `serverside_spell_effect` (spell_dbc в world НЕ существует, юзер: 1146); аура = колонка `EffectAura`, misc = `EffectMiscValue1/2`; имена — JOIN `serverside_spell` (`Id`,`SpellName`). `sql/custom` у юзера ПУСТ — контент уже в БД, ищем по данным, не по файлам (findstr по дереву sql = спам broadcast_text, снят по ^C).
+- Оффлайн-проверка резолва: стор `_areaTriggerCreateProperties` (game/Globals/AreaTriggerDataStore.cpp) ЕДИНЫЙ для клиента и DB, ключ {Id, IsCustom}; DB-строка `areatrigger_create_properties` (37932, IsCustom=0) удовлетворит запрос ауры {37932, false} → инжект заглушки валиден БЕЗ опознания владельца. Шейпы: Sphere=0 (ShapeData0=Radius), Script=5/FromUnit=6 лоадер отбрасывает; ссылка `AreaTriggerId` обязана существовать в `areatrigger_template` (иначе строка пропускается = та же ошибка).
+- Заглушка готова: `paladin/areatrigger_37932_stub.sql` (REPLACE template 37932,0 + INSERT-if-missing/UPDATE пропсов сфера r=2 инерт; проверка в конце = 2×cnt=1). Симптоматическая: гасит ошибку/спам, НЕ останавливает цикл.
 - Прочее: Hotfix.log чист; Player::AddSpell: 371571 does not exist (кастом-пак выдаёт несуществующий спелл при логине, не критично); t8_2p_bonus::Validate кадры в дампах #2/#3 — фантомы стека (идентичны байт-в-байт, спелл 64891 существует, 373457 — пристский Crystalline Reflection).
-- Статус: ждаём от юзера (а) результат findstr/SQL по 37932, (б) PalDump v4 лог цикла (маркеры «!!! ЦИКЛ?/АУРА-ШТОРМ»).
+- Статус: ждаём от юзера (а) вывод SQL-охоты по 37932 (serverside_spell_effect, см. ниже), (б) PalDump v4 лог цикла (маркеры «!!! ЦИКЛ?/АУРА-ШТОРМ»).
+
+## SQL-охота AT 37932 (Navicat → world, чистый блок)
+```sql
+-- Q1: все серверные ауры 395 (SPELL_AURA_AREA_TRIGGER) — владелец AT
+SELECT sse.SpellID, ss.SpellName, sse.DifficultyID, sse.EffectIndex,
+       sse.Effect, sse.EffectAura, sse.EffectMiscValue1, sse.EffectMiscValue2
+FROM serverside_spell_effect sse
+LEFT JOIN serverside_spell ss ON ss.Id = sse.SpellID
+WHERE sse.EffectAura = 395;
+
+-- Q2: все серверные эффекты создания AT (179 CREATE_AREATRIGGER, 353 _2)
+SELECT sse.SpellID, ss.SpellName, sse.EffectIndex, sse.Effect,
+       sse.EffectMiscValue1, sse.EffectMiscValue2
+FROM serverside_spell_effect sse
+LEFT JOIN serverside_spell ss ON ss.Id = sse.SpellID
+WHERE sse.Effect IN (179, 353);
+
+-- Q3: любое упоминание 37932 в серверных спеллах
+SELECT sse.SpellID, ss.SpellName, sse.EffectIndex, sse.Effect, sse.EffectAura,
+       sse.EffectMiscValue1, sse.EffectMiscValue2, sse.EffectTriggerSpell
+FROM serverside_spell_effect sse
+LEFT JOIN serverside_spell ss ON ss.Id = sse.SpellID
+WHERE sse.EffectMiscValue1 = 37932 OR sse.EffectMiscValue2 = 37932
+   OR sse.EffectTriggerSpell = 37932 OR sse.SpellID = 37932;
+
+-- Q4: диагностика самой строки пропсов 37932 (битая ссылка = та же ошибка)
+SELECT acp.Id, acp.IsCustom, acp.AreaTriggerId, acp.IsAreatriggerCustom,
+       acp.Shape, acp.ScriptName
+FROM areatrigger_create_properties acp WHERE acp.Id = 37932;
+SELECT * FROM areatrigger_template WHERE Id = 37932;
+
+-- Q5: загадка 371571 (AddSpell does not exist при логине)
+SELECT Id, SpellName, SpellFamilyName FROM serverside_spell WHERE Id = 371571;
+SELECT EffectIndex, Effect, EffectAura, EffectMiscValue1, EffectTriggerSpell
+FROM serverside_spell_effect WHERE SpellID = 371571;
+```
+Пустой Q1–Q3 = аура живёт в клиентских DBC/hotfixах пакета → владелец только через PalDump v4.
