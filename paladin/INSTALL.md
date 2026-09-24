@@ -476,12 +476,27 @@ findstr /c:"each Holy Power spent" src\server\scripts\Spells\spell_paladin.cpp
 В "x64 Native Tools Command Prompt for VS 2022" — те же команды, что в разделе 8, Шаг 2
 (del obj для spell_paladin.cpp -> msbuild scripts -> msbuild worldserver). Тишина = ОК.
 
+### Шаг 4.1. Если DBErrors.log раздулся (сотни МБ) — свод вместо заливки
+Файл пишется построчно с добавлением (append) и НЕ ротируется — копит ошибки всех
+прошлых запусков, целиком передавать его НЕ нужно и некуда (лимит 25 МБ).
+1. Возьми из ZIP `paladin\windows\dberrors_report.bat` (+ рядом лежащий .ps1).
+2. Запусти bat (можно прямо перетащить DBErrors.log на него). Жди прогресс
+   "обработано N строк" — на 875 МБ это несколько минут.
+3. Получишь рядом с логом: `DBErrors_unique.txt` — уникальные ошибки со счётчиком
+   (обычно сотни строк, килобайты), плюс head/tail по 100 строк.
+4. Пришли мне `DBErrors_unique.txt` — по нему я назову точные исправления.
+5. Сам DBErrors.log безопасно удалить/переименовать при ОСТАНОВЛЕННОМ сервере —
+   это просто журнал.
+
 ### Шаг 4. Запуск и проверка
-- Server.log при старте: `findstr /i "ProcFlags" Server.log` ДОЛЖЕН показать строку
-  `spellId 432929 doesn't have any ProcFlags value defined, proc will not be triggered`
-  — это ДОКАЗАТЕЛЬСТВО корневого фикса (ЧАСТЬ 1 доехала). Если строки НЕТ — ЧАСТЬ 1
-  не применилась (UPDATE делался не в ту базу?); цикл всё равно держит ремень
-  ЧАСТИ 2 (шанс 0.01%), но сообщи мне об этом.
+- МАРКЕР ФИКСА живёт НЕ в Server.log (логгер sql.sql пишется в DBErrors.log,
+  worldserver.conf.dist: Logger.sql.sql=5,Console DBErrors). После РЕСТАРТА сервера:
+  `findstr /i "ProcFlags" DBErrors.log` (и смотри консоль при старте) — ДОЛЖНА быть
+  строка `spellId 432929 doesn't have any ProcFlags value defined, proc will not be
+  triggered` = доказательство, что ЧАСТЬ 1 доехала. Если пусто: (а) сервер не
+  перезапускался после SQL; (б) проверь контрольные SELECT из fix_432929_root.sql
+  (hotfix: ProcTypeMask1/2=0; world: Chance=0.01) и пришли их вывод.
+  [ПОДТВЕРЖДЕНО 24.09: строка найдена юзером в DBErrors.log — корневой фикс работает]
 - Строк «AreaTrigger ... 37932 ... Invalid areatrigger create properties id» быть НЕ должно.
 - В игре храмовником: молот появляется ТОЛЬКО после ТДА (375576); каждая потраченная ОС
   продлевает его на 0.5с; маунт/предмет/атаки бафы НЕ обновляют. Проверь 2-3 минуты —
