@@ -1,2 +1,0 @@
-CeeAA... = CEEAAAAAAAAAAAAAAAAAAAAAAAAAALAwMAAD2GGmZWmZsYMzMsMPwmZWMaiZxYmZYMbZAYAYDsxiZmZZ2mZmtGAAAgF2YGsBMzGMDAgZGmxYYA
-# version=8, specID=65 (Holy, Вестник солнца +20). Полная расшифровка требует раскладки TalentTreeNodes (только в клиенте).

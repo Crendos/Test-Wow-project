@@ -1,5 +1,0 @@
-## Interface: 120100
-## Title: PalDump
-## Notes: /paldump - ID способностей; /paldumplog - боевой лог (бафы/дебафы/ауры/касты)
-## SavedVariables: PalDumpDB
-PalDump.lua
