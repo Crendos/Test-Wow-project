@@ -656,6 +656,11 @@ PalDumpMainFrame:SetScript("OnEvent", function(_, event, ...)
         if PalDumpDB.cfg.auto ~= true then
             print("[PalLog] Авто-дамп выключен (ловим попап): /paldumplog dump — вручную | /paldumplog auto on — на входе")
         end
+        -- v4.8: БАННЕР — что стоит и что включено (главный индикатор версии)
+        print(("[PalLog] PalDump v4.8 | лог: UNIT_AURA+SPELLCAST+COMBAT_TEXT | CLEU=%s | auto=%s | состояние: %s"):format(
+            PalDumpDB.cfg.cleu == true and "вкл" or "выкл",
+            PalDumpDB.cfg.auto == true and "вкл" or "выкл",
+            PalDumpDB.cfg.log and "ЛОГ ВКЛ" or "ЛОГ ВЫКЛ"))
         if C_Timer and C_Timer.After then
             C_Timer.After(5, AutoDump)
             -- база для дельт аур: снап через 3 с (данные к этому моменту загружены)
