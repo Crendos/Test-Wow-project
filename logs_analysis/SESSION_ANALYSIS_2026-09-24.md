@@ -186,5 +186,15 @@
 - `INSTALL.md` §10: инструкция (повторный запуск `_8.sql` → 2 SELECT-проверки → рестарт → критерии DBErrors → ретест; при повторе краша — новый .dmp).
 - «Бафы кидаются с любой способности» — отдельный поток (прок-цикл), ждём PalDump-лог.
 
+## 6. Playerbots (модуль юзера, `playerbots-master` @ d84dfbf) — вклад в загрузку/память (25.09)
+
+Вопрос юзера: «возможно ли из-за нового бот-скрипта (патчил и поставил, они включены) столько нагрузки — отключить ли в worldserver.conf?»
+
+- Модуль = собственная MVP-система ботов (Фаза 0–v5): боты = **настоящие Player** (видны в /who, группах, БГ). Ключи копируются в **worldserver.conf**: `Playerbots.Enabled` (дефолт в коде **false**), `Playerbots.MaxCount=100`, `Playerbots.AutoStartRoster=0`, `Rotation.Minutes=5`, `FreeAccountsStart/End=9000/9499`.
+- **Старт**: конструктор только читает 5 ключей; `WorldScript::OnStartup` вызывает `StartRoster()` **исключительно при `AutoStartRoster=1`** → логин состава = полный `LoginQueryHolder` (~40 запросов БД на персонаж, тот же код, что у настоящих игроков) → рост «World initialized» + скачок RAM сразу после старта. При `=0` сам старт модуль не грузит вообще.
+- **Рантайм**: `WorldScript::OnUpdate → sPlayerbotMgr.UpdateAI(diff)` — каждый тик по всем залогиненным ботам (early-out при `!Enabled` / пустом списке); до 100 Player-объектов в мире = RAM (полные Player+инвентарь+сессия+AI) + CPU (follow, ротация GCD, босс-правила v5). Патч ядра (`0001-core-integration.diff`, 746 стр.): перенос `LoginQueryHolder` из CharacterHandler в WorldSession.cpp (для бот-логина), флаг `m_isPlayerBot`, быстрый путь `WorldSession::Update` без сокетов, `SendPacket` дропает SMSG для ботов — оформлено аккуратно, на посторонних сессиях не тянет.
+- **Лог 24.09 строк `playerbots` не содержит** (модуль активировался позже) → старт 146 с той сессии = world DB (716k creatures/38,1с + SmartAI 66k/25,4с + 231k definitions/11,9с) + DB2 34,9с, **не боты**. Замерять на свежем логе: `findstr /i playerbots Server.log` (строки `StartRoster`, `Login: бот`, `AddBot`).
+- **Рекомендация**: тест — `Playerbots.Enabled = 0` (после рестарта `.playerbot add` → ошибка, строк модуля нет); щадящий режим при работе — `AutoStartRoster=0` + `MaxCount=10-20`. Основной вклад в RAM по-прежнему world DB (см. §4.2, memwatch), боты — надстройка сверху, пропорциональная числу залогиненных.
+
 ---
 *Файл создан для продолжения работы после закрытия прошлой сессии. Источники: PALADIN_AUDIT.md, logs_analysis/README.md, INSTALL.md, дампы/логи этой папки.*
