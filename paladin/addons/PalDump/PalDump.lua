@@ -1,6 +1,9 @@
+-- PalDump v4.3 (25.09.2026): /paldumplog export [N] открывает ОКНО с текстом лога
+--    (рамка по центру экрана): выделение уже стоит → Ctrl+C = копия, куда угодно.
+--    Работает без копирования из чата (его в игре нет) и без записи на диск.
 -- PalDump v4.2 (25.09.2026): лог больше НЕ зависит от записи на диск.
---    1) /paldumplog export [N] — выгружает последние N строк (по умолч. 100)
---       ПРЯМО В ЧАТ: копируйте оттуда, файл не нужен.
+--    1) /paldumplog export [N] — последние N строк (по умолч. 100); в v4.2 печатались
+--       в чат, в v4.3 заменено на окно с EditBox (см. выше).
 --    2) Маркеры «!!! ЦИКЛ?» и «!!! АУРА-ШТОРМ» печатаются в чат СРАЗУ (скриншот хватит).
 --    3) События ADDON_ACTION_* пишутся и в чат, и в лог (попадут в файл при /reload).
 --    Файл WTF\...\SavedVariables\PalDump.lua обновляется клиентом ТОЛЬКО при
@@ -231,6 +234,47 @@ end
 ---------------------------------------------------------------------
 -- КОМАНДЫ
 ---------------------------------------------------------------------
+---------------------------------------------------------------------
+-- ОКНО ЭКСПОРТА (/paldumplog export): текст в рамке → Ctrl+A, Ctrl+C
+---------------------------------------------------------------------
+local function ShowExport(text)
+    local f = PalDumpCopyFrame
+    if not f then
+        f = CreateFrame("Frame", "PalDumpCopyFrame", UIParent, "BasicFrameTemplateWithInset")
+        f:SetSize(640, 460)
+        f:SetPoint("CENTER")
+        if f.TitleContainer and f.TitleContainer.TitleText then
+            f.TitleContainer.TitleText:SetText("PalDump — экспорт (Ctrl+A, Ctrl+C)")
+        end
+        local eb = CreateFrame("EditBox", nil, f)
+        eb:SetMultiLine(true)
+        eb:SetMaxLetters(0)
+        eb:SetFontObject(GameFontHighlight)
+        eb:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
+        eb:SetPoint("TOPLEFT", 14, -32)
+        eb:SetPoint("BOTTOMRIGHT", -14, 14)
+        local tex = eb:CreateTexture(nil, "BACKGROUND")
+        tex:SetAllPoints()
+        tex:SetColorTexture(0.02, 0.02, 0.02, 0.9)
+        f.editBox = eb
+        if f.CloseButton then
+            f.CloseButton:SetScript("OnClick", function() f:Hide() end)
+        end
+        f:SetScript("OnHide", function() eb:ClearFocus() end)
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", function(frame) frame:StartMoving() end)
+        f:SetScript("OnDragStop", function(frame) frame:StopMovingOrSizing() end)
+        table.insert(UISpecialFrames, "PalDumpCopyFrame")  -- Esc закрывает
+    end
+    f.editBox:SetText(text)
+    f:Show()
+    f.editBox:SetFocus()
+    f.editBox:HighlightText()
+    print("[PalLog] Окно экспорта: выделено всё — Ctrl+C (копия), Ctrl+V вставь куда нужно.")
+end
+
 SLASH_PALDUMPLOG1 = "/paldumplog"
 SlashCmdList["PALDUMPLOG"] = function(msg)
     msg = tostring(msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -239,7 +283,7 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
         PalDumpDB.cfg.log = v
         addLine(v and "=== ЛОГ ВКЛЮЧЁН ===" or "=== ЛОГ ВЫКЛЮЧЕН ===", nil)
         print("[PalLog] Боевой лог: " .. (v and "ВКЛЮЧЁН (касты, бафы/дебафы, хилы по мне, суммоны)" or "ВЫКЛЮЧЕН"))
-        print("[PalLog] /paldumplog snap — снимок аур | /paldumplog show 30 | /paldumplog export 200 — ВЫГРУЗКА В ЧАТ | /paldumplog clear")
+        print("[PalLog] /paldumplog snap — снимок аур | /paldumplog show 30 | /paldumplog export 200 — ОКНО ДЛЯ Ctrl+C | /paldumplog clear")
     elseif msg == "snap" then
         Snapshot()
     elseif msg:match("^show") then
@@ -252,9 +296,10 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
         local n = tonumber(msg:match("export%s+(%d+)")) or 100
         local L = PalDumpDB.log
         local first = math.max(1, #L - n + 1)
-        print(("[PalLog] === ЭКСПОРТ строк %d..%d из %d — копируйте из чата ==="):format(first, #L, #L))
-        for i = first, #L do print(L[i]) end
-        print(("[PalLog] === конец экспорта (%d строк) ==="):format(#L - first + 1))
+        local buf = {}
+        for i = first, #L do buf[#buf + 1] = L[i] end
+        print(("[PalLog] Экспорт строк %d..%d из %d — окно открыто, Ctrl+A → Ctrl+C"):format(first, #L, #L))
+        ShowExport(table.concat(buf, "\n"))
     elseif msg == "dmg on" or msg == "dmg off" then
         PalDumpDB.cfg.dmg = (msg == "dmg on")
         print("[PalLog] Писать урон: " .. (PalDumpDB.cfg.dmg and "ВКЛ (лог будет расти быстро)" or "ВЫКЛ"))
