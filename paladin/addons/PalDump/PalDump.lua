@@ -1,3 +1,8 @@
+-- PalDump v4.6 (25.09.2026): pcall-броня — ВСЕ обработчики (события, AutoDump,
+--    /paldump, snap) обёрнуты: если клиент блокирует вызов с Lua-ошибкой,
+--    вместо попапа будет строка «[PalDump] ... ОШИБКА: ...» в чате.
+--    T9: C_ClassTalents/C_Traits/GetSpellBookItemInfo СУЩЕСТВУЮТ (table/table/function) —
+--    блокируются именно ВЫЗОВЫ (T1/T2/T4).
 -- PalDump v4.5 (25.09.2026): ловушка ADDON_ACTION_* ВЫКЛЮЧЕНА по умолчанию —
 --    регистрация этих событий в клиенте 12.x сама по себе даёт попап «действие
 --    только для интерфейсу Blizzard» (проверь макросом T8). Включить: /paldumplog diag on.
@@ -304,7 +309,8 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
         print("[PalLog] Боевой лог: " .. (v and "ВКЛЮЧЁН (касты, бафы/дебафы, хилы по мне, суммоны)" or "ВЫКЛЮЧЕН"))
         print("[PalLog] /paldumplog snap — снимок аур | /paldumplog show 30 | /paldumplog export 200 — ОКНО ДЛЯ Ctrl+C | /paldumplog clear")
     elseif msg == "snap" then
-        Snapshot()
+        local oks, errs = pcall(Snapshot)
+        if not oks then print("[PalDump] snap ОШИБКА: " .. tostring(errs)) end
     elseif msg:match("^show") then
         local n = tonumber(msg:match("show%s+(%d+)")) or 20
         local L = PalDumpDB.log
@@ -470,6 +476,7 @@ end
 
 SLASH_PALDUMP1 = "/paldump"
 SlashCmdList["PALDUMP"] = function()
+    local okp, errp = pcall(function()
     local specName, specID = SpecInfo()
     local key = tostring(specID)
     local book, skipped = DumpBook()
@@ -482,6 +489,8 @@ SlashCmdList["PALDUMP"] = function()
     print("[PalDump] уже в файле: " .. table.concat(list, ", "))
     print("[PalDump] введите /reload, затем при желании переключите другую спеку и повторите /paldump")
     print('  финальный файл: WTF\\Account\\<имя аккаунта>\\SavedVariables\\PalDump.lua')
+    end)
+    if not okp then print("[PalDump] /paldump ОШИБКА: " .. tostring(errp)) end
 end
 
 -- АВТО-ДАМП: книга + таланты текущей спеки пишутся в файл сами при входе
@@ -489,6 +498,7 @@ end
 -- (global — чтобы видел замыкание slash-команды, объявленного выше)
 function AutoDump(force)
     if not force and PalDumpDB.cfg.auto ~= true then return end -- v4.4: на входе выключен (попап)
+    local okd, errd = pcall(function()
     local specName, specID = SpecInfo()
     local book, skipped = DumpBook()
     if #book == 0 then return end -- книга ещё не загрузилась, попробует при смене спеки
@@ -501,6 +511,8 @@ function AutoDump(force)
         tostring(specName), tostring(specID), #book, skipped, #tal), nil)
     print(("[PalDump] авто-дамп: %s (%s): способностей %d, талантов %d — сохранено")
         :format(tostring(specName), tostring(specID), #book, #tal))
+    end)
+    if not okd then print("[PalDump] авто-дамп ОШИБКА: " .. tostring(errd)) end
 end
 
 local f = CreateFrame("Frame")
@@ -511,6 +523,7 @@ f:RegisterEvent("PLAYER_REGEN_DISABLED")
 f:RegisterEvent("PLAYER_REGEN_ENABLED")
 f:RegisterEvent("PLAYER_LOGOUT")
 f:SetScript("OnEvent", function(_, event)
+    local ok, err = pcall(function()
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         OnCLEU()
     elseif event == "PLAYER_ENTER_WORLD" then
@@ -541,6 +554,11 @@ f:SetScript("OnEvent", function(_, event)
     elseif event == "PLAYER_LOGOUT" then
         addLine("=== ВЫХОД ===", nil)
         print(("[PalLog] Выход: лог %d строк — файл сохраняется"):format(#PalDumpDB.log))
+    end
+    end)
+    if not ok then
+        print("[PalDump] ОШИБКА события (блок-попап?): " .. tostring(err))
+        addLine("=== ERR " .. tostring(err) .. " ===", nil)
     end
 end)
 -- ДИАГНОСТИКА TAINT (v4.1): если всплывает попап «Модификация Paldump
