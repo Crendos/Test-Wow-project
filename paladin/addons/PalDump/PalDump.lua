@@ -1,3 +1,6 @@
+-- PalDump v4.8 (25.09.2026): баннер версии/источников при входе в мир (одна строка
+--    сразу показывает, что установлено и что включено) + снап не показывает nil-ауры
+--    (снап до подгрузки мира давал «nil [0]»).
 -- PalDump v4.7 (25.09.2026): ГЛАВНОЕ. В клиенте подписка на COMBAT_LOG_EVENT_UNFILTERED
 --    — запрещённое действие (тест T15 дал попап; T8/T16/T17/T18 — чисто). Поэтому:
 --    1) CLEU ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН (попап при входе исчез!) — вкл: /paldumplog cleu on.
@@ -216,7 +219,9 @@ local function EachAura(unit, filter, cb)
         for i = 1, 60 do
             local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
             if not ok or not a then break end
-            cb(a.name, a.spellId or a.spellID, a.applications, a.expirationTime, a.sourceUnit)
+            if a.name then -- защита от «nil [0]» при снапе до подгрузки мира
+                cb(a.name, a.spellId or a.spellID, a.applications, a.expirationTime, a.sourceUnit)
+            end
         end
         return true
     end
