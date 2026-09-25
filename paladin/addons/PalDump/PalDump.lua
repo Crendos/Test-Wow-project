@@ -1,3 +1,7 @@
+-- PalDump v4.10 (25.09.2026): ФИКС ГЛАВНОГО БАГА — событие входа было названо
+--    PLAYER_ENTER_WORLD (такого события НЕТ в API, правильно PLAYER_ENTERING_WORLD),
+--    поэтому ветка входа (баннер, шапка сессии, таймеры) НЕ СРАБАТЫВАЛА НИКОГДА.
+--    Баннер/шапка теперь только при входе и /reload, не на каждой загрузочной.
 -- PalDump v4.9 (25.09.2026): одноразовые метки «✓ источник ... работает» при первом
 --    срабатывании UNIT_AURA / UNIT_SPELLCAST / COMBAT_TEXT — видно, приходят ли
 --    события вообще (даже когда лог выключен). Метка печатается один раз за сессию.
@@ -632,7 +636,7 @@ function AutoDump(force)
 end
 
 PalDumpMainFrame = CreateFrame("Frame", "PalDumpMainFrame")
-PalDumpMainFrame:RegisterEvent("PLAYER_ENTER_WORLD")
+PalDumpMainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 PalDumpMainFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 PalDumpMainFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 PalDumpMainFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -656,7 +660,7 @@ PalDumpMainFrame:SetScript("OnEvent", function(_, event, ...)
         OnCastOk(a1, a3)
     elseif event == "COMBAT_TEXT_UPDATE" then
         OnCombatText(a1, a2, a3)
-    elseif event == "PLAYER_ENTER_WORLD" then
+    elseif event == "PLAYER_ENTERING_WORLD" then
         playerGUID = UnitGUID("player")
         summoned = {}
         auraTrack, stormRing, stormNames = {}, {}, {}
@@ -670,16 +674,18 @@ PalDumpMainFrame:SetScript("OnEvent", function(_, event, ...)
             for i = #L - 4000 + 1, #L do keep[#keep + 1] = L[i] end
             PalDumpDB.log = keep
         end
+        if a1 or a2 then -- шапка/баннер только при входе и /reload (не на каждой загрузочной)
         addLine(string.format("===== СЕССИЯ %s, клиент %s =====", date("%Y-%m-%d %H:%M:%S"), build or "?"), nil)
         print(("[PalLog] Лог активен: /paldumplog export — выгрузка в чат, /paldumplog show 20 — последние строки (клиент %s)"):format(build or "?"))
         if PalDumpDB.cfg.auto ~= true then
             print("[PalLog] Авто-дамп выключен (ловим попап): /paldumplog dump — вручную | /paldumplog auto on — на входе")
         end
         -- v4.8: БАННЕР — что стоит и что включено (главный индикатор версии)
-        print(("[PalLog] PalDump v4.9 | лог: UNIT_AURA+SPELLCAST+COMBAT_TEXT | CLEU=%s | auto=%s | состояние: %s"):format(
+        print(("[PalLog] PalDump v4.10 | лог: UNIT_AURA+SPELLCAST+COMBAT_TEXT | CLEU=%s | auto=%s | состояние: %s"):format(
             PalDumpDB.cfg.cleu == true and "вкл" or "выкл",
             PalDumpDB.cfg.auto == true and "вкл" or "выкл",
             PalDumpDB.cfg.log and "ЛОГ ВКЛ" or "ЛОГ ВЫКЛ"))
+        end -- if a1 or a2
         if C_Timer and C_Timer.After then
             C_Timer.After(5, AutoDump)
             -- база для дельт аур: снап через 3 с (данные к этому моменту загружены)
