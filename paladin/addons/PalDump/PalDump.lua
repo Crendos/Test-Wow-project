@@ -1,3 +1,6 @@
+-- PalDump v4.9 (25.09.2026): одноразовые метки «✓ источник ... работает» при первом
+--    срабатывании UNIT_AURA / UNIT_SPELLCAST / COMBAT_TEXT — видно, приходят ли
+--    события вообще (даже когда лог выключен). Метка печатается один раз за сессию.
 -- PalDump v4.8 (25.09.2026): баннер версии/источников при входе в мир (одна строка
 --    сразу показывает, что установлено и что включено) + снап не показывает nil-ауры
 --    (снап до подгрузки мира давал «nil [0]»).
@@ -275,10 +278,17 @@ local function SnapAuras(unit)
     return now
 end
 
+local srcSeen = { aura = false, cast = false, ct = false }
+
 local function OnUnitAura(unit)
-    if not unit or not PalDumpDB.cfg.log then return end
+    if not unit then return end
     if not (unit == "player" or unit == "pet" or unit == "target" or unit == "focus"
         or unit:match("^party%d$") or unit:match("^raid%d$")) then return end
+    if unit == "player" and not srcSeen.aura then
+        srcSeen.aura = true
+        print("[PalLog] ✓ источник UNIT_AURA работает (бафы/дебафы)")
+    end
+    if not PalDumpDB.cfg.log then return end
     local now = SnapAuras(unit)
     local prev = auraCache[unit]
     auraCache[unit] = now
@@ -312,6 +322,10 @@ local function OnCastOk(unit, spellID)
 end
 
 local function OnCombatText(t, a2, a3)
+    if not srcSeen.ct then
+        srcSeen.ct = true
+        print("[PalLog] ✓ источник COMBAT_TEXT работает (урон/хилы)")
+    end
     if not PalDumpDB.cfg.log then return end
     local what = tostring(t or "?")
     if what ~= "HEAL" and what ~= "DAMAGE" and what ~= "DAMAGE_SHIELD" and what ~= "ENERGIZE" then return end
