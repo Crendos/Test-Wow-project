@@ -1,3 +1,8 @@
+-- PalDump v4.5 (25.09.2026): ловушка ADDON_ACTION_* ВЫКЛЮЧЕНА по умолчанию —
+--    регистрация этих событий в клиенте 12.x сама по себе даёт попап «действие
+--    только для интерфейсу Blizzard» (проверь макросом T8). Включить: /paldumplog diag on.
+--    T9 выявил: C_ClassTalents/C_Traits недоступны (T1/T2/T4 падают) — авто-дамп
+--    их и не должен дёргать, пока выключен.
 -- PalDump v4.4 (25.09.2026): отлова попапа «действие только для Blizzard».
 --    1) АВТО-ДАМП НА ВХОДЕ ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН (главный подозреваемый попапа):
 --       включить — /paldumplog auto on ; запустить вручную — /paldumplog dump.
@@ -324,12 +329,14 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
     elseif msg == "dump" then
         print("[PalLog] Ручной авто-дамп...")
         AutoDump(true)
+    elseif msg == "diag on" or msg == "diag off" then
+        DiagSet(msg == "diag on")
     elseif msg == "clear" then
         PalDumpDB.log = {}
         lastKey, lastN = nil, 0
         print("[PalLog] Лог очищен")
     else
-        print("Использование: /paldumplog [on|off|snap|show N|export N|dump|auto on|dmg on|clear]")
+        print("Использование: /paldumplog [on|off|snap|show N|export N|dump|auto on|diag on|dmg on|clear]")
     end
 end
 
@@ -540,8 +547,6 @@ end)
 -- заблокирована…», печатаем в чат событие, аддон и функцию — так видно, что
 -- именно блокируется (если это не PalDump — покажет имя настоящего виновника).
 local diag = CreateFrame("Frame")
-diag:RegisterEvent("ADDON_ACTION_FORBIDDEN")
-diag:RegisterEvent("ADDON_ACTION_BLOCKED")
 diag:SetScript("OnEvent", function(_, event, ...)
     local parts = {}
     for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
@@ -553,3 +558,19 @@ diag:SetScript("OnEvent", function(_, event, ...)
     addLine("=== TAINT " .. ln .. " ===", nil)
     if stack ~= "" then addLine("=== STACK " .. stack:gsub("\n", " >> ") .. " ===", nil) end
 end)
+-- v4.5: регистрация ADDON_ACTION_* ПО ФЛАГУ. По умолчанию ВЫКЛ: в клиенте 12.x
+-- сам факт подписки не-Blizzard аддона на эти события даёт попап «только для
+-- интерфейсу Blizzard» (подтвердится макросом T8). /paldumplog diag on|off.
+function DiagSet(on)
+    if on then
+        diag:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+        diag:RegisterEvent("ADDON_ACTION_BLOCKED")
+        PalDumpDB.cfg.diag = true
+        print("[PalDump] Ловушка попапа: ВКЛ (следи за строками [PalDump] ADDON_ACTION_*)")
+    else
+        diag:UnregisterAllEvents()
+        PalDumpDB.cfg.diag = false
+        print("[PalDump] Ловушка попапа: ВЫКЛ")
+    end
+end
+if PalDumpDB.cfg.diag == true then DiagSet(true) end
