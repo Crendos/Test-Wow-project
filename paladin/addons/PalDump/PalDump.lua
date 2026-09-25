@@ -185,6 +185,15 @@ end
 -- СНИМОК АУР (/paldumplog snap)
 ---------------------------------------------------------------------
 local function EachAura(unit, filter, cb)
+    -- 12.x: прямой путь C_UnitAuras (AuraUtil в их клиенте отдавал name=nil)
+    if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+        for i = 1, 60 do
+            local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
+            if not ok or not a then break end
+            cb(a.name, a.spellId or a.spellID, a.applications, a.expirationTime, a.sourceUnit)
+        end
+        return true
+    end
     local done = false
     if AuraUtil and AuraUtil.ForEachAura then
         done = pcall(AuraUtil.ForEachAura, unit, filter, nil,
@@ -303,12 +312,19 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
     elseif msg == "dmg on" or msg == "dmg off" then
         PalDumpDB.cfg.dmg = (msg == "dmg on")
         print("[PalLog] Писать урон: " .. (PalDumpDB.cfg.dmg and "ВКЛ (лог будет расти быстро)" or "ВЫКЛ"))
+    elseif msg == "auto on" or msg == "auto off" then
+        PalDumpDB.cfg.auto = (msg == "auto on")
+        print("[PalLog] Авто-дамп книги/талантов на входе: " .. (PalDumpDB.cfg.auto and "ВКЛЮЧЁН" or "ВЫКЛЮЧЕН"))
+        if PalDumpDB.cfg.auto then print("[PalLog] Проверь после входа в мир: не появился ли попап Paldump") end
+    elseif msg == "dump" then
+        print("[PalLog] Ручной авто-дамп...")
+        AutoDump(true)
     elseif msg == "clear" then
         PalDumpDB.log = {}
         lastKey, lastN = nil, 0
         print("[PalLog] Лог очищен")
     else
-        print("Использование: /paldumplog [on|off|snap|show N|export N|dmg on|dmg off|clear]")
+        print("Использование: /paldumplog [on|off|snap|show N|export N|dump|auto on|dmg on|clear]")
     end
 end
 
@@ -458,7 +474,9 @@ end
 
 -- АВТО-ДАМП: книга + таланты текущей спеки пишутся в файл сами при входе
 -- и при смене спеки — руками вызывать /paldump больше не обязательно.
-local function AutoDump()
+-- (global — чтобы видел замыкание slash-команды, объявленного выше)
+function AutoDump(force)
+    if not force and PalDumpDB.cfg.auto ~= true then return end -- v4.4: на входе выключен (попап)
     local specName, specID = SpecInfo()
     local book, skipped = DumpBook()
     if #book == 0 then return end -- книга ещё не загрузилась, попробует при смене спеки
@@ -498,6 +516,9 @@ f:SetScript("OnEvent", function(_, event)
         end
         addLine(string.format("===== СЕССИЯ %s, клиент %s =====", date("%Y-%m-%d %H:%M:%S"), build or "?"), nil)
         print(("[PalLog] Лог активен: /paldumplog export — выгрузка в чат, /paldumplog show 20 — последние строки (клиент %s)"):format(build or "?"))
+        if PalDumpDB.cfg.auto ~= true then
+            print("[PalLog] Авто-дамп выключен (ловим попап): /paldumplog dump — вручную | /paldumplog auto on — на входе")
+        end
         if C_Timer and C_Timer.After then C_Timer.After(5, AutoDump) end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         if C_Timer and C_Timer.After then C_Timer.After(3, AutoDump) end
@@ -520,6 +541,10 @@ diag:SetScript("OnEvent", function(_, event, ...)
     local parts = {}
     for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
     local ln = event .. ": " .. table.concat(parts, ", ")
-    print("[PalDump] " .. ln)
+    local stack = (debugstack and debugstack(3, 6, 6) or ""):gsub("%s+$", "")
+    -- 3 повтора, чтобы строку НЕЛЬЗЯ было пропустить в скролле чата
+    for _ = 1, 3 do print("[PalDump] " .. ln) end
+    if stack ~= "" then print("[PalDump] стек вызова:\n" .. stack) end
     addLine("=== TAINT " .. ln .. " ===", nil)
+    if stack ~= "" then addLine("=== STACK " .. stack:gsub("\n", " >> ") .. " ===", nil) end
 end)
