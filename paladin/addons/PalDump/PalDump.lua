@@ -1,3 +1,9 @@
+-- PalDump v4.7 (25.09.2026): ГЛАВНОЕ. В клиенте подписка на COMBAT_LOG_EVENT_UNFILTERED
+--    — запрещённое действие (тест T15 дал попап; T8/T16/T17/T18 — чисто). Поэтому:
+--    1) CLEU ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН (попап при входе исчез!) — вкл: /paldumplog cleu on.
+--    2) Лог пересажен на РАЗРЕШЁННЫЕ события: UNIT_AURA (ауры/бафы/циклы),
+--       UNIT_SPELLCAST_SUCCEEDED (касты), COMBAT_TEXT_UPDATE (урон/хилы).
+--    3) Детектор цикла «!!! ЦИКЛ?» работает и без CLEU (общий TrackAuraBurst).
 -- PalDump v4.6 (25.09.2026): pcall-броня — ВСЕ обработчики (события, AutoDump,
 --    /paldump, snap) обёрнуты: если клиент блокирует вызов с Lua-ошибкой,
 --    вместо попапа будет строка «[PalDump] ... ОШИБКА: ...» в чате.
@@ -49,7 +55,7 @@
 ---------------------------------------------------------------------
 PalDumpDB = PalDumpDB or {}
 PalDumpDB.specs = PalDumpDB.specs or {}
-PalDumpDB.cfg   = PalDumpDB.cfg   or { log = true, dmg = false }
+PalDumpDB.cfg   = PalDumpDB.cfg   or { log = true, dmg = false, auto = false, cleu = false }
 PalDumpDB.log   = PalDumpDB.log   or {}
 
 local MAX_LOG = 8000          -- кольцевой буфер строк
@@ -101,45 +107,50 @@ local AURA_EV = {
     SPELL_AURA_BROKEN_SPELL  = true,
 }
 
+-- Детектор цикла аур (баг храмовника: бафы обновляются каждые 1-2 сек вне боя).
+-- Общий для CLEU и UNIT_AURA (v4.7).
+local function TrackAuraBurst(spellId, spellName)
+    local t = GetTime()
+    local lst = auraTrack[spellId]
+    if not lst then lst = {}; auraTrack[spellId] = lst end
+    lst[#lst + 1] = t
+    while lst[1] and lst[1] < t - AURA_WINDOW do table.remove(lst, 1) end
+    local n = #lst
+    if n >= AURA_BURST and (n == AURA_BURST or (n - AURA_BURST) % 20 == 0) then
+        local ln = string.format("!!! ЦИКЛ? [%d] %s — %d наложений за %dс", spellId or 0, tostring(spellName or "?"), n, AURA_WINDOW)
+        addLine(ln, nil)
+        print("[PalLog] " .. ln)
+    end
+    stormRing[#stormRing + 1] = { t = t, id = spellId, name = spellName }
+    stormNames[spellId] = spellName
+    while stormRing[1] and stormRing[1].t < t - STORM_WINDOW do table.remove(stormRing, 1) end
+    if #stormRing >= STORM_BURST and t - lastStormMark > 30 then
+        local counts, order = {}, {}
+        for _, e in ipairs(stormRing) do
+            if not counts[e.id] then order[#order + 1] = e.id; counts[e.id] = 0 end
+            counts[e.id] = counts[e.id] + 1
+        end
+        local parts = {}
+        for _, id in ipairs(order) do
+            parts[#parts + 1] = string.format("[%d]%s x%d", id or 0, tostring(stormNames[id] or "?"), counts[id])
+        end
+        local ln = string.format("!!! АУРА-ШТОРМ: %d аура-событий за %dс: %s", #stormRing, STORM_WINDOW, table.concat(parts, ", "))
+        addLine(ln, nil)
+        print("[PalLog] " .. ln)
+        lastStormMark = t
+    end
+end
+
 local function OnCLEU()
     if not PalDumpDB.cfg.log then return end
     local petG = UnitGUID("pet")
     local _, ev, _, sGUID, sName, _, _, dGUID, dName, _, _, spellId, spellName, _, a1, a2, a3, a4, a5, a6, a7 = CombatLogGetCurrentEventInfo()
     if not ev then return end
 
-    -- ЛОВЛЯ ЦИКЛА АУР (баг храмовника: бафы обновляются каждые 1-2 сек вне боя)
     local isPlayerAuraLoopEvent = dGUID == playerGUID and
         (ev == "SPELL_AURA_APPLIED" or ev == "SPELL_AURA_APPLIED_DOSE" or ev == "SPELL_AURA_REFRESH")
     if isPlayerAuraLoopEvent then
-        local t = GetTime()
-        local lst = auraTrack[spellId]
-        if not lst then lst = {}; auraTrack[spellId] = lst end
-        lst[#lst + 1] = t
-        while lst[1] and lst[1] < t - AURA_WINDOW do table.remove(lst, 1) end
-        local n = #lst
-        if n >= AURA_BURST and (n == AURA_BURST or (n - AURA_BURST) % 20 == 0) then
-            local ln = string.format("!!! ЦИКЛ? [%d] %s — %d наложений за %dс", spellId or 0, tostring(spellName or "?"), n, AURA_WINDOW)
-            addLine(ln, nil)
-            print("[PalLog] " .. ln)
-        end
-        stormRing[#stormRing + 1] = { t = t, id = spellId, name = spellName }
-        stormNames[spellId] = spellName
-        while stormRing[1] and stormRing[1].t < t - STORM_WINDOW do table.remove(stormRing, 1) end
-        if #stormRing >= STORM_BURST and t - lastStormMark > 30 then
-            local counts, order = {}, {}
-            for _, e in ipairs(stormRing) do
-                if not counts[e.id] then order[#order + 1] = e.id; counts[e.id] = 0 end
-                counts[e.id] = counts[e.id] + 1
-            end
-            local parts = {}
-            for _, id in ipairs(order) do
-                parts[#parts + 1] = string.format("[%d]%s x%d", id or 0, tostring(stormNames[id] or "?"), counts[id])
-            end
-            local ln = string.format("!!! АУРА-ШТОРМ: %d аура-событий за %dс: %s", #stormRing, STORM_WINDOW, table.concat(parts, ", "))
-            addLine(ln, nil)
-            print("[PalLog] " .. ln)
-            lastStormMark = t
-        end
+        TrackAuraBurst(spellId, spellName)
     end
 
     local petS = petG and sGUID == petG
@@ -227,6 +238,81 @@ local function EachAura(unit, filter, cb)
     end
 end
 
+---------------------------------------------------------------------
+-- v4.7: ЛОГ ЧЕРЕЗ РАЗРЕШЁННЫЕ СОБЫТИЯ (CLEU в этом клиенте запрещён)
+---------------------------------------------------------------------
+local auraCache = {} -- [unit] = { ["H".."378412"] = {id=, name=, n=, exp=} }
+
+local function SpellName(id)
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok, r = pcall(C_Spell.GetSpellInfo, id)
+        if ok and r then
+            if type(r) == "table" then return r.name end
+            return r
+        end
+    end
+    if GetSpellInfo then
+        local ok, n = pcall(GetSpellInfo, id)
+        if ok then return n end
+    end
+    return nil
+end
+
+local function SnapAuras(unit)
+    local now = {}
+    for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
+        EachAura(unit, filter, function(name, id, stacks, exp)
+            if id then
+                now[filter:sub(1, 1) .. id] = { id = id, name = name, n = stacks or 1, exp = exp or 0 }
+            end
+        end)
+    end
+    return now
+end
+
+local function OnUnitAura(unit)
+    if not unit or not PalDumpDB.cfg.log then return end
+    if not (unit == "player" or unit == "pet" or unit == "target" or unit == "focus"
+        or unit:match("^party%d$") or unit:match("^raid%d$")) then return end
+    local now = SnapAuras(unit)
+    local prev = auraCache[unit]
+    auraCache[unit] = now
+    if not prev then return end -- первый снап юнита — база без дельты
+    local tag = unit == "player" and "Я" or (unit == "pet" and "ПИТ" or unit)
+    for k, v in pairs(now) do
+        local p = prev[k]
+        if not p then
+            addLine(fmt("AURA_APPLIED", v.id, v.name, tag, "", (v.n or 1) > 1 and (" x" .. v.n) or ""), nil)
+            if unit == "player" then TrackAuraBurst(v.id, v.name) end
+        elseif p.n ~= v.n then
+            addLine(fmt("AURA_DOSE", v.id, v.name, tag, "", " стаков:" .. tostring(v.n)), nil)
+            if unit == "player" then TrackAuraBurst(v.id, v.name) end
+        elseif p.exp ~= v.exp then
+            addLine(fmt("AURA_REFRESH", v.id, v.name, tag, "", " обновлён"), nil)
+            if unit == "player" then TrackAuraBurst(v.id, v.name) end
+        end
+    end
+    for k, p in pairs(prev) do
+        if not now[k] then
+            addLine(fmt("AURA_REMOVED", p.id, p.name, tag, "", ""), nil)
+        end
+    end
+end
+
+local function OnCastOk(unit, spellID)
+    if unit ~= "player" and unit ~= "target" and unit ~= "focus" then return end
+    if not PalDumpDB.cfg.log then return end
+    local who = unit == "player" and "Я" or unit
+    addLine(fmt("SPELL_CAST_SUCCEEDED", spellID, SpellName(spellID) or "?", who, ""), "C" .. tostring(spellID) .. unit)
+end
+
+local function OnCombatText(t, a2, a3)
+    if not PalDumpDB.cfg.log then return end
+    local what = tostring(t or "?")
+    if what ~= "HEAL" and what ~= "DAMAGE" and what ~= "DAMAGE_SHIELD" and what ~= "ENERGIZE" then return end
+    addLine(fmt("CT_" .. what, 0, "", "Я", "", " " .. tostring(a2 or "") .. " " .. tostring(a3 or "")), nil)
+end
+
 local function Snapshot()
     local t = GetTime()
     local function dump(unit, filter, label)
@@ -252,6 +338,8 @@ local function Snapshot()
         tn = tn + dump("target", "HARMFUL", "цель-дебаф")
     end
     addLine(string.format("=== СНИМОК: у меня бафов %d, дебафов %d, на цели аур %d ===", b, d, tn), nil)
+    auraCache["player"] = SnapAuras("player")
+    if UnitExists("target") then auraCache["target"] = SnapAuras("target") end
     print(("[PalLog] Снимок записан: у меня %d бафов / %d дебафов, на цели %d аур"):format(b, d, tn))
 end
 
@@ -337,12 +425,21 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
         AutoDump(true)
     elseif msg == "diag on" or msg == "diag off" then
         DiagSet(msg == "diag on")
+    elseif msg == "cleu on" or msg == "cleu off" then
+        PalDumpDB.cfg.cleu = (msg == "cleu on")
+        if PalDumpDB.cfg.cleu then
+            PalDumpMainFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+            print("[PalLog] CLEU: ВКЛ — при следующем боевом событии возможен попап, жми «Пропустить»")
+        else
+            PalDumpMainFrame:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+            print("[PalLog] CLEU: ВЫКЛ (лог работает через UNIT_AURA/UNIT_SPELLCAST)")
+        end
     elseif msg == "clear" then
         PalDumpDB.log = {}
         lastKey, lastN = nil, 0
         print("[PalLog] Лог очищен")
     else
-        print("Использование: /paldumplog [on|off|snap|show N|export N|dump|auto on|diag on|dmg on|clear]")
+        print("Использование: /paldumplog [on|off|snap|show N|export N|dump|auto on|diag on|cleu on|dmg on|clear]")
     end
 end
 
@@ -515,21 +612,36 @@ function AutoDump(force)
     if not okd then print("[PalDump] авто-дамп ОШИБКА: " .. tostring(errd)) end
 end
 
-local f = CreateFrame("Frame")
-f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-f:RegisterEvent("PLAYER_ENTER_WORLD")
-f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-f:RegisterEvent("PLAYER_REGEN_DISABLED")
-f:RegisterEvent("PLAYER_REGEN_ENABLED")
-f:RegisterEvent("PLAYER_LOGOUT")
-f:SetScript("OnEvent", function(_, event)
+PalDumpMainFrame = CreateFrame("Frame", "PalDumpMainFrame")
+PalDumpMainFrame:RegisterEvent("PLAYER_ENTER_WORLD")
+PalDumpMainFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+PalDumpMainFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+PalDumpMainFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+PalDumpMainFrame:RegisterEvent("PLAYER_LOGOUT")
+-- v4.7: разрешённые события (T16-T18 подтверждены — БЕЗ попапа)
+pcall(PalDumpMainFrame.RegisterEvent, PalDumpMainFrame, "UNIT_AURA")
+pcall(PalDumpMainFrame.RegisterEvent, PalDumpMainFrame, "UNIT_SPELLCAST_SUCCEEDED")
+pcall(PalDumpMainFrame.RegisterEvent, PalDumpMainFrame, "COMBAT_TEXT_UPDATE")
+-- CLEU в этом клиенте = ЗАПРЕЩЁННОЕ действие (попап при входе) — только по флагу:
+if PalDumpDB.cfg.cleu == true then
+    PalDumpMainFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+end
+PalDumpMainFrame:SetScript("OnEvent", function(_, event, ...)
+    local a1, a2, a3 = ...
     local ok, err = pcall(function()
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         OnCLEU()
+    elseif event == "UNIT_AURA" then
+        OnUnitAura(a1)
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        OnCastOk(a1, a3)
+    elseif event == "COMBAT_TEXT_UPDATE" then
+        OnCombatText(a1, a2, a3)
     elseif event == "PLAYER_ENTER_WORLD" then
         playerGUID = UnitGUID("player")
         summoned = {}
         auraTrack, stormRing, stormNames = {}, {}, {}
+        auraCache = {}
         startTime = GetTime()
         local _, build = GetBuildInfo()
         -- ужимаем лог, если накопился за много сессий
@@ -544,7 +656,11 @@ f:SetScript("OnEvent", function(_, event)
         if PalDumpDB.cfg.auto ~= true then
             print("[PalLog] Авто-дамп выключен (ловим попап): /paldumplog dump — вручную | /paldumplog auto on — на входе")
         end
-        if C_Timer and C_Timer.After then C_Timer.After(5, AutoDump) end
+        if C_Timer and C_Timer.After then
+            C_Timer.After(5, AutoDump)
+            -- база для дельт аур: снап через 3 с (данные к этому моменту загружены)
+            C_Timer.After(3, function() auraCache["player"] = SnapAuras("player") end)
+        end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         if C_Timer and C_Timer.After then C_Timer.After(3, AutoDump) end
     elseif event == "PLAYER_REGEN_DISABLED" then
