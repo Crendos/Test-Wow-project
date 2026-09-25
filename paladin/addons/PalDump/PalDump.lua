@@ -1,3 +1,8 @@
+-- PalDump v4.1 (24.09.2026): убран автосейв pcall(SaveVariables) — в клиенте 12.x
+--    запись SavedVariables принудительно запрещена, и вызов давал в игре попап
+--    «Модификация Paldump заблокирована при попытке выполнять действие, доступное
+--    только интерфейсу Blizzard». Лог копится в памяти, на диск попадает при
+--    /reload и при выходе из игры. Попап остался? Смотри [PalDump] в чате ниже.
 -- PalDump v3: два инструмента в одном.
 -- 1) /paldump — выгрузка ID способностей (книга заклинаний) и талантов.
 --    КАЖДАЯ специализация сохраняется ОТДЕЛЬНО и НЕ затирает предыдущие:
@@ -5,7 +10,7 @@
 -- 2) /paldumplog — БОЕВОЙ ЛОГ: что я кастанул, какие бафы/дебафы получили/потеряли
 --    я, пит и цели, хилы/энергайзы по мне, суммоны. Пишется в тот же файл:
 --    WTF\Account\<аккаунт>\SavedVariables\PalDump.lua (таблица PalDumpDB.log)
---    Лог автосохраняется каждые ~400 событий и при входе/выходе из боя.
+--    На диск при /reload и при выходе из игры (см. v4.1 выше).
 --    Команды:
 --      /paldumplog          — вкл/выкл лог
 --      /paldumplog snap     — мгновенный снимок всех аур (я + цель)
@@ -23,12 +28,10 @@ PalDumpDB.cfg   = PalDumpDB.cfg   or { log = true, dmg = false }
 PalDumpDB.log   = PalDumpDB.log   or {}
 
 local MAX_LOG = 8000          -- кольцевой буфер строк
-local FLUSH_EVERY = 50        -- автосейв каждые N событий (форензика краша)
 
 local playerGUID = nil
 local summoned = {}           -- GUID питомцев/стражей из SPELL_SUMMON
 local startTime = GetTime()
-local evCount = 0
 local lastKey, lastN = nil, 0
 
 -- детектор циклов аур (см. OnCLEU): окно/пороги
@@ -48,11 +51,6 @@ local function fmt(ev, id, name, src, dst, extra)
         nowStr(), ev, tostring(name or "?"), id or 0, tostring(src or "?"), tostring(dst or "?"), extra or "")
 end
 
-local function flush()
-    evCount = 0
-    pcall(SaveVariables)
-end
-
 local function addLine(line, key)
     local L = PalDumpDB.log
     if key and key == lastKey and L[#L] then
@@ -63,8 +61,6 @@ local function addLine(line, key)
         L[#L + 1] = line
         if #L > MAX_LOG then table.remove(L, 1) end
     end
-    evCount = evCount + 1
-    if evCount >= FLUSH_EVERY then flush() end
 end
 
 ---------------------------------------------------------------------
@@ -233,7 +229,6 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
         addLine(v and "=== ЛОГ ВКЛЮЧЁН ===" or "=== ЛОГ ВЫКЛЮЧЕН ===", nil)
         print("[PalLog] Боевой лог: " .. (v and "ВКЛЮЧЁН (касты, бафы/дебафы, хилы по мне, суммоны)" or "ВЫКЛЮЧЕН"))
         print("[PalLog] /paldumplog snap — снимок аур | /paldumplog show 30 | /paldumplog dmg on — писать урон | /paldumplog clear")
-        flush()
     elseif msg == "snap" then
         Snapshot()
     elseif msg:match("^show") then
@@ -247,7 +242,7 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
         print("[PalLog] Писать урон: " .. (PalDumpDB.cfg.dmg and "ВКЛ (лог будет расти быстро)" or "ВЫКЛ"))
     elseif msg == "clear" then
         PalDumpDB.log = {}
-        lastKey, lastN, evCount = nil, 0, 0
+        lastKey, lastN = nil, 0
         print("[PalLog] Лог очищен")
     else
         print("Использование: /paldumplog [on|off|snap|show N|dmg on|dmg off|clear]")
@@ -396,7 +391,6 @@ SlashCmdList["PALDUMP"] = function()
     print("[PalDump] уже в файле: " .. table.concat(list, ", "))
     print("[PalDump] введите /reload, затем при желании переключите другую спеку и повторите /paldump")
     print('  финальный файл: WTF\\Account\\<имя аккаунта>\\SavedVariables\\PalDump.lua')
-    flush()
 end
 
 -- АВТО-ДАМП: книга + таланты текущей спеки пишутся в файл сами при входе
@@ -414,7 +408,6 @@ local function AutoDump()
         tostring(specName), tostring(specID), #book, skipped, #tal), nil)
     print(("[PalDump] авто-дамп: %s (%s): способностей %d, талантов %d — сохранено")
         :format(tostring(specName), tostring(specID), #book, #tal))
-    flush()
 end
 
 local f = CreateFrame("Frame")
@@ -446,18 +439,20 @@ f:SetScript("OnEvent", function(_, event)
         if C_Timer and C_Timer.After then C_Timer.After(3, AutoDump) end
     elseif event == "PLAYER_REGEN_DISABLED" then
         if PalDumpDB.cfg.log then addLine("=== ВСТУПИЛ В БОЙ ===", nil) end
-        flush()
     elseif event == "PLAYER_REGEN_ENABLED" then
         if PalDumpDB.cfg.log then addLine("=== ВЫШЕЛ ИЗ БОЯ ===", nil) end
-        flush()
     elseif event == "PLAYER_LOGOUT" then
         addLine("=== ВЫХОД ===", nil)
     end
 end)
--- страховка для форензики: пишем на диск каждые 10 секунд, пока лог включён,
--- чтобы после краша сервера в файле были последние секунды боя
-if C_Timer and C_Timer.NewTicker then
-    C_Timer.NewTicker(10, function()
-        if PalDumpDB.cfg.log and evCount > 0 then flush() end
-    end)
-end
+-- ДИАГНОСТИКА TAINT (v4.1): если всплывает попап «Модификация Paldump
+-- заблокирована…», печатаем в чат событие, аддон и функцию — так видно, что
+-- именно блокируется (если это не PalDump — покажет имя настоящего виновника).
+local diag = CreateFrame("Frame")
+diag:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+diag:RegisterEvent("ADDON_ACTION_BLOCKED")
+diag:SetScript("OnEvent", function(_, event, ...)
+    local parts = {}
+    for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+    print("[PalDump] " .. event .. ": " .. table.concat(parts, ", "))
+end)

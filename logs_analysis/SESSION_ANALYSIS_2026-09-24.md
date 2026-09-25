@@ -49,13 +49,14 @@
 
 ## 2. `logs_analysis/` — что в логах
 
-### 2.1 Три краш-дампа worldserver (все ACCESS_VIOLATION C0000005)
+### 2.1 Четыре краш-дампа worldserver (все ACCESS_VIOLATION C0000005)
 
 | # | Время | Файл | Реальная причина по стеку |
 |---|---|---|---|
 | 1 | 23.09 22:47 | `…[2026_9_23_22_47_37].txt` | **AreaTrigger::Create → IsServerSide** (AreaTrigger.cpp:205 ← SpellEffects.cpp:5424 EffectCreateAreaTrigger). Это путь создания AT — тот же класс, что спам «Invalid areatrigger create properties id» (37932). Дамп RelWithDebInfo. |
 | 2 | 23.09 23:48 | `…[2026_9_23_23_48_12].txt` | Стек с **фантомными кадрами** (идентичны #3 байт-в-байт: fault +68D297, RBX=0x1734F). Кадры `spell_pal_t8_2p_bonus::Validate` / шаманы / rogue cheat_death — unwind мусор. В ядре нет причины валидироваться по требованию. |
 | 3 | 24.09 00:40 | `…[2026_9_24_0_40_19].txt` | Дубль #2 (те же смещения). Сборка **с** фикс-раундом (0cf59ff): в Server.log **нет** mismatch 427453 → OnHit-ребиндинг помог. Цикл бафов 1–2с **не в наших партиях** (был и до правок — юзер). |
+| 4 | 24.09 21:48 | `…[2026_9_24_21_48_23].txt` | **3-й дубль #2/#3**: fault `worldserver+0x68D297`, RBX=0x1734F, RAX=RCX=R8=0, R9=1 (байт-в-байт). Frame0 = `spell_warl_roaring_blaze::Register+57` / inline `SpellScript::EffectHandler::{ctor}` — см. §4.1. Available RAM 910 МБ (худший). |
 
 **Вывод по крашам #2/#3:** не паладин-скрипты виноваты (кадры т8/других классов = phantom stack). Основной реальный краш #1 — создание AT без валидных пропсов; закрывается заглушкой 37932 + отключением прока 432929.
 
@@ -104,6 +105,7 @@
 3. ✅ Авангард 23%, ICD Спасенного 10с, спендер-продление молота +0.5с/ОС (ретейл 12.0) — в коде пар.7/9.
 4. ✅ Заглушка AT 37932 готова (схема 27 колонок под a96d8977; Q4 пуст — конфликта нет).
 5. ✅ Краш #1 локализован в пути EffectCreateAreaTrigger; #2/#3 — фантомные стеки, не наши скрипты.
+6. ✅ Taint-попап PalDump — источник `pcall(SaveVariables)` убран, v4.1 + диагностический логгер (24.09 вечер); правило записи по крашу — INSTALL §Шаг 4.
 
 ### Открыто (блокеры следующего шага)
 1. ⏳ **PalDump v4**: юзер не прислал боевой лог — нужен `PalDump.lua` после цикла (маркеры «!!! ЦИКЛ?») и `/paldump` по каждой спеке.
@@ -118,6 +120,71 @@
 3. Пересобрать scripts+worldserver → рестарт → `findstr /i "ProcFlags" DBErrors.log` (строка об 432929 обязательна).
 4. В игре 30–60с храмовником: бафы молота не прыгают, AT 37932 не спамится.
 5. Прислать: `PalDump.lua` (после боя с циклом, если остался) + заполненные ID из `NEEDED_IDS_12x.md`.
+
+## 4. Вечернее обновление 24.09.2026: краш #4, новый Server.log, фикс taint PalDump
+
+### 4.1 Краш #4 `[2026_9_24_21_48_23].txt` (3,4 МБ, коммит `0c5b5f18` → наш `2557491`)
+
+| Поле | Значение |
+|---|---|
+| Исключение | C0000005, RIP = `worldserver+0x68D297` — **тот же RVA, что в #2 и #3** |
+| Регистры | RBX=0x1734F, RAX=RCX=R8=0, R9=1 — сигнатура байт-в-байт = #2/#3 |
+| Frame0 (надёжный) | `spell_warl_roaring_blaze::Register+57`, инлайн `SpellScript::EffectHandler::{ctor}+3F` (spell_warlock.cpp:1093, SpellScript.h:399) — код **загрузки** скриптов |
+| Frames 1+ | фантомные: RBP усечён до 32 бит (0x398FE440 при стеке 0x000000A6398FE340) — та же поломка unwind, что в #3 |
+| Available RAM | **910 756 КБ (0,9 ГБ)** — худший из 4 замеров (1,5 → 1,3 → 11,3 → 0,9); в соседних потоках `std::bad_alloc` (строки 123/148) |
+
+Выводы:
+- Сигнатура = детерминированный null-дeref (один RVA + одни регистры в #2/#3/#4). **Не OOM**: #3 упал при 11,3 ГБ свободных с тем же битом. Проблема 12 ГБ — параллельная, за ней `paladin/windows/memwatch.ps1`.
+- Противоречие frame0: `Register()` выполняется только при старте сервера, а падение после входа игрока → вероятна мисатрибуция PDB (LTCG/ICF) либо испорченный unwind. Настоящее имя функции по RVA `+0x68D297` назовёт только WinDbg с **настоящим** `worldserver.pdb` юзера (в репо — LFS-заглушка): открыть `.dmp` → `!analyze -v`, при необходимости `u worldserver+68d297 L20`.
+- Спама AT 37932 в сессии #4 уже нет (см. §4.2) → фиксы заглушки/432929 и этот краш не связаны.
+
+### 4.2 Новый `Server.log` (960 строк, 1 сессия; старый лог — в git @ `c909007`)
+
+- маркерные строки: баннер — 1, `World initialized in 2 minutes 26 seconds` — 890, `ready...` — 892; после ready ~68 строк опкодов → краш #4 через секунды/минуты после входа.
+- **AT-37932 = 0**, `Invalid areatrigger` = 0 → заглушка `areatrigger_37932_stub.sql` подтверждена (в старом логе — спам 14× подряд).
+- `did not match` = **170**; `does not exist` = **67**; Hotfix-упоминаний = 2.
+- MoveSpline `_checkPathLengths()` = **7**: креатуры 3296 (×4), 149671 (×2), 14377 (×1) — битые пути кастом-контента (не паладины).
+- `Player::AddSpell 205656` = 2, `371571` = 2 (оба логина, кастом-пак — прежнее); quest criteria cleanup = 4.
+- **spell_pal «did not match» = ровно 10** (IDs→скрипты→хуки):
+  - `54149` EFFECT_0 AuraName → `spell_pal_imbued_infusions_ex` → `AfterEffectRemove`
+  - `114871` EFFECT_2 Target:8 → `spell_pal_holy_prism_selector` → `OnObjectAreaTargetSelect`
+  - `156910` EFFECT_0 SPELL_EFFECT_3 → `spell_pal_beacon_of_faith_ex` → `OnEffectHitTarget`
+  - `200025` ×3 → `spell_pal_beacon_of_virtue_ex`: E0/E1 SPELL_EFFECT_3 → `OnEffectHitTarget`; E1 Target:30 → `OnObjectAreaTargetSelect`
+  - `204074` ×2 → `spell_pal_righteous_protector` → `DoCheckEffectProc` + `OnEffectProc` (AuraName SPELL_AURA_4)
+  - `410530` ×2 → `spell_pal_t30_2p_protection_bonus_heal` → та же пара хуков
+  - 427453/hammer_of_light не было и раньше (партия 7 ок). Всё = backlog сверки effect-индексов с клиентом 69497 (очередь после партии 11), не регрессия.
+
+### 4.3 PalDump: taint-попап «Модификация Paldump заблокирована…» — фикс v4.1
+
+- **Причина**: `pcall(SaveVariables)` в `flush()` (строка 53) + тикер `C_Timer.NewTicker(10,…)` + автосейв каждые 50 событий — вызов срабатывал на каждом входе/выходе из боя, слэш-командах и каждые 10с. `SaveVariables` в API-доках отсутствует (оба вики: поиск по сайту — 123 хита, ни одной страницы API; форумы: программно сохранить нельзя), в клиенте 12.x вызов запрещён и даёт попап. `pcall` taint-попап не отменяет.
+- **Фикс** (`paladin/addons/PalDump/PalDump.lua` → v4.1): удалены `pcall(SaveVariables)`, `flush()`, `evCount`/`FLUSH_EVERY`, 10-секундный тикер; шапка и комментарии переписаны; добавлен логгер `ADDON_ACTION_FORBIDDEN`/`ADDON_ACTION_BLOCKED` → печатает `[PalDump] <event>: <аддон>, <функция>` — назовёт настоящего виновника, если попап останется.
+- **Правило для форензики**: данные на диск попадают **только при `/reload` и при выходе из игры**. После краша сервера: не убивать клиент задачей → `/reload` (или штатный выход) → забрать файл.
+- **Процедура обновлена**: `INSTALL.md` §Шаг 4 (пункты 4–6), нумерация дублей исправлена.
+- Резервная диагностика, если попап повторится: `/taintlog 2` → выйти из игры (**логин-экран, не диспетчер задач**) → `Logs/taint.log`.
+
+## 5. Краш на «Благословенном молоте» (204019) — корневая причина найдена (25.09)
+
+Юзер (25.09): «Крашит сервер именно при использовании 204019. Бафы так же кидаються с любой способности. Может, проблема в ядре spell_paladin.cpp?»
+
+### 5.1 Причина — битые данные от нашей же партии 8 (не C++)
+
+- `paladin_class_fixes_8.sql` (первая версия): INSERT `areatrigger_create_properties` Id=6006 с **`AreaTriggerId=0`** (третья колонка SELECT).
+- Ядро (TC master `src/server/game/Globals/AreaTriggerDataStore.cpp:188–209`): `if (areaTriggerId.Id && !areaTriggerTemplate) continue;` — при `Id=0` проверка **пропускается**, `createProperties.Template = nullptr` грузится молча (без строки ошибки в DBErrors!).
+- Каст 204019 → эффект CREATE_AREA_TRIGGER(6006) → `AreaTrigger::Create`: `_areaTriggerTemplate = _areaTriggerCreateProperties->Template` = **NULL** → далее `if (IsServerSide())` (`AreaTrigger.h:111` = `_areaTriggerTemplate->Flags.HasFlag(...)`) → **NULL-deref**.
+- **Доказательство 1:1** — дамп #1 (23.09 22:47): `AreaTrigger::IsServerSide+7 (AreaTrigger.h:111) ← AreaTrigger::Create+6F5 (AreaTrigger.cpp:205) ← CreateAreaTrigger+AF (cpp:349)`. Комментарий в `areatrigger_37932_stub.sql` уже предупреждал: «с AreaTriggerId=0 будет Template=nullptr — класс краша 6006/204019».
+- Stock `spell_paladin.cpp` (master, 1982 строки): grep `blessed|204019|6006` — **пусто**, скрипта BH в ядре нет. Наш `spell_pal_blessed_hammer_ex` (партия 3) виноват тоже: он лишь early-return при наличии properties + фолбэк-AoE при отсутствии. Ответ на вопрос юзера: **нет, не spell_paladin.cpp — данные**.
+- **Баг №2 того же файла**: 49 INSERT-ов сплайн-точек имели guard `WHERE NOT EXISTS (SELECT ... FROM areatrigger_create_properties ...)` — после INSERT properties строка уже существует → точки **никогда не вставлялись** (проверено: guard-строк с `1.200000,0 WHERE NOT EXISTS` = 49, все битые).
+
+### 5.2 Дампы #2–#4 (+0x68D297, символ `spell_warl_roaring_blaze::Register+57`)
+
+- Юзер подтвердил триггер: краш **именно на касте 204019** → #2–#4 = та же причина.
+- Противоречие сохраняется: RIP по PDB = код Register (только на старте), а падение в рантайме; RBX=0x1734F=95055 — мусорный `this` (дрейф от указателя). Вердикт: символ RIP для этих трёх дампов ненадёжен (stale PDB / ICF / косвенный переход по испорченному указателю в код-регионы скриптов), NULL-deref в Create — надёжная интерпретация (чистая символизация в #1 + подтверждённый репро). Ретест после фикса данных; при повторе — WinDbg `!analyze -v` по новому .dmp с настоящим pdb.
+
+### 5.3 Исправления (25.09, этот раунд)
+
+- `paladin_class_fixes_8.sql`: `AreaTriggerId` 0→6006 (INSERT), самоисцеляющийся `UPDATE ... WHERE AreaTriggerId<>6006`, guard сплайнов переведён на таблицу `areatrigger_create_properties_spline_point` (49 шт.), пометка в шапке. Файл идемпотентен — повторный запуск чинит старую базу.
+- `INSTALL.md` §10: инструкция (повторный запуск `_8.sql` → 2 SELECT-проверки → рестарт → критерии DBErrors → ретест; при повторе краша — новый .dmp).
+- «Бафы кидаются с любой способности» — отдельный поток (прок-цикл), ждём PalDump-лог.
 
 ---
 *Файл создан для продолжения работы после закрытия прошлой сессии. Источники: PALADIN_AUDIT.md, logs_analysis/README.md, INSTALL.md, дампы/логи этой папки.*
