@@ -12,6 +12,9 @@
 -- ПРАВКА 25.09.2026: первая версия вставляла AreaTriggerId=0 (→ Template=nullptr →
 -- КРАШ при первом касте 204019) и не дописывала сплайн-точки (ошибка в WHERE NOT EXISTS).
 -- Файл обновлён и САМОИСЦЕЛЯЕТСЯ: повторный запуск чинит уже испорченную базу.
+-- ПРАВКА 25.09.2026 №2: форма была Polygon (Shape=3), но вершины полигона
+-- (таблица areatrigger_create_properties_polygon_vertex) не заданы → поиск целей
+-- пуст → «крутится, но урон/дебафф 204301 не применяются». Теперь ДИСК (Shape=7).
 
 -- 0) ШАБЛОН AT — ОБЯЗАТЕЛЕН: без строки в areatrigger_template ядро (master 2026+)
 -- хранит Template=NULL и ПАДАЕТ (ACCESS_VIOLATION в AreaTrigger::IsServerSide)
@@ -22,13 +25,13 @@ REPLACE INTO `areatrigger_template` (`Id`,`IsCustom`,`Flags`,`ActionSetId`,`Acti
 -- 1) Привязать AI-скрипт к существующей строке (если TDB её содержит)
 UPDATE `areatrigger_create_properties` SET `ScriptName`='at_pal_blessed_hammer' WHERE `Id`=6006 AND `IsCustom`=0;
 
--- 2) Если строки нет — создать (диск r=2, сплайн-спираль, 2.5 c на проход)
+-- 2) Если строки нет — создать (диск r=2.5, высота 5, сплайн-спираль, 2.5 с на проход)
 INSERT INTO `areatrigger_create_properties`
   (`Id`,`IsCustom`,`AreaTriggerId`,`IsAreatriggerCustom`,`Flags`,`MoveCurveId`,`ScaleCurveId`,`MorphCurveId`,`FacingCurveId`,
    `AnimId`,`AnimKitId`,`DecalPropertiesId`,`SpellForVisuals`,`TimeToTargetScale`,`Speed`,`SpeedIsTime`,
    `Shape`,`ShapeData0`,`ShapeData1`,`ShapeData2`,`ShapeData3`,`ShapeData4`,`ShapeData5`,`ShapeData6`,`ShapeData7`,
    `ScriptName`,`VerifiedBuild`)
-SELECT 6006,0,6006,0,0,0,0,0,0,-1,0,0,NULL,0,2.5,1,3,0,0,2.0,0,6,0,0,0,'at_pal_blessed_hammer',0
+SELECT 6006,0,6006,0,0,0,0,0,0,-1,0,0,NULL,0,2.5,1,7,0,0,2.5,2.5,5,5,-2,-2,'at_pal_blessed_hammer',0
 WHERE NOT EXISTS (SELECT 1 FROM `areatrigger_create_properties` WHERE `Id`=6006 AND `IsCustom`=0);
 
 -- 2а) САМОИСЦЕЛЕНИЕ (25.09.2026): чинит уже вставленную старой версией файла битую
@@ -37,6 +40,16 @@ WHERE NOT EXISTS (SELECT 1 FROM `areatrigger_create_properties` WHERE `Id`=6006 
 UPDATE `areatrigger_create_properties`
 SET `AreaTriggerId`=6006, `IsAreatriggerCustom`=0
 WHERE `Id`=6006 AND `IsCustom`=0 AND `AreaTriggerId`<>6006;
+
+-- 2б) САМОИСЦЕЛЕНИЕ №2 (25.09.2026): форма Polygon без вершин (поиск целей пуст —
+--     молот летит «вхолостую»). Переводим на ДИСК: r=2.5, высота 5,
+--     z-диапазон от -2 до +3 относительно точки молота. Идемпотентно.
+UPDATE `areatrigger_create_properties`
+SET `Shape`=7, `ShapeData0`=0, `ShapeData1`=0, `ShapeData2`=2.5, `ShapeData3`=2.5,
+    `ShapeData4`=5, `ShapeData5`=5, `ShapeData6`=-2, `ShapeData7`=-2
+WHERE `Id`=6006 AND `IsCustom`=0
+  AND (`Shape`<>7 OR `ShapeData0`<>0 OR `ShapeData1`<>0 OR `ShapeData2`<>2.5 OR `ShapeData3`<>2.5
+    OR `ShapeData4`<>5 OR `ShapeData5`<>5 OR `ShapeData6`<>-2 OR `ShapeData7`<>-2);
 
 -- 3) Точки спирали (только если строку создали мы, а не TDB)
 INSERT INTO `areatrigger_create_properties_spline_point` (`AreaTriggerCreatePropertiesId`,`IsCustom`,`Idx`,`X`,`Y`,`Z`,`VerifiedBuild`)
