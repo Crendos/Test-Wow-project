@@ -1,3 +1,10 @@
+-- PalDump v4.2 (25.09.2026): лог больше НЕ зависит от записи на диск.
+--    1) /paldumplog export [N] — выгружает последние N строк (по умолч. 100)
+--       ПРЯМО В ЧАТ: копируйте оттуда, файл не нужен.
+--    2) Маркеры «!!! ЦИКЛ?» и «!!! АУРА-ШТОРМ» печатаются в чат СРАЗУ (скриншот хватит).
+--    3) События ADDON_ACTION_* пишутся и в чат, и в лог (попадут в файл при /reload).
+--    Файл WTF\...\SavedVariables\PalDump.lua обновляется клиентом ТОЛЬКО при
+--    /reload или чистом выходе из игры (диспетчер задач = ничего не сохранится).
 -- PalDump v4.1 (24.09.2026): убран автосейв pcall(SaveVariables) — в клиенте 12.x
 --    запись SavedVariables принудительно запрещена, и вызов давал в игре попап
 --    «Модификация Paldump заблокирована при попытке выполнять действие, доступное
@@ -93,7 +100,9 @@ local function OnCLEU()
         while lst[1] and lst[1] < t - AURA_WINDOW do table.remove(lst, 1) end
         local n = #lst
         if n >= AURA_BURST and (n == AURA_BURST or (n - AURA_BURST) % 20 == 0) then
-            addLine(string.format("!!! ЦИКЛ? [%d] %s — %d наложений за %dс", spellId or 0, tostring(spellName or "?"), n, AURA_WINDOW), nil)
+            local ln = string.format("!!! ЦИКЛ? [%d] %s — %d наложений за %dс", spellId or 0, tostring(spellName or "?"), n, AURA_WINDOW)
+            addLine(ln, nil)
+            print("[PalLog] " .. ln)
         end
         stormRing[#stormRing + 1] = { t = t, id = spellId, name = spellName }
         stormNames[spellId] = spellName
@@ -108,7 +117,9 @@ local function OnCLEU()
             for _, id in ipairs(order) do
                 parts[#parts + 1] = string.format("[%d]%s x%d", id or 0, tostring(stormNames[id] or "?"), counts[id])
             end
-            addLine(string.format("!!! АУРА-ШТОРМ: %d аура-событий за %dс: %s", #stormRing, STORM_WINDOW, table.concat(parts, ", ")), nil)
+            local ln = string.format("!!! АУРА-ШТОРМ: %d аура-событий за %dс: %s", #stormRing, STORM_WINDOW, table.concat(parts, ", "))
+            addLine(ln, nil)
+            print("[PalLog] " .. ln)
             lastStormMark = t
         end
     end
@@ -228,7 +239,7 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
         PalDumpDB.cfg.log = v
         addLine(v and "=== ЛОГ ВКЛЮЧЁН ===" or "=== ЛОГ ВЫКЛЮЧЕН ===", nil)
         print("[PalLog] Боевой лог: " .. (v and "ВКЛЮЧЁН (касты, бафы/дебафы, хилы по мне, суммоны)" or "ВЫКЛЮЧЕН"))
-        print("[PalLog] /paldumplog snap — снимок аур | /paldumplog show 30 | /paldumplog dmg on — писать урон | /paldumplog clear")
+        print("[PalLog] /paldumplog snap — снимок аур | /paldumplog show 30 | /paldumplog export 200 — ВЫГРУЗКА В ЧАТ | /paldumplog clear")
     elseif msg == "snap" then
         Snapshot()
     elseif msg:match("^show") then
@@ -237,6 +248,13 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
         for i = math.max(1, #L - n + 1), #L do print("  " .. L[i]) end
         print(("[PalLog] показано %d из %d (весь файл: WTF\\Account\\<аккаунт>\\SavedVariables\\PalDump.lua)")
             :format(math.min(n, #L), #L))
+    elseif msg:match("^export") then
+        local n = tonumber(msg:match("export%s+(%d+)")) or 100
+        local L = PalDumpDB.log
+        local first = math.max(1, #L - n + 1)
+        print(("[PalLog] === ЭКСПОРТ строк %d..%d из %d — копируйте из чата ==="):format(first, #L, #L))
+        for i = first, #L do print(L[i]) end
+        print(("[PalLog] === конец экспорта (%d строк) ==="):format(#L - first + 1))
     elseif msg == "dmg on" or msg == "dmg off" then
         PalDumpDB.cfg.dmg = (msg == "dmg on")
         print("[PalLog] Писать урон: " .. (PalDumpDB.cfg.dmg and "ВКЛ (лог будет расти быстро)" or "ВЫКЛ"))
@@ -245,7 +263,7 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
         lastKey, lastN = nil, 0
         print("[PalLog] Лог очищен")
     else
-        print("Использование: /paldumplog [on|off|snap|show N|dmg on|dmg off|clear]")
+        print("Использование: /paldumplog [on|off|snap|show N|export N|dmg on|dmg off|clear]")
     end
 end
 
@@ -434,6 +452,7 @@ f:SetScript("OnEvent", function(_, event)
             PalDumpDB.log = keep
         end
         addLine(string.format("===== СЕССИЯ %s, клиент %s =====", date("%Y-%m-%d %H:%M:%S"), build or "?"), nil)
+        print(("[PalLog] Лог активен: /paldumplog export — выгрузка в чат, /paldumplog show 20 — последние строки (клиент %s)"):format(build or "?"))
         if C_Timer and C_Timer.After then C_Timer.After(5, AutoDump) end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         if C_Timer and C_Timer.After then C_Timer.After(3, AutoDump) end
@@ -443,6 +462,7 @@ f:SetScript("OnEvent", function(_, event)
         if PalDumpDB.cfg.log then addLine("=== ВЫШЕЛ ИЗ БОЯ ===", nil) end
     elseif event == "PLAYER_LOGOUT" then
         addLine("=== ВЫХОД ===", nil)
+        print(("[PalLog] Выход: лог %d строк — файл сохраняется"):format(#PalDumpDB.log))
     end
 end)
 -- ДИАГНОСТИКА TAINT (v4.1): если всплывает попап «Модификация Paldump
@@ -454,5 +474,7 @@ diag:RegisterEvent("ADDON_ACTION_BLOCKED")
 diag:SetScript("OnEvent", function(_, event, ...)
     local parts = {}
     for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
-    print("[PalDump] " .. event .. ": " .. table.concat(parts, ", "))
+    local ln = event .. ": " .. table.concat(parts, ", ")
+    print("[PalDump] " .. ln)
+    addLine("=== TAINT " .. ln .. " ===", nil)
 end)
