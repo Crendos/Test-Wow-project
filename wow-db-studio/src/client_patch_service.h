@@ -191,6 +191,9 @@ public:
     // Куда по умолчанию сохранять результат: рядом с исходником, с тем же
     // именем (клиент ищет Data относительно себя), суффикс не добавляем.
     static QString defaultOutputPath(const QString &exePath);
+    // Копия рядом с оригиналом: Wow.exe -> Wow.patched.exe (иначе не найдёт
+    // свои Data/WTF). Для режима «патч в копию, оригинал не трогать».
+    static QString copyOutputPath(const QString &exePath);
 
     // Диагностика: PE, секции, все известные сайты, Data, Config.wtf, версия.
     static WowInspect inspectExecutable(const QString &exePath);

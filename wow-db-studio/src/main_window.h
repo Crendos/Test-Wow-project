@@ -142,6 +142,7 @@ private:
               *wowKeysBe = nullptr, *wowBackup = nullptr, *wowVerify = nullptr,
               *wowFixChecksum = nullptr, *wowStripSig = nullptr, *wowLaunchAfter = nullptr,
               *wowLauncherReg = nullptr;
+    QCheckBox *wowPatchCopy = nullptr;     // патч в копию Wow.patched.exe (оригинал не трогать)
     QLabel *wowModeHint = nullptr;
     QTextEdit *wowLog = nullptr;
     QLabel *wowDataInfo = nullptr;
@@ -157,6 +158,9 @@ private:
     void wowApplyRecipe();
     void wowLaunchResult();
     void wowSetOutputLikeFirestorm();
+    // Куда писать по умолчанию: копия Wow.patched.exe, если включён чекбокс,
+    // иначе — поверх оригинала (Firestorm-стиль).
+    QString wowPreferredOutput(const QString &exe) const;
     void wowPickFile(QLineEdit *target, const QString &title, const QString &filter, bool saveMode);
     WowPatchOptions wowCollectOptions() const;
     // Тяжёлая операция в фоне: лог и ошибка возвращаются в UI-поток.

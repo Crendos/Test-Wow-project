@@ -2839,7 +2839,7 @@ void MainWindow::buildWowPatchTab(QTabWidget *tabs) {
     clientForm->addRow(QStringLiteral("Папка Data:"), wowDataInfo);
 
     wowOutputExe = new QLineEdit;
-    wowOutputExe->setPlaceholderText(QStringLiteral("Пусто = писать поверх выбранного Wow.exe (оригинал сохранится в Wow.exe.orig)"));
+    wowOutputExe->setPlaceholderText(QStringLiteral("Пусто = результат из чекбокса ниже: копия Wow.patched.exe, если он включён, иначе — поверх Wow.exe (оригинал в Wow.exe.orig)"));
     auto *chooseOut = button(QStringLiteral("Сохранить как…"));
     auto *likeFirestorm = button(QStringLiteral("Как у Firestorm: рядом и с тем же именем"));
     auto *outRow = new QHBoxLayout;
@@ -2847,6 +2847,8 @@ void MainWindow::buildWowPatchTab(QTabWidget *tabs) {
     outRow->addWidget(chooseOut);
     outRow->addWidget(likeFirestorm);
     clientForm->addRow(QStringLiteral("Результат:"), outRow);
+    wowPatchCopy = new QCheckBox(QStringLiteral("Писать в КОПИЮ (Wow.patched.exe рядом с исходником) — оригинальный Wow.exe не трогается, бэкапы не нужны"));
+    clientForm->addRow(QStringLiteral("Копия:"), wowPatchCopy);
 
     auto *diagRow = new QHBoxLayout;
     auto *diagnose = button(QStringLiteral("Диагностика файла"));
@@ -3059,6 +3061,18 @@ void MainWindow::buildWowPatchTab(QTabWidget *tabs) {
                     QStringLiteral("Executable (*.exe);;All files (*)"), /*saveMode=*/true);
     });
     connect(likeFirestorm, &QPushButton::clicked, this, &MainWindow::wowSetOutputLikeFirestorm);
+    connect(wowPatchCopy, &QCheckBox::toggled, this, [this](bool on) {
+        const QString exe = QDir::fromNativeSeparators(wowExePath->text().trimmed());
+        if (exe.isEmpty()) return;
+        const QString defInPlace = ClientPatchService::defaultOutputPath(exe);
+        const QString defCopy = ClientPatchService::copyOutputPath(exe);
+        const QString cur = QDir::fromNativeSeparators(wowOutputExe->text().trimmed());
+        // Поле обновляем только если оно «авто» (пустое или равно одному из
+        // авто-путей) — явно введённый пользователем путь не трогаем.
+        if (cur.isEmpty() || QDir::cleanPath(cur) == QDir::cleanPath(defInPlace)
+                          || QDir::cleanPath(cur) == QDir::cleanPath(defCopy))
+            wowOutputExe->setText(QDir::toNativeSeparators(on ? defCopy : defInPlace));
+    });
     connect(diagnose, &QPushButton::clicked, this, &MainWindow::wowDiagnose);
     connect(readPortal, &QPushButton::clicked, this, &MainWindow::wowReadPortal);
     connect(checkTls, &QPushButton::clicked, this, &MainWindow::wowRunTlsCheck);
@@ -3183,12 +3197,20 @@ void MainWindow::wowPickFile(QLineEdit *target, const QString &title, const QStr
     if (!picked.isEmpty()) target->setText(QDir::toNativeSeparators(picked));
 }
 
+QString MainWindow::wowPreferredOutput(const QString &exe) const {
+    if (wowPatchCopy && wowPatchCopy->isChecked())
+        return ClientPatchService::copyOutputPath(exe);
+    return ClientPatchService::defaultOutputPath(exe);
+}
+
 void MainWindow::wowSetOutputLikeFirestorm() {
     const QString exe = QDir::fromNativeSeparators(wowExePath->text().trimmed());
     if (exe.isEmpty()) {
         QMessageBox::warning(this, QStringLiteral("Патч Wow.exe"), QStringLiteral("Сначала выберите Wow.exe."));
         return;
     }
+    // Кнопка — это явный выбор «как у Firestorm» (запись поверх): копию выключаем.
+    if (wowPatchCopy && wowPatchCopy->isChecked()) wowPatchCopy->setChecked(false);
     wowOutputExe->setText(QDir::toNativeSeparators(ClientPatchService::defaultOutputPath(exe)));
     wowLog->append(QStringLiteral("Результат будет записан поверх %1 (оригинал сохранится в %2). "
                                   "Именно так сделан «WoW 11.2.5 - Firestorm.exe»: тот же размер, то же имя, "
@@ -3205,7 +3227,7 @@ void MainWindow::wowChooseExe() {
     if (f.isEmpty()) return;
     wowExePath->setText(QDir::toNativeSeparators(f));
     if (wowOutputExe->text().isEmpty())
-        wowOutputExe->setText(QDir::toNativeSeparators(ClientPatchService::defaultOutputPath(f)));
+        wowOutputExe->setText(QDir::toNativeSeparators(wowPreferredOutput(f)));
     if (wowRecipeOriginal->text().isEmpty())
         wowRecipeOriginal->setText(QDir::toNativeSeparators(f));
 
@@ -3257,7 +3279,7 @@ void MainWindow::wowDiagnose() {
             if (!result->configPortal.isEmpty() && wowPortal->text().trimmed().isEmpty())
                 wowPortal->setText(result->configPortal);
             if (wowOutputExe->text().trimmed().isEmpty())
-                wowOutputExe->setText(QDir::toNativeSeparators(ClientPatchService::defaultOutputPath(exe)));
+                wowOutputExe->setText(QDir::toNativeSeparators(wowPreferredOutput(exe)));
             const QString state = result->trinityRsaFound
                 ? QStringLiteral("файл УЖЕ пропатчен (ключ TrinityCore на месте)")
                 : (result->blizzardRsaFound ? QStringLiteral("стоит родной ключ Blizzard — файл не пропатчен")
@@ -3335,7 +3357,14 @@ void MainWindow::wowPatchFile() {
         return;
     }
     QString out = QDir::fromNativeSeparators(wowOutputExe->text().trimmed());
-    if (out.isEmpty()) out = ClientPatchService::defaultOutputPath(exe);
+    if (wowPatchCopy && wowPatchCopy->isChecked()) {
+        // Копия: поле «поверх оригинала» (авто-заполнение) перебиваем на копию.
+        const QString defCopy = ClientPatchService::copyOutputPath(exe);
+        if (out.isEmpty() || QDir::cleanPath(out) == QDir::cleanPath(ClientPatchService::defaultOutputPath(exe)))
+            out = defCopy;
+    } else if (out.isEmpty()) {
+        out = ClientPatchService::defaultOutputPath(exe);
+    }
     const bool inPlace = QDir::cleanPath(out) == QDir::cleanPath(exe);
 
     if (inPlace) {
@@ -3463,7 +3492,13 @@ void MainWindow::wowApplyRecipe() {
         return;
     }
     QString out = QDir::fromNativeSeparators(wowOutputExe->text().trimmed());
-    if (out.isEmpty()) out = ClientPatchService::defaultOutputPath(exe);
+    if (wowPatchCopy && wowPatchCopy->isChecked()) {
+        const QString defCopy = ClientPatchService::copyOutputPath(exe);
+        if (out.isEmpty() || QDir::cleanPath(out) == QDir::cleanPath(ClientPatchService::defaultOutputPath(exe)))
+            out = defCopy;
+    } else if (out.isEmpty()) {
+        out = ClientPatchService::defaultOutputPath(exe);
+    }
 
     WowPatchOptions only = opts;
     only.applySignaturePatches = false;   // переносим ровно чужие hunks

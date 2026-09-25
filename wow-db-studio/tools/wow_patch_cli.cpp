@@ -108,6 +108,12 @@ fs::path findConfigWtf(const fs::path &exe) {
     return fs::path();
 }
 
+// wow.exe -> wow.patched.exe (та же папка: копия должна найти свои Data/WTF).
+fs::path copyOutputPath(const fs::path &exe) {
+    const std::string ext = exe.extension().empty() ? ".exe" : exe.extension().string();
+    return exe.parent_path() / (exe.stem().string() + ".patched" + ext);
+}
+
 // .build.info лежит в корне установки (на два уровня выше _retail_).
 std::string buildInfoVersion(const fs::path &exe) {
     const fs::path dir = exe.parent_path();
@@ -184,7 +190,7 @@ struct Args {
     int window = 0;  // --window для findslot (0 = дефолт ядра)
     bool noSuffix = false, wholeSlot = false, be = false, checksum = false, stripSig = false;
     bool noVerify = false, noConfig = false, legacyRsa = true, noEd = false, launcherReg = false;
-    bool urls = false, help = false;
+    bool urls = false, help = false, copy = false;
 };
 
 bool parseArgs(int argc, char **argv, Args *a, std::string *err) {
@@ -213,6 +219,7 @@ bool parseArgs(int argc, char **argv, Args *a, std::string *err) {
         else if (s == "--rsa-slot")     { if (!(v = need(i, "--rsa-slot"))) return false; a->rsaSlot = v; }
         else if (s == "--window")       { if (!(v = need(i, "--window"))) return false; a->window = std::atoi(v); }
         else if (s == "--no-suffix")    a->noSuffix = true;
+        else if (s == "--copy")         a->copy = true;
         else if (s == "--whole-slot")   a->wholeSlot = true;
         else if (s == "--be")           a->be = true;
         else if (s == "--checksum")     a->checksum = true;
@@ -260,6 +267,8 @@ void usage() {
         "        --ed-hex H         ключ Ed25519 в hex (32 байта)\n"
         "        --be               hex-ключи заданы в big-endian (формат openssl) -> развернуть\n"
         "        --recipe F.json    применить рецепт (можно несколько раз)\n"
+        "        --copy             писать в КОПИЮ <имя>.patched.exe рядом с исходником\n"
+        "                         (например Wow.patched.exe) — оригинал не трогается\n"
         "        --rsa-slot OFF    явный файловый слот RSA (hex 0x… или десятичный\n"
         "                         из findslot) — пишем модуль точно по адресу\n"
         "        --checksum         пересчитать PE CheckSum\n"
@@ -275,6 +284,7 @@ void usage() {
         "        --cdns-url U       свой URL cdns\n"
         "        --cert-url U       свой URL cert-bundle\n"
         "        --cert-file F      подписанный cert-bundle ({\"Created\":...) в слот 32761 байт\n"
+        "                         (готовый от Arctium: data/arctium_cert_bundle.bin)\n"
         "\n"
         "  wow_patch_cli recipe <original.exe> <patched.exe> <out.json> [--name N] [--version V]\n"
         "      Снять точечную разницу с чужого пропатченного клиента (например\n"
@@ -373,7 +383,16 @@ int cmdFindSlot(const fs::path &refPath, const fs::path &tgtPath, const Args &a)
     return 0;
 }
 
-int cmdPatch(const fs::path &src, const fs::path &dstIn, const Args &a) {
+int cmdPatch(const fs::path &src, fs::path dstIn, const Args &a) {
+    if (a.copy) {
+        if (!dstIn.empty()) {
+            std::printf("[i] dst указан явно — --copy игнорируется\n");
+        } else {
+            dstIn = copyOutputPath(src);
+            std::printf("--copy: исходный файл не трогаем, результат -> %s\n",
+                        dstIn.string().c_str());
+        }
+    }
     std::string err;
     Bytes data;
     if (!readFile(src, &data, &err)) { std::printf("[!!] %s\n", err.c_str()); return 1; }

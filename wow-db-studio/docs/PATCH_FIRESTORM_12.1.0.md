@@ -88,6 +88,42 @@ ctest --test-dir build --output-on-failure
 > изменённый `Wow.exe`. Откатите оригинал (`Wow.exe.orig` → `Wow.exe`) и
 > используйте **патч в памяти** — раздел 6.
 
+### Шаг 2б. Патч в КОПИЮ (оригинал не трогается)
+
+Если не хотите править исходный exe — флаг `--copy`:
+
+```bash
+./wow_patch_cli patch "C:/Games/World of Warcraft/_retail_/Wow.exe" \
+    --portal 127.0.0.1:1119 --copy --version 12.1.0.69497
+```
+
+* Результат пишется в `Wow.patched.exe` **рядом с исходником** (та же
+  папка — копия находит свои `Data` и `WTF`), оригинальный `Wow.exe`
+  не изменяется, `.orig` не создаётся.
+* Можно указать выходной файл и явно: `patch <src> <dst> …` — тогда
+  `--copy` не нужен (заданы оба — побеждает явный `dst`).
+* `WTF/Config.wtf` общий для обоих exe: `SET portal` пишется туда же.
+* В GUI то же самое — чекбокс **«Писать в КОПИЮ (Wow.patched.exe)»** на
+  вкладке «Патч Wow.exe» (кнопка «Как у Firestorm» переключает обратно
+  на запись поверх).
+
+### Cert-bundle от Arctium (опционально)
+
+В репозитории лежит подписанный cert-bundle — ровно тот, что в память
+клиента подставляет Arctium WoW Launcher (MIT; извлечён из его исходника):
+`data/arctium_cert_bundle.bin`, ровно **32761** байт (слот):
+
+```bash
+./wow_patch_cli patch "…\Wow.exe" --portal 127.0.0.1:1119 \
+    --cert-file data\arctium_cert_bundle.bin
+```
+
+Цепочки внутри: Arctium Sandbox / TrinityCore / CypherCore — сертификат
+вашего auth/bnet-сервера, выданный этими CA, клиент примет без записи
+в системный trust store. Чисто самоподписанный «свой» сертификат сюда
+не встанет — тогда действует dev-режим/системный store (см. README
+лаунчера).
+
 ### Шаг 3. Если сигнатуры Blizzard не найдены — `findslot` (слот по контексту)
 
 Blizzard меняет 8-байтные маски RSA-ключа между билдами (от 11.2.5 к

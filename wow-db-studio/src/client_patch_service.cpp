@@ -789,6 +789,15 @@ QString ClientPatchService::defaultOutputPath(const QString &exePath) {
     return QFileInfo(exePath).absoluteFilePath();
 }
 
+QString ClientPatchService::copyOutputPath(const QString &exePath) {
+    // Копия лежит РЯДОМ с оригиналом (иначе не найдёт свои Data и WTF):
+    // Wow.exe -> Wow.patched.exe.
+    const QFileInfo fi(exePath);
+    const QString ext = fi.suffix().isEmpty() ? QStringLiteral("exe") : fi.suffix();
+    return fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName() +
+           QStringLiteral(".patched.") + ext;
+}
+
 // ===========================================================================
 // 8. Рецепт: снять разницу и сохранить в JSON
 // ===========================================================================
