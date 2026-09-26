@@ -1,3 +1,6 @@
+-- PalDump v4.12 (26.09.2026): procs открывается в ОКНЕ с подсветкой (Ctrl+A → Ctrl+C);
+--    в триггеры добавлены серверные аплееры (427445/378405/432626/386732/386738) и
+--    касты самих бафов (скрипт накладывает их кастом, как видно в логе каждые5 с).
 -- PalDump v4.11 (26.09.2026): команда /paldumplog procs — сверка прок-бафов:
 --    сколько раз каждый баф накладывался против скольких кастов его триггера.
 --    Анализ и ожидания: paladin/PROC_BUFFS_ANALYSIS.md, SQL-проверка: PROC_VERIFICATION.sql
@@ -415,12 +418,12 @@ end
 
 -- v4.11: ПРОК-СВЕРКА — баф -> его триггер-способности (см. paladin/PROC_BUFFS_ANALYSIS.md)
 local PROC_BUFF_LIST = {
-    { 378412, "Свет титанов",              { 85673 } },
-    { 432629, "Неоспоримое постановление", { 427453 } },
-    { 427441, "Молот Света",               { 255937 } },
-    { 386730, "Божественный резонанс",     { 375576, 386731, 20473, 20271, 31935 } },
-    { 209388, "Оплот порядка",             { 31935 } },
-    { 386652, "Оплот праведного гнева",    { 31935 } },
+    { 378412, "Свет титанов",              { 85673, 378405 } },
+    { 432629, "Неоспоримое постановление", { 427453, 432626 } },
+    { 427441, "Молот Света",               { 255937, 427445 } },
+    { 386730, "Божественный резонанс",     { 375576, 386731, 386732, 386738, 20473, 20271, 31935 } },
+    { 209388, "Оплот порядка",             { 31935, 209388 } },
+    { 386652, "Оплот праведной ярости",    { 31935, 386652 } },
 }
 local PROC_TRIG_NAMES = {
     [85673]  = "Слово благословения",
@@ -428,9 +431,16 @@ local PROC_TRIG_NAMES = {
     [255937] = "Пробуждение зол",
     [375576] = "Божественный звон",
     [386731] = "Бож.резонанс-тик",
+    [386732] = "Бож.резонанс-слой1",
+    [386738] = "Бож.резонанс-слой2",
     [20473]  = "Святая вспышка",
     [20271]  = "Правосудие",
     [31935]  = "Карающий щит",
+    [427445] = "Наставления Света (аплеер)",
+    [378405] = "Свет титанов (аплеер)",
+    [432626] = "Неоспоримое (аплеер)",
+    [209388] = "Оплот порядка (каст скриптом)",
+    [386652] = "Оплот ярости (каст скриптом)",
 }
 
 SLASH_PALDUMPLOG1 = "/paldumplog"
@@ -491,6 +501,7 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
             if c then local k = tonumber(c); casts[k] = (casts[k] or 0) + 1 end
         end
         print(("[ПРОК-СВЕРКА] строк лога: %d (лучше /paldumplog clear перед тестом)"):format(#PalDumpDB.log))
+        local out = {}
         for _, row in ipairs(PROC_BUFF_LIST) do
             local id, bname, trigs = row[1], row[2], row[3]
             local ap, rf = applied[id] or 0, refresh[id] or 0
@@ -500,10 +511,13 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
                 ct = ct + n
                 parts[#parts + 1] = ("%s [%d]:%d"):format(PROC_TRIG_NAMES[t] or "?", t, n)
             end
-            print(("  %s [%d]: накладывался %d, обновлён %d | триггеры: %s"):format(
-                bname, id, ap, rf, table.concat(parts, ", ")))
+            out[#out + 1] = ("  %s [%d]: накладывался %d, обновлён %d | триггеры: %s"):format(
+                bname, id, ap, rf, table.concat(parts, ", "))
         end
-        print("[ПРОК] Сверка: накладывания ≈ триггеры, минус окна когда баф уже висел. Жду вывод сюда + SQL из PROC_VERIFICATION.sql")
+        out[#out + 1] = "[ПРОК] Сверка: накладывания ≈ триггеры, минус окна когда баф уже висел"
+        for _, l in ipairs(out) do print(l) end
+        ShowExport(table.concat(out, "\n"))
+        print("[PalLog] Таблица открыта в окне — Ctrl+A → Ctrl+C и кидай мне")
     elseif msg == "clear" then
         PalDumpDB.log = {}
         lastKey, lastN = nil, 0
@@ -728,7 +742,7 @@ PalDumpMainFrame:SetScript("OnEvent", function(_, event, ...)
             print("[PalLog] Авто-дамп выключен (ловим попап): /paldumplog dump — вручную | /paldumplog auto on — на входе")
         end
         -- v4.8: БАННЕР — что стоит и что включено (главный индикатор версии)
-        print(("[PalLog] PalDump v4.10 | лог: UNIT_AURA+SPELLCAST+COMBAT_TEXT | CLEU=%s | auto=%s | состояние: %s"):format(
+        print(("[PalLog] PalDump v4.12 | лог: UNIT_AURA+SPELLCAST+COMBAT_TEXT | CLEU=%s | auto=%s | состояние: %s"):format(
             PalDumpDB.cfg.cleu == true and "вкл" or "выкл",
             PalDumpDB.cfg.auto == true and "вкл" or "выкл",
             PalDumpDB.cfg.log and "ЛОГ ВКЛ" or "ЛОГ ВЫКЛ"))
