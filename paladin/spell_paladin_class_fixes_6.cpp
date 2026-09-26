@@ -4,6 +4,10 @@
 // Исцеляющие длани, Наставляемая молитва, Ауры твердыни).
 // Вставка после части 4b. Регистрация: AddSC_paladin_spell_scripts_ex6().
 // Спутник: paladin_class_fixes_5.sql
+// 26.09.2026 (PROC_FIX-дополнение): Звон (375576) выдает кнопку Молота Света
+//   (427441), если талант Наставления Света (427445) известен. Маску прока
+//   427445 обнулили (PROC_FIX.sql — прок срабатывал с ЛЮБОГО каста, включая
+//   маунт), поэтому выдачу делаем узким путем — строго от каста Звона.
 // ============================================================================
 
 // === CUT HERE ===============================================================
@@ -28,6 +32,9 @@ enum PaladinEx6Spells
     SPELL_EX6_DIVINE_RESONANCE_RET_BUFF = 1266308,
     SPELL_EX6_DIVINE_RESONANCE_PROT     = 386738,
     SPELL_EX6_DIVINE_RESONANCE_PROT_AURA = 386730,
+    // Холи-токен Резонанса:379391 Quickened Invocation (wowhead:386731 «После
+    // Призмы/Вооружения/Звона — Святая вспышка каждые5с»; Related = только он)
+    SPELL_EX6_DIVINE_RESONANCE_HOLY     = 379391,
     SPELL_EX6_GOLDEN_PATH               = 377128,
     SPELL_EX6_GOLDEN_PATH_HEAL          = 339119,
     SPELL_EX6_SELFLESS_HEALER           = 469434,
@@ -38,7 +45,11 @@ enum PaladinEx6Spells
 
     SPELL_EX6_AURA_DEVOTION             = 465,
     SPELL_EX6_AURA_CRUSADER             = 32223,
-    SPELL_EX6_AURA_CONCENTRATION        = 317920
+    SPELL_EX6_AURA_CONCENTRATION        = 317920,
+
+    // Наставления Света (герой-талант): Звон выдает кнопку Молота Света
+    SPELL_EX6_LIGHTS_GUIDANCE           = 427445,
+    SPELL_EX6_HAMMER_OF_LIGHT_BUFF      = 427441
 };
 
 // 375576 - Гневилище: кастует основную способность по 5 ближайшим врагам.
@@ -49,7 +60,10 @@ class spell_pal_divine_toll_ex : public SpellScript
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_EX6_HOLY_SHOCK, SPELL_EX6_AVENGERS_SHIELD,
-            SPELL_EX6_JUDGMENT_RET, SPELL_EX6_DIVINE_TOLL_RET_DEBUFF });
+            SPELL_EX6_JUDGMENT_RET, SPELL_EX6_DIVINE_TOLL_RET_DEBUFF,
+            SPELL_EX6_LIGHTS_GUIDANCE, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
+            SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
+            SPELL_EX6_DIVINE_RESONANCE_HOLY });
     }
 
     void HandleAfterCast()
@@ -117,6 +131,24 @@ class spell_pal_divine_toll_ex : public SpellScript
             caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
                 CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
                     .SetTriggeringSpell(GetSpell()));
+        // АУДИТ26.09: Холи-Резонанс не выдавался (нет своей талант-ауры в цепочке)
+        // — добавлен гейт по379391; тик386730 для Холи → Святая вспышка
+        // (spec-ветка в spell_pal_divine_resonance_prot_ex)
+        if (caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_HOLY))
+            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
+                CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
+                    .SetTriggeringSpell(GetSpell()));
+
+        // Свет наставления (427445, wowhead12.1): ПРОТ — Божественный звон
+        // заменяется на Молот Света (427441) на20с. РЕТ получает Молот от
+        // Пробуждения зол — spell_pal_lights_guidance_wake_ex (часть 6, fix_7).
+        // После PROC_FIX (маска427445 обнулена) это узкий путь вместо прока.
+        if (caster->HasAura(SPELL_EX6_LIGHTS_GUIDANCE))
+            if (Player* p = caster->ToPlayer())
+                if (p->GetPrimarySpecialization() == ChrSpecialization::PaladinProtection)
+                    caster->CastSpell(caster, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
+                        CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
+                            .SetTriggeringSpell(GetSpell()));
     }
 
     void Register() override
@@ -184,7 +216,7 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX6_AVENGERS_SHIELD });
+        return ValidateSpellInfo({ SPELL_EX6_AVENGERS_SHIELD, SPELL_EX6_HOLY_SHOCK });
     }
 
     void OnPeriodic(AuraEffect const* /*aurEff*/)
@@ -194,6 +226,14 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
             return;
 
         PreventDefaultAction();
+
+        // АУДИТ26.09: spec-ветка тика — Холи → Святая вспышка (20473, wowhead386732:
+        // «Holy: instantly cast Holy Shock»); Прот → Щит мстителя (31935);
+        // Рет на этом бафе не висит (его Резонанс = отдельный1266308).
+        uint32 tickSpell = SPELL_EX6_AVENGERS_SHIELD;
+        if (Player* pl = target->ToPlayer())
+            if (pl->GetPrimarySpecialization() == ChrSpecialization::PaladinHoly)
+                tickSpell = SPELL_EX6_HOLY_SHOCK;
 
         float const radius = 30.f;
         std::vector<Unit*> enemies;
@@ -216,7 +256,7 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
         }
 
         if (best)
-            target->CastSpell(best, SPELL_EX6_AVENGERS_SHIELD, CastSpellExtraArgsInit{
+            target->CastSpell(best, tickSpell, CastSpellExtraArgsInit{
                 .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
                 .TriggeringAura = GetEffect(EFFECT_0)
             });

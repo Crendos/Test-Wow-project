@@ -11,6 +11,8 @@
 #include "CellImpl.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "Log.h"
+#include "SpellMgr.h"
 
 enum PaladinEx3Spells
 {
@@ -328,8 +330,12 @@ class spell_pal_blessed_hammer_ex : public SpellScript
             return;
 
         if (sAreaTriggerDataStore->GetAreaTriggerCreateProperties(AreaTriggerCreatePropertiesId{ SPELL_EX3_BLESSED_HAMMER_AT, false }))
+        {
+            TC_LOG_INFO("scripts", "[BH] каст 204019: create_properties 6006 загружен, летит AT (AI должен бить)");
             return; // AT 6006 заспавнится эффектом заклинания — спираль работает
+        }
 
+        TC_LOG_INFO("scripts", "[BH] каст 204019: create_properties 6006 НЕТ в сторе (перезапусти после _8.sql) — fallback AoE");
         float const radius = 8.f;
         std::vector<Unit*> targets;
         Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(caster, caster, radius);
@@ -359,6 +365,14 @@ struct at_pal_blessed_hammer : public AreaTriggerAI
     {
         // Сплайн рассчитан на ~2.5 с; живём столько же, а не все 5 с заклинания
         at->SetDuration(2500);
+        static bool once = false;
+        if (!once)
+        {
+            once = true;
+            bool spellOk = sSpellMgr->GetSpellInfo(SPELL_EX3_BLESSED_HAMMER_DMG, DIFFICULTY_NONE) != nullptr;
+            TC_LOG_INFO("scripts", "[BH] AI at_pal_blessed_hammer ПРИКРЕПЛЁН (спелл 204301: {})",
+                spellOk ? "есть" : "НЕТ В DBC!");
+        }
     }
 
     void OnUnitEnter(Unit* unit) override
@@ -373,10 +387,23 @@ struct at_pal_blessed_hammer : public AreaTriggerAI
         if (!caster || !caster->IsValidAttackTarget(unit))
             return;
 
+        static bool missingSpellLogged = false;
+        if (!sSpellMgr->GetSpellInfo(SPELL_EX3_BLESSED_HAMMER_DMG, DIFFICULTY_NONE))
+        {
+            if (!missingSpellLogged)
+            {
+                missingSpellLogged = true;
+                TC_LOG_ERROR("scripts", "[BH] спелл 204301 отсутствует в DBC — урон/дебафф невозможны!");
+            }
+            _hit.insert(unit->GetGUID());
+            return;
+        }
+
         _hit.insert(unit->GetGUID());
         caster->CastSpell(unit, SPELL_EX3_BLESSED_HAMMER_DMG, CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR
         });
+        TC_LOG_INFO("scripts", "[BH] OnUnitEnter: {} -> 204301 отдан", unit->GetName());
     }
 
 private:

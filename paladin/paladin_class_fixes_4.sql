@@ -59,14 +59,18 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (231895, 'spell_pal_tyrs_deliverance_trigger_ex'),
 (200653, 'spell_pal_tyrs_deliverance_select_ex'),
 (31884,  'spell_pal_hand_of_divinity_ex'),
-(231895, 'spell_pal_hand_of_divinity_ex');
+(231895, 'spell_pal_hand_of_divinity_ex'),
+-- АУДИТ26.09: биндинги к proc-строкам ниже (были только proc-строки — таланты
+-- «Спасение светом» и «Очищающий огонь» не работали)
+(157047, 'spell_pal_saved_by_the_light_ex'),
+(469883, 'spell_pal_refining_fire_ex');
 
 -- spell_proc ------------------------------------------------------------------
 -- 157047 Спасение светом: цель с маяком получает урон (успех фильтруется скриптом)
 -- ProcFlags: 0x00aa220 (TAKE melee/spell/periodic damage)
-REPLACE INTO `spell_proc` VALUES (157047,0x00,10,0,0,0,0,0x00AA220,0x0,0x1,0x2,0x0,0x0,0x0,0,100,10000,0);
+VALUES (157047,0x00,0,0,0,0,0,0x00AA220,0x0,0x1,0x2,0x0,0x0,0x0,0,100,10000,0);
 -- 469883 Очищающий огонь: Щит мстителя (FamMask 0x4000/0x0/0x2/0x0)
-REPLACE INTO `spell_proc` VALUES (469883,0x00,10,0x4000,0x0,0x2,0x0,0x10,0x0,0x1,0x2,0x3,0x0,0x0,0,100,0,0);
+VALUES (469883,0x00,2,0x4000,0x0,0x2,0x0,0x10,0x0,0x1,0x2,0x3,0x0,0x0,0,100,0,0);
 
 -- ПРИМЕЧАНИЯ:
 -- * 53576 (Вливание света — проц) НЕ нуждается в строке: PROC_TRIGGER_SPELL

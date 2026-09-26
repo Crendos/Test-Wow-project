@@ -1,3 +1,61 @@
+-- PalDump v4.14 (26.09.2026): procs-СТАРШИНА ТАЛАНТОВ КЛАССА в таблице сверки:
+--   добавлены Сияние (327510), Второй восход (431474), Резонанс Рет (1266308) —
+--   «какой баф после какой способности» видно для талантов класса, не только §1.
+-- PalDump v4.13 (26.09.2026): procs-ДИАГНОСТИКА: тоталы AURA-событий в логе, статус
+--    источников (да/НЕТ), «сейчас: есть/нет» по каждому бафу, учёт множителя <<xN>>
+--    (раньше procs считал строки, а не события — касты занижались).
+-- PalDump v4.12 (26.09.2026): procs открывается в ОКНЕ с подсветкой (Ctrl+A → Ctrl+C);
+--    в триггеры добавлены серверные аплееры (427445/378405/432626/386732/386738) и
+--    касты самих бафов (скрипт накладывает их кастом, как видно в логе каждые5 с).
+-- PalDump v4.11 (26.09.2026): команда /paldumplog procs — сверка прок-бафов:
+--    сколько раз каждый баф накладывался против скольких кастов его триггера.
+--    Анализ и ожидания: paladin/PROC_BUFFS_ANALYSIS.md, SQL-проверка: PROC_VERIFICATION.sql
+-- PalDump v4.10 (25.09.2026): ФИКС ГЛАВНОГО БАГА — событие входа было названо
+--    PLAYER_ENTER_WORLD (такого события НЕТ в API, правильно PLAYER_ENTERING_WORLD),
+--    поэтому ветка входа (баннер, шапка сессии, таймеры) НЕ СРАБАТЫВАЛА НИКОГДА.
+--    Баннер/шапка теперь только при входе и /reload, не на каждой загрузочной.
+-- PalDump v4.9 (25.09.2026): одноразовые метки «✓ источник ... работает» при первом
+--    срабатывании UNIT_AURA / UNIT_SPELLCAST / COMBAT_TEXT — видно, приходят ли
+--    события вообще (даже когда лог выключен). Метка печатается один раз за сессию.
+-- PalDump v4.8 (25.09.2026): баннер версии/источников при входе в мир (одна строка
+--    сразу показывает, что установлено и что включено) + снап не показывает nil-ауры
+--    (снап до подгрузки мира давал «nil [0]»).
+-- PalDump v4.7 (25.09.2026): ГЛАВНОЕ. В клиенте подписка на COMBAT_LOG_EVENT_UNFILTERED
+--    — запрещённое действие (тест T15 дал попап; T8/T16/T17/T18 — чисто). Поэтому:
+--    1) CLEU ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН (попап при входе исчез!) — вкл: /paldumplog cleu on.
+--    2) Лог пересажен на РАЗРЕШЁННЫЕ события: UNIT_AURA (ауры/бафы/циклы),
+--       UNIT_SPELLCAST_SUCCEEDED (касты), COMBAT_TEXT_UPDATE (урон/хилы).
+--    3) Детектор цикла «!!! ЦИКЛ?» работает и без CLEU (общий TrackAuraBurst).
+-- PalDump v4.6 (25.09.2026): pcall-броня — ВСЕ обработчики (события, AutoDump,
+--    /paldump, snap) обёрнуты: если клиент блокирует вызов с Lua-ошибкой,
+--    вместо попапа будет строка «[PalDump] ... ОШИБКА: ...» в чате.
+--    T9: C_ClassTalents/C_Traits/GetSpellBookItemInfo СУЩЕСТВУЮТ (table/table/function) —
+--    блокируются именно ВЫЗОВЫ (T1/T2/T4).
+-- PalDump v4.5 (25.09.2026): ловушка ADDON_ACTION_* ВЫКЛЮЧЕНА по умолчанию —
+--    регистрация этих событий в клиенте 12.x сама по себе даёт попап «действие
+--    только для интерфейсу Blizzard» (проверь макросом T8). Включить: /paldumplog diag on.
+--    T9 выявил: C_ClassTalents/C_Traits недоступны (T1/T2/T4 падают) — авто-дамп
+--    их и не должен дёргать, пока выключен.
+-- PalDump v4.4 (25.09.2026): отлова попапа «действие только для Blizzard».
+--    1) АВТО-ДАМП НА ВХОДЕ ПО УМОЛЧАНИЮ ВЫКЛЮЧЕН (главный подозреваемый попапа):
+--       включить — /paldumplog auto on ; запустить вручную — /paldumplog dump.
+--    2) Снимок аур: путь C_UnitAuras.GetAuraDataByIndex (старый AuraUtil отдавал nil).
+--    3) Ловушка попапа: 3 повтора строки + стек debugstack в чат и в лог.
+-- PalDump v4.3 (25.09.2026): /paldumplog export [N] открывает ОКНО с текстом лога
+--    (рамка по центру экрана): выделение уже стоит → Ctrl+C = копия, куда угодно.
+--    Работает без копирования из чата (его в игре нет) и без записи на диск.
+-- PalDump v4.2 (25.09.2026): лог больше НЕ зависит от записи на диск.
+--    1) /paldumplog export [N] — последние N строк (по умолч. 100); в v4.2 печатались
+--       в чат, в v4.3 заменено на окно с EditBox (см. выше).
+--    2) Маркеры «!!! ЦИКЛ?» и «!!! АУРА-ШТОРМ» печатаются в чат СРАЗУ (скриншот хватит).
+--    3) События ADDON_ACTION_* пишутся и в чат, и в лог (попадут в файл при /reload).
+--    Файл WTF\...\SavedVariables\PalDump.lua обновляется клиентом ТОЛЬКО при
+--    /reload или чистом выходе из игры (диспетчер задач = ничего не сохранится).
+-- PalDump v4.1 (24.09.2026): убран автосейв pcall(SaveVariables) — в клиенте 12.x
+--    запись SavedVariables принудительно запрещена, и вызов давал в игре попап
+--    «Модификация Paldump заблокирована при попытке выполнять действие, доступное
+--    только интерфейсу Blizzard». Лог копится в памяти, на диск попадает при
+--    /reload и при выходе из игры. Попап остался? Смотри [PalDump] в чате ниже.
 -- PalDump v3: два инструмента в одном.
 -- 1) /paldump — выгрузка ID способностей (книга заклинаний) и талантов.
 --    КАЖДАЯ специализация сохраняется ОТДЕЛЬНО и НЕ затирает предыдущие:
@@ -5,7 +63,7 @@
 -- 2) /paldumplog — БОЕВОЙ ЛОГ: что я кастанул, какие бафы/дебафы получили/потеряли
 --    я, пит и цели, хилы/энергайзы по мне, суммоны. Пишется в тот же файл:
 --    WTF\Account\<аккаунт>\SavedVariables\PalDump.lua (таблица PalDumpDB.log)
---    Лог автосохраняется каждые ~400 событий и при входе/выходе из боя.
+--    На диск при /reload и при выходе из игры (см. v4.1 выше).
 --    Команды:
 --      /paldumplog          — вкл/выкл лог
 --      /paldumplog snap     — мгновенный снимок всех аур (я + цель)
@@ -19,16 +77,14 @@
 ---------------------------------------------------------------------
 PalDumpDB = PalDumpDB or {}
 PalDumpDB.specs = PalDumpDB.specs or {}
-PalDumpDB.cfg   = PalDumpDB.cfg   or { log = true, dmg = false }
+PalDumpDB.cfg   = PalDumpDB.cfg   or { log = true, dmg = false, auto = false, cleu = false }
 PalDumpDB.log   = PalDumpDB.log   or {}
 
 local MAX_LOG = 8000          -- кольцевой буфер строк
-local FLUSH_EVERY = 50        -- автосейв каждые N событий (форензика краша)
 
 local playerGUID = nil
 local summoned = {}           -- GUID питомцев/стражей из SPELL_SUMMON
 local startTime = GetTime()
-local evCount = 0
 local lastKey, lastN = nil, 0
 
 -- детектор циклов аур (см. OnCLEU): окно/пороги
@@ -48,11 +104,6 @@ local function fmt(ev, id, name, src, dst, extra)
         nowStr(), ev, tostring(name or "?"), id or 0, tostring(src or "?"), tostring(dst or "?"), extra or "")
 end
 
-local function flush()
-    evCount = 0
-    pcall(SaveVariables)
-end
-
 local function addLine(line, key)
     local L = PalDumpDB.log
     if key and key == lastKey and L[#L] then
@@ -63,8 +114,6 @@ local function addLine(line, key)
         L[#L + 1] = line
         if #L > MAX_LOG then table.remove(L, 1) end
     end
-    evCount = evCount + 1
-    if evCount >= FLUSH_EVERY then flush() end
 end
 
 ---------------------------------------------------------------------
@@ -80,41 +129,50 @@ local AURA_EV = {
     SPELL_AURA_BROKEN_SPELL  = true,
 }
 
+-- Детектор цикла аур (баг храмовника: бафы обновляются каждые 1-2 сек вне боя).
+-- Общий для CLEU и UNIT_AURA (v4.7).
+local function TrackAuraBurst(spellId, spellName)
+    local t = GetTime()
+    local lst = auraTrack[spellId]
+    if not lst then lst = {}; auraTrack[spellId] = lst end
+    lst[#lst + 1] = t
+    while lst[1] and lst[1] < t - AURA_WINDOW do table.remove(lst, 1) end
+    local n = #lst
+    if n >= AURA_BURST and (n == AURA_BURST or (n - AURA_BURST) % 20 == 0) then
+        local ln = string.format("!!! ЦИКЛ? [%d] %s — %d наложений за %dс", spellId or 0, tostring(spellName or "?"), n, AURA_WINDOW)
+        addLine(ln, nil)
+        print("[PalLog] " .. ln)
+    end
+    stormRing[#stormRing + 1] = { t = t, id = spellId, name = spellName }
+    stormNames[spellId] = spellName
+    while stormRing[1] and stormRing[1].t < t - STORM_WINDOW do table.remove(stormRing, 1) end
+    if #stormRing >= STORM_BURST and t - lastStormMark > 30 then
+        local counts, order = {}, {}
+        for _, e in ipairs(stormRing) do
+            if not counts[e.id] then order[#order + 1] = e.id; counts[e.id] = 0 end
+            counts[e.id] = counts[e.id] + 1
+        end
+        local parts = {}
+        for _, id in ipairs(order) do
+            parts[#parts + 1] = string.format("[%d]%s x%d", id or 0, tostring(stormNames[id] or "?"), counts[id])
+        end
+        local ln = string.format("!!! АУРА-ШТОРМ: %d аура-событий за %dс: %s", #stormRing, STORM_WINDOW, table.concat(parts, ", "))
+        addLine(ln, nil)
+        print("[PalLog] " .. ln)
+        lastStormMark = t
+    end
+end
+
 local function OnCLEU()
     if not PalDumpDB.cfg.log then return end
     local petG = UnitGUID("pet")
     local _, ev, _, sGUID, sName, _, _, dGUID, dName, _, _, spellId, spellName, _, a1, a2, a3, a4, a5, a6, a7 = CombatLogGetCurrentEventInfo()
     if not ev then return end
 
-    -- ЛОВЛЯ ЦИКЛА АУР (баг храмовника: бафы обновляются каждые 1-2 сек вне боя)
     local isPlayerAuraLoopEvent = dGUID == playerGUID and
         (ev == "SPELL_AURA_APPLIED" or ev == "SPELL_AURA_APPLIED_DOSE" or ev == "SPELL_AURA_REFRESH")
     if isPlayerAuraLoopEvent then
-        local t = GetTime()
-        local lst = auraTrack[spellId]
-        if not lst then lst = {}; auraTrack[spellId] = lst end
-        lst[#lst + 1] = t
-        while lst[1] and lst[1] < t - AURA_WINDOW do table.remove(lst, 1) end
-        local n = #lst
-        if n >= AURA_BURST and (n == AURA_BURST or (n - AURA_BURST) % 20 == 0) then
-            addLine(string.format("!!! ЦИКЛ? [%d] %s — %d наложений за %dс", spellId or 0, tostring(spellName or "?"), n, AURA_WINDOW), nil)
-        end
-        stormRing[#stormRing + 1] = { t = t, id = spellId, name = spellName }
-        stormNames[spellId] = spellName
-        while stormRing[1] and stormRing[1].t < t - STORM_WINDOW do table.remove(stormRing, 1) end
-        if #stormRing >= STORM_BURST and t - lastStormMark > 30 then
-            local counts, order = {}, {}
-            for _, e in ipairs(stormRing) do
-                if not counts[e.id] then order[#order + 1] = e.id; counts[e.id] = 0 end
-                counts[e.id] = counts[e.id] + 1
-            end
-            local parts = {}
-            for _, id in ipairs(order) do
-                parts[#parts + 1] = string.format("[%d]%s x%d", id or 0, tostring(stormNames[id] or "?"), counts[id])
-            end
-            addLine(string.format("!!! АУРА-ШТОРМ: %d аура-событий за %dс: %s", #stormRing, STORM_WINDOW, table.concat(parts, ", ")), nil)
-            lastStormMark = t
-        end
+        TrackAuraBurst(spellId, spellName)
     end
 
     local petS = petG and sGUID == petG
@@ -175,6 +233,17 @@ end
 -- СНИМОК АУР (/paldumplog snap)
 ---------------------------------------------------------------------
 local function EachAura(unit, filter, cb)
+    -- 12.x: прямой путь C_UnitAuras (AuraUtil в их клиенте отдавал name=nil)
+    if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+        for i = 1, 60 do
+            local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
+            if not ok or not a then break end
+            if a.name then -- защита от «nil [0]» при снапе до подгрузки мира
+                cb(a.name, a.spellId or a.spellID, a.applications, a.expirationTime, a.sourceUnit)
+            end
+        end
+        return true
+    end
     local done = false
     if AuraUtil and AuraUtil.ForEachAura then
         done = pcall(AuraUtil.ForEachAura, unit, filter, nil,
@@ -191,6 +260,92 @@ local function EachAura(unit, filter, cb)
             cb(name, spellId, count, expirationTime, nil)
         end
     end
+end
+
+---------------------------------------------------------------------
+-- v4.7: ЛОГ ЧЕРЕЗ РАЗРЕШЁННЫЕ СОБЫТИЯ (CLEU в этом клиенте запрещён)
+---------------------------------------------------------------------
+local auraCache = {} -- [unit] = { ["H".."378412"] = {id=, name=, n=, exp=} }
+
+local function SpellName(id)
+    if C_Spell and C_Spell.GetSpellInfo then
+        local ok, r = pcall(C_Spell.GetSpellInfo, id)
+        if ok and r then
+            if type(r) == "table" then return r.name end
+            return r
+        end
+    end
+    if GetSpellInfo then
+        local ok, n = pcall(GetSpellInfo, id)
+        if ok then return n end
+    end
+    return nil
+end
+
+local function SnapAuras(unit)
+    local now = {}
+    for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
+        EachAura(unit, filter, function(name, id, stacks, exp)
+            if id then
+                now[filter:sub(1, 1) .. id] = { id = id, name = name, n = stacks or 1, exp = exp or 0 }
+            end
+        end)
+    end
+    return now
+end
+
+local srcSeen = { aura = false, cast = false, ct = false }
+
+local function OnUnitAura(unit)
+    if not unit then return end
+    if not (unit == "player" or unit == "pet" or unit == "target" or unit == "focus"
+        or unit:match("^party%d$") or unit:match("^raid%d$")) then return end
+    if unit == "player" and not srcSeen.aura then
+        srcSeen.aura = true
+        print("[PalLog] ✓ источник UNIT_AURA работает (бафы/дебафы)")
+    end
+    if not PalDumpDB.cfg.log then return end
+    local now = SnapAuras(unit)
+    local prev = auraCache[unit]
+    auraCache[unit] = now
+    if not prev then return end -- первый снап юнита — база без дельты
+    local tag = unit == "player" and "Я" or (unit == "pet" and "ПИТ" or unit)
+    for k, v in pairs(now) do
+        local p = prev[k]
+        if not p then
+            addLine(fmt("AURA_APPLIED", v.id, v.name, tag, "", (v.n or 1) > 1 and (" x" .. v.n) or ""), nil)
+            if unit == "player" then TrackAuraBurst(v.id, v.name) end
+        elseif p.n ~= v.n then
+            addLine(fmt("AURA_DOSE", v.id, v.name, tag, "", " стаков:" .. tostring(v.n)), nil)
+            if unit == "player" then TrackAuraBurst(v.id, v.name) end
+        elseif p.exp ~= v.exp then
+            addLine(fmt("AURA_REFRESH", v.id, v.name, tag, "", " обновлён"), nil)
+            if unit == "player" then TrackAuraBurst(v.id, v.name) end
+        end
+    end
+    for k, p in pairs(prev) do
+        if not now[k] then
+            addLine(fmt("AURA_REMOVED", p.id, p.name, tag, "", ""), nil)
+        end
+    end
+end
+
+local function OnCastOk(unit, spellID)
+    if unit ~= "player" and unit ~= "target" and unit ~= "focus" then return end
+    if not PalDumpDB.cfg.log then return end
+    local who = unit == "player" and "Я" or unit
+    addLine(fmt("SPELL_CAST_SUCCEEDED", spellID, SpellName(spellID) or "?", who, ""), "C" .. tostring(spellID) .. unit)
+end
+
+local function OnCombatText(t, a2, a3)
+    if not srcSeen.ct then
+        srcSeen.ct = true
+        print("[PalLog] ✓ источник COMBAT_TEXT работает (урон/хилы)")
+    end
+    if not PalDumpDB.cfg.log then return end
+    local what = tostring(t or "?")
+    if what ~= "HEAL" and what ~= "DAMAGE" and what ~= "DAMAGE_SHIELD" and what ~= "ENERGIZE" then return end
+    addLine(fmt("CT_" .. what, 0, "", "Я", "", " " .. tostring(a2 or "") .. " " .. tostring(a3 or "")), nil)
 end
 
 local function Snapshot()
@@ -218,12 +373,90 @@ local function Snapshot()
         tn = tn + dump("target", "HARMFUL", "цель-дебаф")
     end
     addLine(string.format("=== СНИМОК: у меня бафов %d, дебафов %d, на цели аур %d ===", b, d, tn), nil)
+    auraCache["player"] = SnapAuras("player")
+    if UnitExists("target") then auraCache["target"] = SnapAuras("target") end
     print(("[PalLog] Снимок записан: у меня %d бафов / %d дебафов, на цели %d аур"):format(b, d, tn))
 end
 
 ---------------------------------------------------------------------
 -- КОМАНДЫ
 ---------------------------------------------------------------------
+---------------------------------------------------------------------
+-- ОКНО ЭКСПОРТА (/paldumplog export): текст в рамке → Ctrl+A, Ctrl+C
+---------------------------------------------------------------------
+local function ShowExport(text)
+    local f = PalDumpCopyFrame
+    if not f then
+        f = CreateFrame("Frame", "PalDumpCopyFrame", UIParent, "BasicFrameTemplateWithInset")
+        f:SetSize(640, 460)
+        f:SetPoint("CENTER")
+        if f.TitleContainer and f.TitleContainer.TitleText then
+            f.TitleContainer.TitleText:SetText("PalDump — экспорт (Ctrl+A, Ctrl+C)")
+        end
+        local eb = CreateFrame("EditBox", nil, f)
+        eb:SetMultiLine(true)
+        eb:SetMaxLetters(0)
+        eb:SetFontObject(GameFontHighlight)
+        eb:SetScript("OnEscapePressed", function(box) box:ClearFocus() end)
+        eb:SetPoint("TOPLEFT", 14, -32)
+        eb:SetPoint("BOTTOMRIGHT", -14, 14)
+        local tex = eb:CreateTexture(nil, "BACKGROUND")
+        tex:SetAllPoints()
+        tex:SetColorTexture(0.02, 0.02, 0.02, 0.9)
+        f.editBox = eb
+        if f.CloseButton then
+            f.CloseButton:SetScript("OnClick", function() f:Hide() end)
+        end
+        f:SetScript("OnHide", function() eb:ClearFocus() end)
+        f:SetMovable(true)
+        f:EnableMouse(true)
+        f:RegisterForDrag("LeftButton")
+        f:SetScript("OnDragStart", function(frame) frame:StartMoving() end)
+        f:SetScript("OnDragStop", function(frame) frame:StopMovingOrSizing() end)
+        table.insert(UISpecialFrames, "PalDumpCopyFrame")  -- Esc закрывает
+    end
+    f.editBox:SetText(text)
+    f:Show()
+    f.editBox:SetFocus()
+    f.editBox:HighlightText()
+    print("[PalLog] Окно экспорта: выделено всё — Ctrl+C (копия), Ctrl+V вставь куда нужно.")
+end
+
+-- v4.11: ПРОК-СВЕРКА — баф -> его триггер-способности (см. paladin/PROC_BUFFS_ANALYSIS.md)
+local PROC_BUFF_LIST = {
+    { 378412, "Свет титанов",              { 85673, 378405 } },
+    { 432629, "Неоспоримое постановление", { 427453, 432626 } },
+    { 427441, "Молот Света",               { 255937, 427445 } },
+    { 386730, "Божественный резонанс",     { 375576, 386731, 386732, 386738, 20473, 20271, 31935 } },
+    { 209388, "Оплот порядка",             { 31935, 209388 } },
+    { 386652, "Оплот праведной ярости",    { 31935, 386652 } },
+    -- v4.14: таланты класса (класс-дерево/спек-проки)
+    { 327510, "Сияние (бесплатное Слово)", { 53600, 321136 } },
+    { 431474, "Второй восход",              { 24275, 431474 } },
+    { 1266308, "Бож.резонанс (Рет)",       { 375576, 20271 } },
+}
+local PROC_TRIG_NAMES = {
+    [85673]  = "Слово благословения",
+    [427453] = "Молот Света (каст)",
+    [255937] = "Пробуждение зол",
+    [375576] = "Божественный звон",
+    [386731] = "Бож.резонанс-тик",
+    [386732] = "Бож.резонанс-слой1",
+    [386738] = "Бож.резонанс-слой2",
+    [20473]  = "Святая вспышка",
+    [20271]  = "Правосудие",
+    [31935]  = "Карающий щит",
+    [427445] = "Наставления Света (аплеер)",
+    [378405] = "Свет титанов (аплеер)",
+    [432626] = "Неоспоримое (аплеер)",
+    [209388] = "Оплот порядка (каст скриптом)",
+    [386652] = "Оплот ярости (каст скриптом)",
+    [53600]  = "Удар в праведности",
+    [24275]  = "Молот гнева",
+    [321136] = "Сияние (талант)",
+    [431474] = "Второй восход (проц)",
+}
+
 SLASH_PALDUMPLOG1 = "/paldumplog"
 SlashCmdList["PALDUMPLOG"] = function(msg)
     msg = tostring(msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -232,25 +465,94 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
         PalDumpDB.cfg.log = v
         addLine(v and "=== ЛОГ ВКЛЮЧЁН ===" or "=== ЛОГ ВЫКЛЮЧЕН ===", nil)
         print("[PalLog] Боевой лог: " .. (v and "ВКЛЮЧЁН (касты, бафы/дебафы, хилы по мне, суммоны)" or "ВЫКЛЮЧЕН"))
-        print("[PalLog] /paldumplog snap — снимок аур | /paldumplog show 30 | /paldumplog dmg on — писать урон | /paldumplog clear")
-        flush()
+        print("[PalLog] /paldumplog snap — снимок аур | /paldumplog show 30 | /paldumplog export 200 — ОКНО ДЛЯ Ctrl+C | /paldumplog clear")
     elseif msg == "snap" then
-        Snapshot()
+        local oks, errs = pcall(Snapshot)
+        if not oks then print("[PalDump] snap ОШИБКА: " .. tostring(errs)) end
     elseif msg:match("^show") then
         local n = tonumber(msg:match("show%s+(%d+)")) or 20
         local L = PalDumpDB.log
         for i = math.max(1, #L - n + 1), #L do print("  " .. L[i]) end
         print(("[PalLog] показано %d из %d (весь файл: WTF\\Account\\<аккаунт>\\SavedVariables\\PalDump.lua)")
             :format(math.min(n, #L), #L))
+    elseif msg:match("^export") then
+        local n = tonumber(msg:match("export%s+(%d+)")) or 100
+        local L = PalDumpDB.log
+        local first = math.max(1, #L - n + 1)
+        local buf = {}
+        for i = first, #L do buf[#buf + 1] = L[i] end
+        print(("[PalLog] Экспорт строк %d..%d из %d — окно открыто, Ctrl+A → Ctrl+C"):format(first, #L, #L))
+        ShowExport(table.concat(buf, "\n"))
     elseif msg == "dmg on" or msg == "dmg off" then
         PalDumpDB.cfg.dmg = (msg == "dmg on")
         print("[PalLog] Писать урон: " .. (PalDumpDB.cfg.dmg and "ВКЛ (лог будет расти быстро)" or "ВЫКЛ"))
+    elseif msg == "auto on" or msg == "auto off" then
+        PalDumpDB.cfg.auto = (msg == "auto on")
+        print("[PalLog] Авто-дамп книги/талантов на входе: " .. (PalDumpDB.cfg.auto and "ВКЛЮЧЁН" or "ВЫКЛЮЧЕН"))
+        if PalDumpDB.cfg.auto then print("[PalLog] Проверь после входа в мир: не появился ли попап Paldump") end
+    elseif msg == "dump" then
+        print("[PalLog] Ручной авто-дамп...")
+        AutoDump(true)
+    elseif msg == "diag on" or msg == "diag off" then
+        DiagSet(msg == "diag on")
+    elseif msg == "cleu on" or msg == "cleu off" then
+        PalDumpDB.cfg.cleu = (msg == "cleu on")
+        if PalDumpDB.cfg.cleu then
+            PalDumpMainFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+            print("[PalLog] CLEU: ВКЛ — при следующем боевом событии возможен попап, жми «Пропустить»")
+        else
+            PalDumpMainFrame:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+            print("[PalLog] CLEU: ВЫКЛ (лог работает через UNIT_AURA/UNIT_SPELLCAST)")
+        end
+    elseif msg == "procs" then
+        local function lc(s) local x = s:match("<<x(%d+)>>"); return x and tonumber(x) or 1 end
+        local applied, refresh, casts = {}, {}, {}
+        local tot = { ap = 0, rf = 0, ds = 0, rm = 0 }
+        for _, line in ipairs(PalDumpDB.log) do
+            local a = line:match("AURA_APPLIED%s+.-%[(%d+)%]")
+            if a then local k = tonumber(a); local n = lc(line); applied[k] = (applied[k] or 0) + n; tot.ap = tot.ap + n end
+            local r = line:match("AURA_REFRESH%s+.-%[(%d+)%]")
+            if r then local k = tonumber(r); local n = lc(line); refresh[k] = (refresh[k] or 0) + n; tot.rf = tot.rf + n end
+            if line:find("AURA_DOSE", 1, true) then tot.ds = tot.ds + lc(line) end
+            if line:find("AURA_REMOVED", 1, true) then tot.rm = tot.rm + lc(line) end
+            local c = line:match("SPELL_CAST_SUCCEEDED%s+.-%[(%d+)%]")
+            if c then local k = tonumber(c); casts[k] = (casts[k] or 0) + lc(line) end
+        end
+        local out = {}
+        out[#out + 1] = ("[ПРОК] строк лога: %d | AURA-события: applied %d, refresh %d, dose %d, removed %d")
+            :format(#PalDumpDB.log, tot.ap, tot.rf, tot.ds, tot.rm)
+        out[#out + 1] = ("[ПРОК] источники с загрузки: UNIT_AURA=%s, SPELLCAST=%s, COMBAT_TEXT=%s")
+            :format(srcSeen.aura and "да" or "НЕТ", srcSeen.cast and "да" or "НЕТ", srcSeen.ct and "да" or "НЕТ")
+        local now = SnapAuras("player")
+        local gt = GetTime()
+        for _, row in ipairs(PROC_BUFF_LIST) do
+            local id, bname, trigs = row[1], row[2], row[3]
+            local ap, rf = applied[id] or 0, refresh[id] or 0
+            local parts = {}
+            for _, t in ipairs(trigs) do
+                parts[#parts + 1] = ("%s [%d]:%d"):format(PROC_TRIG_NAMES[t] or "?", t, casts[t] or 0)
+            end
+            local p = now["H" .. id]
+            local here
+            if p then
+                local rem = (p.exp and p.exp > 0) and math.max(0, math.floor(p.exp - gt + 0.5)) or 0
+                here = ("сейчас: ЕСТЬ, стаков %d, ост.%ds"):format(p.n or 1, rem)
+            else
+                here = "сейчас: нет"
+            end
+            out[#out + 1] = ("  %s [%d]: накл %d, обновл %d | триггеры: %s | %s")
+                :format(bname, id, ap, rf, table.concat(parts, ", "), here)
+        end
+        out[#out + 1] = "[ПРОК] Сверка: накладывания ≈ триггеры (минус окна висения). Окно ниже — Ctrl+A/Ctrl+C"
+        for _, l in ipairs(out) do print(l) end
+        ShowExport(table.concat(out, "\n"))
+        print("[PalLog] Таблица открыта в окне — Ctrl+A → Ctrl+C и кидай мне")
     elseif msg == "clear" then
         PalDumpDB.log = {}
-        lastKey, lastN, evCount = nil, 0, 0
+        lastKey, lastN = nil, 0
         print("[PalLog] Лог очищен")
     else
-        print("Использование: /paldumplog [on|off|snap|show N|dmg on|dmg off|clear]")
+        print("Использование: /paldumplog [on|off|snap|show N|export N|procs|dump|auto on|diag on|cleu on|dmg on|clear]")
     end
 end
 
@@ -384,6 +686,7 @@ end
 
 SLASH_PALDUMP1 = "/paldump"
 SlashCmdList["PALDUMP"] = function()
+    local okp, errp = pcall(function()
     local specName, specID = SpecInfo()
     local key = tostring(specID)
     local book, skipped = DumpBook()
@@ -396,12 +699,16 @@ SlashCmdList["PALDUMP"] = function()
     print("[PalDump] уже в файле: " .. table.concat(list, ", "))
     print("[PalDump] введите /reload, затем при желании переключите другую спеку и повторите /paldump")
     print('  финальный файл: WTF\\Account\\<имя аккаунта>\\SavedVariables\\PalDump.lua')
-    flush()
+    end)
+    if not okp then print("[PalDump] /paldump ОШИБКА: " .. tostring(errp)) end
 end
 
 -- АВТО-ДАМП: книга + таланты текущей спеки пишутся в файл сами при входе
 -- и при смене спеки — руками вызывать /paldump больше не обязательно.
-local function AutoDump()
+-- (global — чтобы видел замыкание slash-команды, объявленного выше)
+function AutoDump(force)
+    if not force and PalDumpDB.cfg.auto ~= true then return end -- v4.4: на входе выключен (попап)
+    local okd, errd = pcall(function()
     local specName, specID = SpecInfo()
     local book, skipped = DumpBook()
     if #book == 0 then return end -- книга ещё не загрузилась, попробует при смене спеки
@@ -414,23 +721,40 @@ local function AutoDump()
         tostring(specName), tostring(specID), #book, skipped, #tal), nil)
     print(("[PalDump] авто-дамп: %s (%s): способностей %d, талантов %d — сохранено")
         :format(tostring(specName), tostring(specID), #book, #tal))
-    flush()
+    end)
+    if not okd then print("[PalDump] авто-дамп ОШИБКА: " .. tostring(errd)) end
 end
 
-local f = CreateFrame("Frame")
-f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
-f:RegisterEvent("PLAYER_ENTER_WORLD")
-f:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-f:RegisterEvent("PLAYER_REGEN_DISABLED")
-f:RegisterEvent("PLAYER_REGEN_ENABLED")
-f:RegisterEvent("PLAYER_LOGOUT")
-f:SetScript("OnEvent", function(_, event)
+PalDumpMainFrame = CreateFrame("Frame", "PalDumpMainFrame")
+PalDumpMainFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+PalDumpMainFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+PalDumpMainFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
+PalDumpMainFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+PalDumpMainFrame:RegisterEvent("PLAYER_LOGOUT")
+-- v4.7: разрешённые события (T16-T18 подтверждены — БЕЗ попапа)
+pcall(PalDumpMainFrame.RegisterEvent, PalDumpMainFrame, "UNIT_AURA")
+pcall(PalDumpMainFrame.RegisterEvent, PalDumpMainFrame, "UNIT_SPELLCAST_SUCCEEDED")
+pcall(PalDumpMainFrame.RegisterEvent, PalDumpMainFrame, "COMBAT_TEXT_UPDATE")
+-- CLEU в этом клиенте = ЗАПРЕЩЁННОЕ действие (попап при входе) — только по флагу:
+if PalDumpDB.cfg.cleu == true then
+    PalDumpMainFrame:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+end
+PalDumpMainFrame:SetScript("OnEvent", function(_, event, ...)
+    local a1, a2, a3 = ...
+    local ok, err = pcall(function()
     if event == "COMBAT_LOG_EVENT_UNFILTERED" then
         OnCLEU()
-    elseif event == "PLAYER_ENTER_WORLD" then
+    elseif event == "UNIT_AURA" then
+        OnUnitAura(a1)
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        OnCastOk(a1, a3)
+    elseif event == "COMBAT_TEXT_UPDATE" then
+        OnCombatText(a1, a2, a3)
+    elseif event == "PLAYER_ENTERING_WORLD" then
         playerGUID = UnitGUID("player")
         summoned = {}
         auraTrack, stormRing, stormNames = {}, {}, {}
+        auraCache = {}
         startTime = GetTime()
         local _, build = GetBuildInfo()
         -- ужимаем лог, если накопился за много сессий
@@ -440,24 +764,67 @@ f:SetScript("OnEvent", function(_, event)
             for i = #L - 4000 + 1, #L do keep[#keep + 1] = L[i] end
             PalDumpDB.log = keep
         end
+        if a1 or a2 then -- шапка/баннер только при входе и /reload (не на каждой загрузочной)
         addLine(string.format("===== СЕССИЯ %s, клиент %s =====", date("%Y-%m-%d %H:%M:%S"), build or "?"), nil)
-        if C_Timer and C_Timer.After then C_Timer.After(5, AutoDump) end
+        print(("[PalLog] Лог активен: /paldumplog export — выгрузка в чат, /paldumplog show 20 — последние строки (клиент %s)"):format(build or "?"))
+        if PalDumpDB.cfg.auto ~= true then
+            print("[PalLog] Авто-дамп выключен (ловим попап): /paldumplog dump — вручную | /paldumplog auto on — на входе")
+        end
+        -- v4.8: БАННЕР — что стоит и что включено (главный индикатор версии)
+        print(("[PalLog] PalDump v4.14 | лог: UNIT_AURA+SPELLCAST+COMBAT_TEXT | CLEU=%s | auto=%s | состояние: %s"):format(
+            PalDumpDB.cfg.cleu == true and "вкл" or "выкл",
+            PalDumpDB.cfg.auto == true and "вкл" or "выкл",
+            PalDumpDB.cfg.log and "ЛОГ ВКЛ" or "ЛОГ ВЫКЛ"))
+        end -- if a1 or a2
+        if C_Timer and C_Timer.After then
+            C_Timer.After(5, AutoDump)
+            -- база для дельт аур: снап через 3 с (данные к этому моменту загружены)
+            C_Timer.After(3, function() auraCache["player"] = SnapAuras("player") end)
+        end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         if C_Timer and C_Timer.After then C_Timer.After(3, AutoDump) end
     elseif event == "PLAYER_REGEN_DISABLED" then
         if PalDumpDB.cfg.log then addLine("=== ВСТУПИЛ В БОЙ ===", nil) end
-        flush()
     elseif event == "PLAYER_REGEN_ENABLED" then
         if PalDumpDB.cfg.log then addLine("=== ВЫШЕЛ ИЗ БОЯ ===", nil) end
-        flush()
     elseif event == "PLAYER_LOGOUT" then
         addLine("=== ВЫХОД ===", nil)
+        print(("[PalLog] Выход: лог %d строк — файл сохраняется"):format(#PalDumpDB.log))
+    end
+    end)
+    if not ok then
+        print("[PalDump] ОШИБКА события (блок-попап?): " .. tostring(err))
+        addLine("=== ERR " .. tostring(err) .. " ===", nil)
     end
 end)
--- страховка для форензики: пишем на диск каждые 10 секунд, пока лог включён,
--- чтобы после краша сервера в файле были последние секунды боя
-if C_Timer and C_Timer.NewTicker then
-    C_Timer.NewTicker(10, function()
-        if PalDumpDB.cfg.log and evCount > 0 then flush() end
-    end)
+-- ДИАГНОСТИКА TAINT (v4.1): если всплывает попап «Модификация Paldump
+-- заблокирована…», печатаем в чат событие, аддон и функцию — так видно, что
+-- именно блокируется (если это не PalDump — покажет имя настоящего виновника).
+local diag = CreateFrame("Frame")
+diag:SetScript("OnEvent", function(_, event, ...)
+    local parts = {}
+    for i = 1, select("#", ...) do parts[#parts + 1] = tostring((select(i, ...))) end
+    local ln = event .. ": " .. table.concat(parts, ", ")
+    local stack = (debugstack and debugstack(3, 6, 6) or ""):gsub("%s+$", "")
+    -- 3 повтора, чтобы строку НЕЛЬЗЯ было пропустить в скролле чата
+    for _ = 1, 3 do print("[PalDump] " .. ln) end
+    if stack ~= "" then print("[PalDump] стек вызова:\n" .. stack) end
+    addLine("=== TAINT " .. ln .. " ===", nil)
+    if stack ~= "" then addLine("=== STACK " .. stack:gsub("\n", " >> ") .. " ===", nil) end
+end)
+-- v4.5: регистрация ADDON_ACTION_* ПО ФЛАГУ. По умолчанию ВЫКЛ: в клиенте 12.x
+-- сам факт подписки не-Blizzard аддона на эти события даёт попап «только для
+-- интерфейсу Blizzard» (подтвердится макросом T8). /paldumplog diag on|off.
+function DiagSet(on)
+    if on then
+        diag:RegisterEvent("ADDON_ACTION_FORBIDDEN")
+        diag:RegisterEvent("ADDON_ACTION_BLOCKED")
+        PalDumpDB.cfg.diag = true
+        print("[PalDump] Ловушка попапа: ВКЛ (следи за строками [PalDump] ADDON_ACTION_*)")
+    else
+        diag:UnregisterAllEvents()
+        PalDumpDB.cfg.diag = false
+        print("[PalDump] Ловушка попапа: ВЫКЛ")
+    end
 end
+if PalDumpDB.cfg.diag == true then DiagSet(true) end
