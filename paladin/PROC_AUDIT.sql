@@ -37,8 +37,7 @@ FROM spell_effect AS e
 WHERE e.EffectTriggerSpell IN (378412, 386730, 427441, 432629, 386732, 386731)
    OR e.EffectMiscValue   IN (378412, 386730, 427441, 432629);
 
--- 3. Биндинги цепочек (БД `world`!) -------------------------------------------
-SELECT *
+-- 3. Биндинги цепочек (БД `world`!) -------------------------------------------SELECT *
 FROM spell_script_names
 WHERE spell_id IN (
     375576, -- Божественный звон  -> divine_toll_ex (Резонанс, Прот-Молот)
@@ -50,3 +49,14 @@ WHERE spell_id IN (
     31935,  -- Щит мстителя       -> bulwark_of_order_ex (Оплоты)
     377128  -- Золотая тропа      -> golden_path_ex
 );
+
+-- 5. СВИП ШИРОКИХ МАСОК по ВСЕЙ базе (болезнь §8: прок «от каста чего угодно») --
+--    Частый бит: ProcTypeMask2=4 («успешный каст») и подозрительный
+--    ProcTypeMask1=2446336 (0x255380). Наши три уже обнулены (PROC_FIX) —
+--    в выводе их быть не должно. Вывод пуст = других жертв нет; строки,
+--    которые вылезут, прислать мне вместе с именем спелла.
+SELECT ao.SpellID, ao.ProcTypeMask1, ao.ProcTypeMask2, ao.ProcChance, ao.CumulativeAura
+FROM spell_aura_options AS ao
+WHERE (ao.ProcTypeMask2 & 4) <> 0
+   OR (ao.ProcTypeMask1 & 2446336) = 2446336
+ORDER BY ao.SpellID;
