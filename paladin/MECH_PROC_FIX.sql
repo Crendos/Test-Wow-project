@@ -1,39 +1,52 @@
 -- =============================================================================
--- MECH_PROC_FIX.sql — hotfixes. Снять широкие проки у талантов, которые
--- теперь выдаются узкими скриптами (часть 7/9, ревизия PAL_MECH_REV_20260926).
--- Иначе DBC и скрипт срабатывают оба: двойные молотки / стаки / продления,
--- в том числе «с любой способности», если маска = Cast Successful.
+-- MECH_PROC_FIX.sql — hotfixes. По шагам 1–2 AUDIT_2 (26.09).
 --
--- НЕ трогает 378405 (Свет титанов, узкая маска) и уже обнулённые
--- 427445 / 432626 / 386732 (PROC_FIX.sql) и 432929 (fix_432929_root.sql).
+-- Уже 0/0, UPDATE ниже ничего не меняет (оставлен, чтобы повтор был безопасен):
+--   432463 Молотопад, 431533 Сотрясение, 425518 Избавление Света, 431687 Высшее призвание.
+--   431522 CumulativeAura уже 6 (>= 2).
+--
+-- Новое, по тем же шагам. Ядро берёт прок-флаги из spell_aura_options
+-- (SpellInfo.cpp: ProcFlags = ProcTypeMask). Ненулевая маска = прок живой.
+--   427441 кнопка Молота: маска 0/4 (Cast Successful), шанс 101.
+--     Эффект — замена панели (аура 332 → спелл 427453), не Proc Trigger.
+--     HandleProc эту ауру не кастует, но прок с каждого каста всё равно
+--     считается успешным. Кнопку выдают скрипты, маска ей не нужна.
+--   431522 заряды Рассвета: маска 87312 (ближняя/дальняя/полезное/вредное
+--     умение и спелл — почти любая способность), триггер-спелл 0.
+--     Ядро пишет warning и ничего не кастует. Заряды тратит spell_pal_dawnlight_ex.
+--
+-- НЕ трогать:
+--   1266308 рет-резонанс (маска 0/4) — скрипт фильтрует до Правосудия;
+--   431474 Второй восход — скрипт фильтрует до Молота гнева;
+--   378405 Свет титанов (16384, полезный спелл);
+--   386652 / 321136 (16, ближнее умение);
+--   469309 (когда бьют), 469883 (вредный спелл; ему нужен family 10 в world).
 --
 -- Выполнять в базе hotfixes, затем перезапуск worldserver.
 -- =============================================================================
 
 -- 0. ДО
-SELECT ao.SpellID, n.Name, ao.ProcTypeMask1, ao.ProcTypeMask2, ao.ProcChance
+SELECT ao.SpellID, ao.ProcTypeMask1, ao.ProcTypeMask2, ao.ProcChance, ao.CumulativeAura, ao.ProcCharges
 FROM spell_aura_options ao
-LEFT JOIN spell_name n ON n.ID = ao.SpellID
-WHERE ao.SpellID IN (432463, 431533, 425518, 431687);
+WHERE ao.SpellID IN (432463, 431533, 425518, 431687, 427441, 431522, 1266308);
 
--- 1. ФИКС
+-- 1. Уже нулевые таланты (идемпотентно)
 UPDATE spell_aura_options
 SET ProcTypeMask1 = 0, ProcTypeMask2 = 0
-WHERE SpellID IN (
-    432463, -- Молотопад: скрипт spell_pal_sotr_shake_heavens_ex
-    431533, -- Сотрясение небес: бафф 431536 выдаёт spell_pal_hol_templar_ex (тик — у самого баффа)
-    425518, -- Избавление Света: стаки вешает spell_pal_empyrean_deliverance_ex
-    431687  -- Высшее призвание: продление в spell_pal_higher_calling_ex
-);
+WHERE SpellID IN (432463, 431533, 425518, 431687);
 
--- 1b. Рассветный свет: бафф зарядов 431522 должен стакаться минимум до 2
---     (иначе SetStackAmount обрежется CumulativeAura и второй спендер не получит DoT).
+-- 2. Прок «с любого каста», который сам ничего не кастует
+UPDATE spell_aura_options
+SET ProcTypeMask1 = 0, ProcTypeMask2 = 0
+WHERE SpellID IN (427441, 431522)
+  AND (ProcTypeMask1 <> 0 OR ProcTypeMask2 <> 0);
+
+-- 3. Кап стаков зарядов Рассвета (уже 6 — совпадений 0)
 UPDATE spell_aura_options
 SET CumulativeAura = 2
 WHERE SpellID = 431522 AND CumulativeAura < 2;
 
--- 2. ПОСЛЕ (маски 0/0; у 431522 CumulativeAura >= 2)
-SELECT ao.SpellID, n.Name, ao.ProcTypeMask1, ao.ProcTypeMask2, ao.CumulativeAura
+-- 4. ПОСЛЕ: у 427441 и 431522 маски 0/0; у 1266308 маска 0/4 на месте
+SELECT ao.SpellID, ao.ProcTypeMask1, ao.ProcTypeMask2, ao.CumulativeAura
 FROM spell_aura_options ao
-LEFT JOIN spell_name n ON n.ID = ao.SpellID
-WHERE ao.SpellID IN (432463, 431533, 425518, 431687, 431522);
+WHERE ao.SpellID IN (432463, 431533, 425518, 431687, 427441, 431522, 1266308);

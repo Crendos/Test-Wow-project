@@ -33,7 +33,12 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (255937, 'spell_pal_lights_guidance_wake_ex');
 
 -- spell_proc ------------------------------------------------------------------
--- Второй восход: успешный каст Молота гнева, шанс 15%, ICD 1с
+-- Второй восход: успешный каст Молота гнева, шанс 15%, ICD 1с.
+-- ProcFlags=0 ядро добирает из hotfixes; скрипт всё равно пускает только Молот гнева.
+REPLACE INTO `spell_proc`
+(`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,
+ `ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,
+ `ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (431474,0x00,0,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,15,1000,0);
 -- Молотопад (432463) больше НЕ с Молота Света: его вешают спендеры
 -- (часть 9, spell_pal_sotr_shake_heavens_ex). Маску прока обнуляет MECH_PROC_FIX.sql.
