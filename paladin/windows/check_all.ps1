@@ -1,4 +1,4 @@
-﻿# Paladin fixes — проверка шагов 0–1 (+сборки). Пути автоматически.
+# Paladin fixes — проверка шагов 0–1 (+сборки). Пути автоматически.
 $ErrorActionPreference = 'Continue'
 $core = @(
     "$env:USERPROFILE\Desktop\new\test\TrinityCore",
@@ -20,6 +20,7 @@ Chk ($a -match 'HandleNoImmediateEffect,\s*//529') 'Шаг 0: 529 заменён
 $pal = Get-Content -Raw "$core\src\server\scripts\Spells\spell_paladin.cpp"
 $n = ([regex]::Matches($pal, [regex]::Escape('// === CUT HERE'))).Count
 Chk ($n -eq 10) "Шаг 1.1: партий 10" "Шаг 1.1: партий $n (нужно 10)"
+Chk ($pal -match 'PAL_MECH_REV_20260926') 'Шаг 1.1: механика 26.09 на месте' 'Шаг 1.1: старые партии — перезапустите step1_scripts.bat'
 $ld = Get-Content -Raw "$core\src\server\scripts\Spells\spell_script_loader.cpp"
 $na = ([regex]::Matches($ld, [regex]::Escape('void AddSC_paladin_spell_scripts_ex'))).Count
 Chk ($na -eq 9) "Шаг 1.2: объявлений 9" "Шаг 1.2: объявлений $na (нужно 9)"

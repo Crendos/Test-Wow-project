@@ -35,6 +35,7 @@ enum PaladinEx6Spells
     // Холи-токен Резонанса:379391 Quickened Invocation (wowhead:386731 «После
     // Призмы/Вооружения/Звона — Святая вспышка каждые5с»; Related = только он)
     SPELL_EX6_DIVINE_RESONANCE_HOLY     = 379391,
+    SPELL_EX6_HOLY_PRISM                = 114165,
     SPELL_EX6_GOLDEN_PATH               = 377128,
     SPELL_EX6_GOLDEN_PATH_HEAL          = 339119,
     SPELL_EX6_SELFLESS_HEALER           = 469434,
@@ -513,9 +514,39 @@ class spell_pal_auras_of_the_resolute_ex : public AuraScript
     }
 };
 
+// 114165 Святая призма (Холи): wowhead 386732 — Резонанс также от Призмы, не только от Звона.
+class spell_pal_divine_resonance_prism_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX6_DIVINE_RESONANCE_HOLY, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA });
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_HOLY))
+            return;
+        if (Player* player = caster->ToPlayer())
+            if (player->GetPrimarySpecialization() != ChrSpecialization::PaladinHoly)
+                return;
+
+        caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_divine_resonance_prism_ex::HandleAfterCast);
+    }
+};
+
 void AddSC_paladin_spell_scripts_ex6()
 {
     RegisterSpellScript(spell_pal_divine_toll_ex);
+    RegisterSpellScript(spell_pal_divine_resonance_prism_ex);
     RegisterSpellScript(spell_pal_divine_resonance_ret_ex);
     RegisterSpellScript(spell_pal_divine_resonance_prot_ex);
     RegisterSpellScript(spell_pal_golden_path_ex);

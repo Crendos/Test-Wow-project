@@ -6,6 +6,8 @@
 REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- Гневилище: основной каст + Резонансы
 (375576, 'spell_pal_divine_toll_ex'),
+-- Холи-Резонанс также от Святой призмы (114165)
+(114165, 'spell_pal_divine_resonance_prism_ex'),
 -- Резонанс света (Воздаяние): ре-каст Правосудий
 (1266308, 'spell_pal_divine_resonance_ret_ex'),
 -- Резонанс света (Защита): периодические Щиты мстителя
