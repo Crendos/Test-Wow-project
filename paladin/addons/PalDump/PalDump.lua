@@ -1,3 +1,6 @@
+-- PalDump v4.11 (26.09.2026): команда /paldumplog procs — сверка прок-бафов:
+--    сколько раз каждый баф накладывался против скольких кастов его триггера.
+--    Анализ и ожидания: paladin/PROC_BUFFS_ANALYSIS.md, SQL-проверка: PROC_VERIFICATION.sql
 -- PalDump v4.10 (25.09.2026): ФИКС ГЛАВНОГО БАГА — событие входа было названо
 --    PLAYER_ENTER_WORLD (такого события НЕТ в API, правильно PLAYER_ENTERING_WORLD),
 --    поэтому ветка входа (баннер, шапка сессии, таймеры) НЕ СРАБАТЫВАЛА НИКОГДА.
@@ -410,6 +413,26 @@ local function ShowExport(text)
     print("[PalLog] Окно экспорта: выделено всё — Ctrl+C (копия), Ctrl+V вставь куда нужно.")
 end
 
+-- v4.11: ПРОК-СВЕРКА — баф -> его триггер-способности (см. paladin/PROC_BUFFS_ANALYSIS.md)
+local PROC_BUFF_LIST = {
+    { 378412, "Свет титанов",              { 85673 } },
+    { 432629, "Неоспоримое постановление", { 427453 } },
+    { 427441, "Молот Света",               { 255937 } },
+    { 386730, "Божественный резонанс",     { 375576, 386731, 20473, 20271, 31935 } },
+    { 209388, "Оплот порядка",             { 31935 } },
+    { 386652, "Оплот праведного гнева",    { 31935 } },
+}
+local PROC_TRIG_NAMES = {
+    [85673]  = "Слово благословения",
+    [427453] = "Молот Света (каст)",
+    [255937] = "Пробуждение зол",
+    [375576] = "Божественный звон",
+    [386731] = "Бож.резонанс-тик",
+    [20473]  = "Святая вспышка",
+    [20271]  = "Правосудие",
+    [31935]  = "Карающий щит",
+}
+
 SLASH_PALDUMPLOG1 = "/paldumplog"
 SlashCmdList["PALDUMPLOG"] = function(msg)
     msg = tostring(msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -457,12 +480,36 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
             PalDumpMainFrame:UnregisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
             print("[PalLog] CLEU: ВЫКЛ (лог работает через UNIT_AURA/UNIT_SPELLCAST)")
         end
+    elseif msg == "procs" then
+        local applied, refresh, casts = {}, {}, {}
+        for _, line in ipairs(PalDumpDB.log) do
+            local a = line:match("AURA_APPLIED%s+.-%[(%d+)%]")
+            if a then local k = tonumber(a); applied[k] = (applied[k] or 0) + 1 end
+            local r = line:match("AURA_REFRESH%s+.-%[(%d+)%]")
+            if r then local k = tonumber(r); refresh[k] = (refresh[k] or 0) + 1 end
+            local c = line:match("SPELL_CAST_SUCCEEDED%s+.-%[(%d+)%]")
+            if c then local k = tonumber(c); casts[k] = (casts[k] or 0) + 1 end
+        end
+        print(("[ПРОК-СВЕРКА] строк лога: %d (лучше /paldumplog clear перед тестом)"):format(#PalDumpDB.log))
+        for _, row in ipairs(PROC_BUFF_LIST) do
+            local id, bname, trigs = row[1], row[2], row[3]
+            local ap, rf = applied[id] or 0, refresh[id] or 0
+            local ct, parts = 0, {}
+            for _, t in ipairs(trigs) do
+                local n = casts[t] or 0
+                ct = ct + n
+                parts[#parts + 1] = ("%s [%d]:%d"):format(PROC_TRIG_NAMES[t] or "?", t, n)
+            end
+            print(("  %s [%d]: накладывался %d, обновлён %d | триггеры: %s"):format(
+                bname, id, ap, rf, table.concat(parts, ", ")))
+        end
+        print("[ПРОК] Сверка: накладывания ≈ триггеры, минус окна когда баф уже висел. Жду вывод сюда + SQL из PROC_VERIFICATION.sql")
     elseif msg == "clear" then
         PalDumpDB.log = {}
         lastKey, lastN = nil, 0
         print("[PalLog] Лог очищен")
     else
-        print("Использование: /paldumplog [on|off|snap|show N|export N|dump|auto on|diag on|cleu on|dmg on|clear]")
+        print("Использование: /paldumplog [on|off|snap|show N|export N|procs|dump|auto on|diag on|cleu on|dmg on|clear]")
     end
 end
 
