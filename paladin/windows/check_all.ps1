@@ -1,4 +1,4 @@
-# Paladin fixes — проверка шагов 0–1 (+сборки). Пути автоматически.
+﻿# Paladin fixes — проверка шагов 0–1 (+сборки). Пути автоматически.
 $ErrorActionPreference = 'Continue'
 $core = @(
     "$env:USERPROFILE\Desktop\new\test\TrinityCore",

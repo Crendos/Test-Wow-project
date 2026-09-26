@@ -1,4 +1,4 @@
-# Paladin fixes — ШАГ 1: дописать 10 партий в spell_paladin.cpp (+ проверить лоадер)
+﻿# Paladin fixes — ШАГ 1: дописать 10 партий в spell_paladin.cpp (+ проверить лоадер)
 # Пути определяются автоматически. Запуск: двойной клик по step1_scripts.bat
 $ErrorActionPreference = 'Stop'
 $fix = Split-Path -Parent $PSScriptRoot
