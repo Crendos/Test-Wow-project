@@ -4,6 +4,10 @@
 // Исцеляющие длани, Наставляемая молитва, Ауры твердыни).
 // Вставка после части 4b. Регистрация: AddSC_paladin_spell_scripts_ex6().
 // Спутник: paladin_class_fixes_5.sql
+// 26.09.2026 (PROC_FIX-дополнение): Звон (375576) выдает кнопку Молота Света
+//   (427441), если талант Наставления Света (427445) известен. Маску прока
+//   427445 обнулили (PROC_FIX.sql — прок срабатывал с ЛЮБОГО каста, включая
+//   маунт), поэтому выдачу делаем узким путем — строго от каста Звона.
 // ============================================================================
 
 // === CUT HERE ===============================================================
@@ -38,7 +42,11 @@ enum PaladinEx6Spells
 
     SPELL_EX6_AURA_DEVOTION             = 465,
     SPELL_EX6_AURA_CRUSADER             = 32223,
-    SPELL_EX6_AURA_CONCENTRATION        = 317920
+    SPELL_EX6_AURA_CONCENTRATION        = 317920,
+
+    // Наставления Света (герой-талант): Звон выдает кнопку Молота Света
+    SPELL_EX6_LIGHTS_GUIDANCE           = 427445,
+    SPELL_EX6_HAMMER_OF_LIGHT_BUFF      = 427441
 };
 
 // 375576 - Гневилище: кастует основную способность по 5 ближайшим врагам.
@@ -49,7 +57,8 @@ class spell_pal_divine_toll_ex : public SpellScript
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_EX6_HOLY_SHOCK, SPELL_EX6_AVENGERS_SHIELD,
-            SPELL_EX6_JUDGMENT_RET, SPELL_EX6_DIVINE_TOLL_RET_DEBUFF });
+            SPELL_EX6_JUDGMENT_RET, SPELL_EX6_DIVINE_TOLL_RET_DEBUFF,
+            SPELL_EX6_LIGHTS_GUIDANCE, SPELL_EX6_HAMMER_OF_LIGHT_BUFF });
     }
 
     void HandleAfterCast()
@@ -115,6 +124,14 @@ class spell_pal_divine_toll_ex : public SpellScript
                     .SetTriggeringSpell(GetSpell()));
         if (caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_PROT))
             caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
+                CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
+                    .SetTriggeringSpell(GetSpell()));
+
+        // Наставления Света (427445): от Звона — кнопка Молота Света (427441).
+        // После PROC_FIX (маска427445 обнулена) это ЕДИНСТВЕННЫЙ путь выдачи —
+        // узкий: срабатывает только при касте Звона, маунт/прочие касты не триггерят.
+        if (caster->HasAura(SPELL_EX6_LIGHTS_GUIDANCE))
+            caster->CastSpell(caster, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
                 CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
                     .SetTriggeringSpell(GetSpell()));
     }
