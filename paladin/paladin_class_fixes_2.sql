@@ -32,6 +32,6 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 
 -- spell_proc: Око за око (удары по вам во время щитов)
 -- SpellId, SchoolMask, Family, FamMask0-3, ProcFlags, ProcFlags2, TypeMask, PhaseMask, HitMask, Attributes, DisableEffects, PPM, Chance, CD, Charges
-REPLACE INTO `spell_proc` VALUES (469309,0x00,10,0,0,0,0,0x88,0x0,0x1,0x2,0x0,0x0,0x0,0,0,0,0);
+VALUES (469309,0x00,0,0,0,0,0,0x88,0x0,0x1,0x2,0x0,0x0,0x0,0,0,0,0);
 -- Сияние: успешный каст Щита праведника (ProcFlags2 = CAST_SUCCESSFUL)
-REPLACE INTO `spell_proc` VALUES (321136,0x00,10,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,0,0,0);
+VALUES (321136,0x00,0,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,0,0,0);
