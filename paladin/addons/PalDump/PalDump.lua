@@ -1,3 +1,6 @@
+-- PalDump v4.13 (26.09.2026): procs-ДИАГНОСТИКА: тоталы AURA-событий в логе, статус
+--    источников (да/НЕТ), «сейчас: есть/нет» по каждому бафу, учёт множителя <<xN>>
+--    (раньше procs считал строки, а не события — касты занижались).
 -- PalDump v4.12 (26.09.2026): procs открывается в ОКНЕ с подсветкой (Ctrl+A → Ctrl+C);
 --    в триггеры добавлены серверные аплееры (427445/378405/432626/386732/386738) и
 --    касты самих бафов (скрипт накладывает их кастом, как видно в логе каждые5 с).
@@ -491,30 +494,45 @@ SlashCmdList["PALDUMPLOG"] = function(msg)
             print("[PalLog] CLEU: ВЫКЛ (лог работает через UNIT_AURA/UNIT_SPELLCAST)")
         end
     elseif msg == "procs" then
+        local function lc(s) local x = s:match("<<x(%d+)>>"); return x and tonumber(x) or 1 end
         local applied, refresh, casts = {}, {}, {}
+        local tot = { ap = 0, rf = 0, ds = 0, rm = 0 }
         for _, line in ipairs(PalDumpDB.log) do
             local a = line:match("AURA_APPLIED%s+.-%[(%d+)%]")
-            if a then local k = tonumber(a); applied[k] = (applied[k] or 0) + 1 end
+            if a then local k = tonumber(a); local n = lc(line); applied[k] = (applied[k] or 0) + n; tot.ap = tot.ap + n end
             local r = line:match("AURA_REFRESH%s+.-%[(%d+)%]")
-            if r then local k = tonumber(r); refresh[k] = (refresh[k] or 0) + 1 end
+            if r then local k = tonumber(r); local n = lc(line); refresh[k] = (refresh[k] or 0) + n; tot.rf = tot.rf + n end
+            if line:find("AURA_DOSE", 1, true) then tot.ds = tot.ds + lc(line) end
+            if line:find("AURA_REMOVED", 1, true) then tot.rm = tot.rm + lc(line) end
             local c = line:match("SPELL_CAST_SUCCEEDED%s+.-%[(%d+)%]")
-            if c then local k = tonumber(c); casts[k] = (casts[k] or 0) + 1 end
+            if c then local k = tonumber(c); casts[k] = (casts[k] or 0) + lc(line) end
         end
-        print(("[ПРОК-СВЕРКА] строк лога: %d (лучше /paldumplog clear перед тестом)"):format(#PalDumpDB.log))
         local out = {}
+        out[#out + 1] = ("[ПРОК] строк лога: %d | AURA-события: applied %d, refresh %d, dose %d, removed %d")
+            :format(#PalDumpDB.log, tot.ap, tot.rf, tot.ds, tot.rm)
+        out[#out + 1] = ("[ПРОК] источники с загрузки: UNIT_AURA=%s, SPELLCAST=%s, COMBAT_TEXT=%s")
+            :format(srcSeen.aura and "да" or "НЕТ", srcSeen.cast and "да" or "НЕТ", srcSeen.ct and "да" or "НЕТ")
+        local now = SnapAuras("player")
+        local gt = GetTime()
         for _, row in ipairs(PROC_BUFF_LIST) do
             local id, bname, trigs = row[1], row[2], row[3]
             local ap, rf = applied[id] or 0, refresh[id] or 0
-            local ct, parts = 0, {}
+            local parts = {}
             for _, t in ipairs(trigs) do
-                local n = casts[t] or 0
-                ct = ct + n
-                parts[#parts + 1] = ("%s [%d]:%d"):format(PROC_TRIG_NAMES[t] or "?", t, n)
+                parts[#parts + 1] = ("%s [%d]:%d"):format(PROC_TRIG_NAMES[t] or "?", t, casts[t] or 0)
             end
-            out[#out + 1] = ("  %s [%d]: накладывался %d, обновлён %d | триггеры: %s"):format(
-                bname, id, ap, rf, table.concat(parts, ", "))
+            local p = now["H" .. id]
+            local here
+            if p then
+                local rem = (p.exp and p.exp > 0) and math.max(0, math.floor(p.exp - gt + 0.5)) or 0
+                here = ("сейчас: ЕСТЬ, стаков %d, ост.%ds"):format(p.n or 1, rem)
+            else
+                here = "сейчас: нет"
+            end
+            out[#out + 1] = ("  %s [%d]: накл %d, обновл %d | триггеры: %s | %s")
+                :format(bname, id, ap, rf, table.concat(parts, ", "), here)
         end
-        out[#out + 1] = "[ПРОК] Сверка: накладывания ≈ триггеры, минус окна когда баф уже висел"
+        out[#out + 1] = "[ПРОК] Сверка: накладывания ≈ триггеры (минус окна висения). Окно ниже — Ctrl+A/Ctrl+C"
         for _, l in ipairs(out) do print(l) end
         ShowExport(table.concat(out, "\n"))
         print("[PalLog] Таблица открыта в окне — Ctrl+A → Ctrl+C и кидай мне")
@@ -742,7 +760,7 @@ PalDumpMainFrame:SetScript("OnEvent", function(_, event, ...)
             print("[PalLog] Авто-дамп выключен (ловим попап): /paldumplog dump — вручную | /paldumplog auto on — на входе")
         end
         -- v4.8: БАННЕР — что стоит и что включено (главный индикатор версии)
-        print(("[PalLog] PalDump v4.12 | лог: UNIT_AURA+SPELLCAST+COMBAT_TEXT | CLEU=%s | auto=%s | состояние: %s"):format(
+        print(("[PalLog] PalDump v4.13 | лог: UNIT_AURA+SPELLCAST+COMBAT_TEXT | CLEU=%s | auto=%s | состояние: %s"):format(
             PalDumpDB.cfg.cleu == true and "вкл" or "выкл",
             PalDumpDB.cfg.auto == true and "вкл" or "выкл",
             PalDumpDB.cfg.log and "ЛОГ ВКЛ" or "ЛОГ ВЫКЛ"))
