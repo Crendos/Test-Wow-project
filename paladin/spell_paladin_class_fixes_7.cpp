@@ -228,8 +228,15 @@ class spell_pal_lights_guidance_wake_ex : public SpellScript
 //   Буря по 2+ таким целям — ещё +500мс. Холи: хил по союзнику на полном здоровье +500мс.
 class spell_pal_dawnlight_ex : public SpellScript
 {
+    struct HitNote
+    {
+        ObjectGuid guid;
+        bool hadDot = false;
+    };
+
     bool _chargeUsed = false;
     std::vector<ObjectGuid> _gleamDots;
+    std::vector<HitNote> _hits;
 
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
@@ -332,6 +339,8 @@ class spell_pal_dawnlight_ex : public SpellScript
                 if (Unit* unit = ObjectAccessor::GetUnit(*caster, guid))
                     ExtendDot(unit, caster->GetGUID(), extra);
         }
+
+        SpendDawnlight(caster);
     }
 
     void HandleHit()
@@ -363,49 +372,71 @@ class spell_pal_dawnlight_ex : public SpellScript
             }
         }
 
-        if (_chargeUsed)
-            return;
+        // Число целей считаем сами: m_UniqueTargetInfo в этой сборке protected,
+        // а friend Spell не наследуется дочерним SpellScript.
+        for (HitNote const& hit : _hits)
+            if (hit.guid == target->GetGUID())
+                return;
+        _hits.push_back({ target->GetGUID(), hadDot });
+    }
 
+    static Unit* FindWithoutDot(Unit* caster, Unit* origin)
+    {
+        float const radius = 12.f;
+        std::vector<Unit*> nearby;
+        bool const friendly = origin->IsFriendlyTo(caster);
+        if (friendly)
+        {
+            Trinity::AnyFriendlyUnitInObjectRangeCheck check(origin, caster, radius);
+            Trinity::UnitListSearcher searcher(origin, nearby, check);
+            Cell::VisitAllObjects(origin, searcher, radius);
+        }
+        else
+        {
+            Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(origin, caster, radius);
+            Trinity::UnitListSearcher searcher(origin, nearby, check);
+            Cell::VisitAllObjects(origin, searcher, radius);
+        }
+        for (Unit* unit : nearby)
+            if (unit != origin && unit->IsAlive()
+                && (friendly ? unit->IsFriendlyTo(caster) : caster->IsValidAttackTarget(unit))
+                && !unit->HasAura(SPELL_EX7_DAWNLIGHT_DOT, caster->GetGUID()))
+                return unit;
+        return nullptr;
+    }
+
+    void SpendDawnlight(Unit* caster)
+    {
+        if (_chargeUsed || _hits.empty() || !caster)
+            return;
         Aura* charges = caster->GetAura(SPELL_EX7_DAWNLIGHT_CHARGE);
         if (!charges || charges->GetStackAmount() <= 0)
             return;
 
-        Unit* dest = target;
-        if (hadDot)
+        bool const single = _hits.size() <= 1;
+        Unit* dest = nullptr;
+        for (HitNote const& hit : _hits)
         {
-            bool single = GetSpell()->m_UniqueTargetInfo.size() <= 1;
-            Unit* other = nullptr;
-            if (!single)
-            {
-                float const radius = 12.f;
-                std::vector<Unit*> nearby;
-                if (target->IsFriendlyTo(caster))
-                {
-                    Trinity::AnyFriendlyUnitInObjectRangeCheck check(target, caster, radius);
-                    Trinity::UnitListSearcher searcher(target, nearby, check);
-                    Cell::VisitAllObjects(target, searcher, radius);
-                }
-                else
-                {
-                    Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(target, caster, radius);
-                    Trinity::UnitListSearcher searcher(target, nearby, check);
-                    Cell::VisitAllObjects(target, searcher, radius);
-                }
-                bool const friendly = target->IsFriendlyTo(caster);
-                for (Unit* unit : nearby)
-                    if (unit != target && unit->IsAlive()
-                        && (friendly ? unit->IsFriendlyTo(caster) : caster->IsValidAttackTarget(unit))
-                        && !unit->HasAura(SPELL_EX7_DAWNLIGHT_DOT, caster->GetGUID()))
-                    {
-                        other = unit;
-                        break;
-                    }
-            }
-            if (other)
-                dest = other;
-            else if (!single)
+            if (hit.hadDot)
+                continue;
+            dest = ObjectAccessor::GetUnit(*caster, hit.guid);
+            if (dest)
+                break;
+        }
+
+        if (!dest && single)
+            dest = ObjectAccessor::GetUnit(*caster, _hits.front().guid);
+
+        if (!dest && !single)
+        {
+            if (Unit* origin = ObjectAccessor::GetUnit(*caster, _hits.front().guid))
+                dest = FindWithoutDot(caster, origin);
+            if (!dest)
                 return; // все цели уже с DoT — заряд не тратим (simc)
         }
+
+        if (!dest)
+            return;
 
         _chargeUsed = true;
         charges->ModStackAmount(-1);
