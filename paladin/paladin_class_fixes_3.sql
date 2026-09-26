@@ -29,4 +29,9 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 
 -- spell_proc: 378285 Гнев Тира — триггер 378286 (AoE вокруг целей Щита мстителя)
 -- FamMask Щита мстителя: [0x4000, 0x0, 0x2, 0x0]
-VALUES (378285,0x00,2,0x4000,0x0,0x2,0x0,0x10,0x0,0x1,0x2,0x3,0x0,0x0,0,0,0,0);
+-- SpellFamilyName=10 (SPELLFAMILY_PALADIN). 2 — это класс, не семейство спеллов; 2 ядро не матчит.
+REPLACE INTO `spell_proc`
+(`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,
+ `ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,
+ `ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
+VALUES (378285,0x00,10,0x4000,0x0,0x2,0x0,0x10,0x0,0x1,0x2,0x3,0x0,0x0,0,0,0,0);

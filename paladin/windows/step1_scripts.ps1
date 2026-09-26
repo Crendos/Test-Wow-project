@@ -33,13 +33,14 @@ $cur = ([regex]::Matches($raw, [regex]::Escape($marker))).Count
 $hasNew = $raw.Contains('MakeSpellArgs')
 $hasAT    = $raw.Contains('RegisterAreaTriggerAI(at_pal_blessed_hammer)')
 $hasGuard = $raw.Contains('procSpell->IsTriggered()')
+$hasMech  = $raw.Contains('PAL_MECH_REV_20260926')
 Write-Host "[1/4] маркеров в spell_paladin.cpp сейчас: $cur (нужно 0 или 10)"
 $needRollback = $false
 if ($cur -eq 10) {
-    if ($hasNew -and $hasAT -and $hasGuard) {
+    if ($hasNew -and $hasAT -and $hasGuard -and $hasMech) {
         Write-Host ">>> УЖЕ УСТАНОВЛЕНО (последняя версия) — вставка пропущена"
     } else {
-        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (без AT-скрипта молота или анти-зацикливания) — заменяю на новую"
+        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_MECH_REV_20260926 или анти-зацикливания) — заменяю на новую"
         $needRollback = $true
     }
 } elseif ($cur -ne 0) {
@@ -75,10 +76,12 @@ if ($cur -eq 0) {
     $ms  = ([regex]::Matches($raw2, 'MakeSpellArgs')).Count
     $atN = ([regex]::Matches($raw2, [regex]::Escape('RegisterAreaTriggerAI(at_pal_blessed_hammer)'))).Count
     $gdN = ([regex]::Matches($raw2, [regex]::Escape('procSpell->IsTriggered()'))).Count
+    $mech = $raw2.Contains('PAL_MECH_REV_20260926')
     Write-Host "[3/4] маркеров стало: $now (нужно 10)"
     Write-Host "[3b]  MakeSpellArgs в файле: $ms (ожидается 18)"
     Write-Host "[3c]  AT-скрипт молота: $atN (ожидается 1); анти-зацикливание: $gdN (ожидается 2)"
-    if ($now -eq 10 -and $ms -eq 18 -and $atN -eq 1 -and $gdN -eq 2) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)" -ForegroundColor Green }
+    Write-Host "[3d]  механика 26.09: $mech (ожидается True)"
+    if ($now -eq 10 -and $ms -eq 18 -and $atN -eq 1 -and $gdN -eq 2 -and $mech) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)" -ForegroundColor Green }
     else { Write-Host "[X] НЕ СХОДИТСЯ — пришлите этот вывод целиком" -ForegroundColor Red; Read-Host Enter; exit 1 }
 }
 
