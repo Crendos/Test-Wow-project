@@ -127,13 +127,16 @@ class spell_pal_divine_toll_ex : public SpellScript
                 CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
                     .SetTriggeringSpell(GetSpell()));
 
-        // Наставления Света (427445): от Звона — кнопка Молота Света (427441).
-        // После PROC_FIX (маска427445 обнулена) это ЕДИНСТВЕННЫЙ путь выдачи —
-        // узкий: срабатывает только при касте Звона, маунт/прочие касты не триггерят.
+        // Свет наставления (427445, wowhead12.1): ПРОТ — Божественный звон
+        // заменяется на Молот Света (427441) на20с. РЕТ получает Молот от
+        // Пробуждения зол — spell_pal_lights_guidance_wake_ex (часть 6, fix_7).
+        // После PROC_FIX (маска427445 обнулена) это узкий путь вместо прока.
         if (caster->HasAura(SPELL_EX6_LIGHTS_GUIDANCE))
-            caster->CastSpell(caster, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
-                CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                    .SetTriggeringSpell(GetSpell()));
+            if (Player* p = caster->ToPlayer())
+                if (p->GetPrimarySpecialization() == ChrSpecialization::PaladinProtection)
+                    caster->CastSpell(caster, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
+                        CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
+                            .SetTriggeringSpell(GetSpell()));
     }
 
     void Register() override

@@ -31,6 +31,7 @@ enum PaladinEx7Spells
     SPELL_EX7_SACROSANCT_CRUSADE        = 431730,
     SPELL_EX7_SACROSANCT_CRUSADE_HEAL   = 461885,
     SPELL_EX7_HAMMERFALL                = 432463,
+    SPELL_EX7_HAMMER_OF_LIGHT_BUFF      = 427441, // кнопка «Молот Света» (20с)
 
     // Вестник солнца
     SPELL_EX7_DAWNLIGHT_TALENT          = 431377,
@@ -132,6 +133,34 @@ class spell_pal_hammer_of_light_ex : public SpellScript
     {
         OnHit += SpellHitFn(spell_pal_hammer_of_light_ex::HandleHitTarget);
         AfterCast += SpellCastFn(spell_pal_hammer_of_light_ex::HandleAfterCast);
+    }
+};
+
+//427445 «Свет наставления» (Храмовник, wowhead12.1): РЕТ — ПРОБУЖДЕНИЕ ЗОЛ
+// (255937) заменяется на Молот Света на20с (прот-вариант: Звон, часть5/fix_6).
+// После PROC_FIX (широкая маска427445 обнулена) выдача — только узкими путями.
+class spell_pal_lights_guidance_wake_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX7_LIGHTS_GUIDANCE, SPELL_EX7_HAMMER_OF_LIGHT_BUFF });
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->HasAura(SPELL_EX7_LIGHTS_GUIDANCE))
+            return;
+        if (Player* player = caster->ToPlayer())
+            if (player->GetPrimarySpecialization() == ChrSpecialization::PaladinRetribution)
+                caster->CastSpell(caster, SPELL_EX7_HAMMER_OF_LIGHT_BUFF, CastSpellExtraArgsInit{
+                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR
+                });
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_lights_guidance_wake_ex::HandleAfterCast);
     }
 };
 
@@ -247,6 +276,7 @@ class spell_pal_valiance_ex : public SpellScript
 void AddSC_paladin_spell_scripts_ex7()
 {
     RegisterSpellScript(spell_pal_hammer_of_light_ex);
+    RegisterSpellScript(spell_pal_lights_guidance_wake_ex);
     RegisterSpellScript(spell_pal_dawnlight_ex);
     RegisterSpellScript(spell_pal_second_sunrise_ex);
     RegisterSpellScript(spell_pal_valiance_ex);
