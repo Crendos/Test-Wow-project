@@ -32,6 +32,9 @@ enum PaladinEx6Spells
     SPELL_EX6_DIVINE_RESONANCE_RET_BUFF = 1266308,
     SPELL_EX6_DIVINE_RESONANCE_PROT     = 386738,
     SPELL_EX6_DIVINE_RESONANCE_PROT_AURA = 386730,
+    // Холи-токен Резонанса:379391 Quickened Invocation (wowhead:386731 «После
+    // Призмы/Вооружения/Звона — Святая вспышка каждые5с»; Related = только он)
+    SPELL_EX6_DIVINE_RESONANCE_HOLY     = 379391,
     SPELL_EX6_GOLDEN_PATH               = 377128,
     SPELL_EX6_GOLDEN_PATH_HEAL          = 339119,
     SPELL_EX6_SELFLESS_HEALER           = 469434,
@@ -58,7 +61,9 @@ class spell_pal_divine_toll_ex : public SpellScript
     {
         return ValidateSpellInfo({ SPELL_EX6_HOLY_SHOCK, SPELL_EX6_AVENGERS_SHIELD,
             SPELL_EX6_JUDGMENT_RET, SPELL_EX6_DIVINE_TOLL_RET_DEBUFF,
-            SPELL_EX6_LIGHTS_GUIDANCE, SPELL_EX6_HAMMER_OF_LIGHT_BUFF });
+            SPELL_EX6_LIGHTS_GUIDANCE, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
+            SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
+            SPELL_EX6_DIVINE_RESONANCE_HOLY });
     }
 
     void HandleAfterCast()
@@ -123,6 +128,13 @@ class spell_pal_divine_toll_ex : public SpellScript
                 CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
                     .SetTriggeringSpell(GetSpell()));
         if (caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_PROT))
+            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
+                CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
+                    .SetTriggeringSpell(GetSpell()));
+        // АУДИТ26.09: Холи-Резонанс не выдавался (нет своей талант-ауры в цепочке)
+        // — добавлен гейт по379391; тик386730 для Холи → Святая вспышка
+        // (spec-ветка в spell_pal_divine_resonance_prot_ex)
+        if (caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_HOLY))
             caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
                 CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
                     .SetTriggeringSpell(GetSpell()));
@@ -204,7 +216,7 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX6_AVENGERS_SHIELD });
+        return ValidateSpellInfo({ SPELL_EX6_AVENGERS_SHIELD, SPELL_EX6_HOLY_SHOCK });
     }
 
     void OnPeriodic(AuraEffect const* /*aurEff*/)
@@ -214,6 +226,14 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
             return;
 
         PreventDefaultAction();
+
+        // АУДИТ26.09: spec-ветка тика — Холи → Святая вспышка (20473, wowhead386732:
+        // «Holy: instantly cast Holy Shock»); Прот → Щит мстителя (31935);
+        // Рет на этом бафе не висит (его Резонанс = отдельный1266308).
+        uint32 tickSpell = SPELL_EX6_AVENGERS_SHIELD;
+        if (Player* pl = target->ToPlayer())
+            if (pl->GetPrimarySpecialization() == ChrSpecialization::PaladinHoly)
+                tickSpell = SPELL_EX6_HOLY_SHOCK;
 
         float const radius = 30.f;
         std::vector<Unit*> enemies;
@@ -236,7 +256,7 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
         }
 
         if (best)
-            target->CastSpell(best, SPELL_EX6_AVENGERS_SHIELD, CastSpellExtraArgsInit{
+            target->CastSpell(best, tickSpell, CastSpellExtraArgsInit{
                 .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
                 .TriggeringAura = GetEffect(EFFECT_0)
             });

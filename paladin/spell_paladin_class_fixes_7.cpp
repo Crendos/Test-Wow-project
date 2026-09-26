@@ -33,6 +33,13 @@ enum PaladinEx7Spells
     SPELL_EX7_HAMMERFALL                = 432463,
     SPELL_EX7_HAMMER_OF_LIGHT_BUFF      = 427441, // кнопка «Молот Света» (20с)
 
+    // АУДИТ26.09: эхо-эффекты Неоспоримого постановления (432626, wowhead):
+    // баф432629 в DBC = ТОЛЬКО хаст12%/6с — «Рет: Правосудие по целям;
+    // Прот: Удар в праведности + Консекрат под целью» = серверная часть.
+    SPELL_EX7_UNDISPUTED_TAL            = 432626,
+    SPELL_EX7_SOTR                      = 53600,
+    SPELL_EX7_CONSECRATION              = 26573, // тот же id, что в части 4
+
     // Вестник солнца
     SPELL_EX7_DAWNLIGHT_TALENT          = 431377,
     SPELL_EX7_DAWNLIGHT_DOT             = 431380,
@@ -53,9 +60,12 @@ enum PaladinEx7Spells
 // с Сакросанктным крестовым походом (431730) — лечение.
 class spell_pal_hammer_of_light_ex : public SpellScript
 {
+    bool _undisputedEchoDone = false; // Прот: СоП+Освящение один раз на каст
+
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX7_LIGHTS_GUIDANCE, SPELL_EX7_HOL_DAMAGE, SPELL_EX7_EMPIREAN_HAMMER });
+        return ValidateSpellInfo({ SPELL_EX7_LIGHTS_GUIDANCE, SPELL_EX7_HOL_DAMAGE, SPELL_EX7_EMPIREAN_HAMMER,
+            SPELL_EX7_UNDISPUTED_TAL, SPELL_EX7_JUDGMENT_RET, SPELL_EX7_SOTR, SPELL_EX7_CONSECRATION });
     }
 
     void CastEmpyreanHammers(int32 count)
@@ -101,6 +111,34 @@ class spell_pal_hammer_of_light_ex : public SpellScript
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
             .TriggeringSpell = GetSpell()
         });
+
+        // Эхо Неоспоримого постановления (432626): Рет — Правосудие по цели;
+        // Прот — бесплатный Удар в праведности + Консекрат (один раз на каст).
+        // Хаст-баф432629 даёт spell_pal_hol_templar_ex (часть 9).
+        if (Player* p = caster->ToPlayer())
+            if (p->HasSpell(SPELL_EX7_UNDISPUTED_TAL))
+            {
+                CastSpellExtraArgs echoArgs = CastSpellExtraArgsInit{
+                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                    .TriggeringSpell = GetSpell()
+                };
+                switch (p->GetPrimarySpecialization())
+                {
+                    case ChrSpecialization::PaladinRetribution:
+                        caster->CastSpell(GetHitUnit(), SPELL_EX7_JUDGMENT_RET, echoArgs);
+                        break;
+                    case ChrSpecialization::PaladinProtection:
+                        if (!_undisputedEchoDone)
+                        {
+                            _undisputedEchoDone = true;
+                            caster->CastSpell(caster, SPELL_EX7_SOTR, echoArgs);
+                            caster->CastSpell(GetHitUnit(), SPELL_EX7_CONSECRATION, echoArgs);
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
 
         // 2 молотка (E2 «Света наставления»)
         CastEmpyreanHammers(2);
