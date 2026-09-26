@@ -1,3 +1,351 @@
+Это hotfixes
+ -- ШАГ1. КОНТРОЛЬ ДО: все spell_proc паладина (ожидаем18 строк, все SpellFamilyName=10)
+SELECT SpellId, SpellFamilyName, SpellFamilyMask0, SpellFamilyMask1, SpellFamilyMask2, SpellFamilyMask3,
+       ProcFlags, ProcFlags2, Chance, Cooldown
+FROM spell_proc
+WHERE SpellId IN (157047,267316,321136,326732,378285,387170,402912,403530,404357,
+                  406064,406157,406833,431474,469309,469883,1253174,1253598,1266308)
+ORDER BY SpellId;
+
+-- ШАГ2. ФИКС E4: фам-маски Щита мстителя требуют семейство PALADIN(2), иначе маски не читаются
+UPDATE spell_proc SET SpellFamilyName = 2
+WHERE SpellId IN (378285, 469883) AND SpellFamilyName <> 2;
+
+-- ШАГ3. ФИКС E4: остальные (маски=0) ->0 = «фильтр семейства выключен» (стандарт TDB)
+UPDATE spell_proc SET SpellFamilyName = 0
+WHERE SpellId IN (157047,267316,321136,326732,387170,402912,403530,404357,
+                  406064,406157,406833,431474,469309,1253174,1253598,1266308)
+  AND SpellFamilyName <> 0;
++---------+-----------------+------------------+------------------+------------------+------------------+-----------+------------+--------+----------+
+| SpellId | SpellFamilyName | SpellFamilyMask0 | SpellFamilyMask1 | SpellFamilyMask2 | SpellFamilyMask3 | ProcFlags | ProcFlags2 | Chance | Cooldown |
++---------+-----------------+------------------+------------------+------------------+------------------+-----------+------------+--------+----------+
+|  157047 |               0 |                0 |                0 |                0 |                0 |    696864 |          0 |    100 |    10000 |
+|  267316 |               0 |                0 |                0 |                0 |                0 |        16 |          0 |      0 |        0 |
+|  321136 |               0 |                0 |                0 |                0 |                0 |         0 |          4 |      0 |        0 |
+|  326732 |               0 |                0 |                0 |                0 |                0 |        20 |          0 |      0 |        0 |
+|  378285 |               2 |            16384 |                0 |                2 |                0 |        16 |          0 |      0 |        0 |
+|  387170 |               0 |                0 |                0 |                0 |                0 |    349200 |          0 |      0 |        0 |
+|  402912 |               0 |                0 |                0 |                0 |                0 |    349200 |          0 |      0 |     1000 |
+|  403530 |               0 |                0 |                0 |                0 |                0 |         0 |          4 |      0 |        0 |
+|  404357 |               0 |                0 |                0 |                0 |                0 |    696864 |          0 |    100 |    60000 |
+|  406064 |               0 |                0 |                0 |                0 |                0 |         4 |          0 |      0 |     1000 |
+|  406157 |               0 |                0 |                0 |                0 |                0 |         0 |          4 |      0 |        0 |
+|  406833 |               0 |                0 |                0 |                0 |                0 |        20 |          0 |      0 |        0 |
+|  431474 |               0 |                0 |                0 |                0 |                0 |         0 |          4 |     15 |     1000 |
+|  469309 |               0 |                0 |                0 |                0 |                0 |       136 |          0 |      0 |        0 |
+|  469883 |               2 |            16384 |                0 |                2 |                0 |        16 |          0 |    100 |        0 |
+| 1253174 |               0 |                0 |                0 |                0 |                0 |    349200 |          0 |      0 |        0 |
+| 1253598 |               0 |                0 |                0 |                0 |                0 |    349200 |          0 |      0 |        0 |
+| 1266308 |               0 |                0 |                0 |                0 |                0 |         0 |          4 |      0 |        0 |
++---------+-----------------+------------------+------------------+------------------+------------------+-----------+------------+--------+----------+
+18 rows in set (0.07 sec)
+
+Query OK, 0 rows affected (0.00 sec)
+Rows matched: 0  Changed: 0  Warnings: 0
+
+Query OK, 0 rows affected (0.00 sec)
+Rows matched: 0  Changed: 0  Warnings: 0
+ -- ШАГ4. КОНТРОЛЬ ПОСЛЕ (ОЖИДАЕМ: 2 у 378285/469883, 0 у остальных)
+SELECT SpellId, SpellFamilyName,
+       CASE WHEN SpellId IN (378285,469883) THEN 'OK=2' ELSE 'OK=0' END AS expectation
+FROM spell_proc
+WHERE SpellId IN (157047,267316,321136,326732,378285,387170,402912,403530,404357,
+                  406064,406157,406833,431474,469309,469883,1253174,1253598,1266308)
+ORDER BY SpellId;
++---------+-----------------+-------------+
+| SpellId | SpellFamilyName | expectation |
++---------+-----------------+-------------+
+|  157047 |               0 | OK=0        |
+|  267316 |               0 | OK=0        |
+|  321136 |               0 | OK=0        |
+|  326732 |               0 | OK=0        |
+|  378285 |               2 | OK=2        |
+|  387170 |               0 | OK=0        |
+|  402912 |               0 | OK=0        |
+|  403530 |               0 | OK=0        |
+|  404357 |               0 | OK=0        |
+|  406064 |               0 | OK=0        |
+|  406157 |               0 | OK=0        |
+|  406833 |               0 | OK=0        |
+|  431474 |               0 | OK=0        |
+|  469309 |               0 | OK=0        |
+|  469883 |               2 | OK=2        |
+| 1253174 |               0 | OK=0        |
+| 1253598 |               0 | OK=0        |
+| 1266308 |               0 | OK=0        |
++---------+-----------------+-------------+
+18 rows in set (0.06 sec)
+mysql> -- ШАГ6. БИНДИНГИ: все наши скрипты на месте (включая новые469309/157047/469883)
+SELECT * FROM spell_script_names WHERE ScriptName LIKE 'spell_pal%' ORDER BY spell_id;
+
+-- ШАГ7. Цепочки-маяки (должны присутствовать)
+SELECT * FROM spell_script_names
+WHERE spell_id IN (375576,255937,427453,386730,1266308,85673,31935,321136,24275,53600)
+ORDER BY spell_id;
++----------+--------------------------------------------------+
+| spell_id | ScriptName                                       |
++----------+--------------------------------------------------+
+|   -75806 | spell_pal_grand_crusader                         |
+|      633 | spell_pal_healing_hands_loh_ex                   |
+|      633 | spell_pal_lay_on_hands                           |
+|      642 | spell_pal_divine_shield                          |
+|     1022 | spell_pal_blessing_of_protection                 |
+|     1022 | spell_pal_holy_ritual                            |
+|     6940 | spell_pal_hand_of_sacrifice                      |
+|     6940 | spell_pal_holy_ritual                            |
+|    19740 | spell_pal_blessing_of_might                      |
+|    19750 | spell_pal_beacon_of_the_savior_transfer_ex       |
+|    19750 | spell_pal_divine_revelations_fol_ex              |
+|    19750 | spell_pal_mastery_lightbringer_ex                |
+|    19750 | spell_pal_moment_of_compassion_ex                |
+|    19750 | spell_pal_selfless_healer_ex                     |
+|    19750 | spell_pal_veneration_ex                          |
+|    20217 | spell_pal_blessing_of_kings                      |
+|    20271 | spell_pal_awakening_consume_ex                   |
+|    20271 | spell_pal_dawnlight_ex                           |
+|    20271 | spell_pal_glory_of_the_vanguard_ex               |
+|    20271 | spell_pal_holy_flames_ex                         |
+|    20271 | spell_pal_judgment                               |
+|    20271 | spell_pal_judgment_greater_ex                    |
+|    20271 | spell_pal_judgment_of_justice_ex                 |
+|    20271 | spell_pal_righteous_judgment_holy_ex             |
+|    20271 | spell_pal_sanctification_templar_ex              |
+|    20271 | spell_pal_zealots_paragon_ex                     |
+|    20473 | spell_pal_beacon_of_the_savior_transfer_ex       |
+|    20473 | spell_pal_dawnlight_ex                           |
+|    20473 | spell_pal_glorious_dawn_ex                       |
+|    20473 | spell_pal_holy_shock                             |
+|    20473 | spell_pal_lights_conviction_ex                   |
+|    20473 | spell_pal_reclamation_ex                         |
+|    24275 | spell_pal_holy_flames_ex                         |
+|    24275 | spell_pal_sanctification_templar_ex              |
+|    24275 | spell_pal_zealots_paragon_ex                     |
+|    25912 | spell_pal_holy_shock_damage_visual               |
+|    25914 | spell_pal_holy_shock_heal_visual                 |
+|    25914 | spell_pal_overflowing_light_ex                   |
+|    26573 | spell_pal_consecration                           |
+|    28789 | spell_pal_t3_6p_bonus                            |
+|    31821 | spell_pal_protection_of_tyr_ex                   |
+|    31850 | spell_pal_ardent_defender                        |
+|    31884 | spell_pal_awakening_on_aw_ex                     |
+|    31884 | spell_pal_hammer_of_wrath_aw_ex                  |
+|    31884 | spell_pal_hand_of_divinity_ex                    |
+|    31884 | spell_pal_tyrs_deliverance_trigger_ex            |
+|    31935 | spell_pal_avengers_shield_ex                     |
+|    31935 | spell_pal_avengers_shield_vanguard_ex            |
+|    31935 | spell_pal_bulwark_of_order_ex                    |
+|    37705 | spell_pal_item_healing_discount                  |
+|    40470 | spell_pal_item_t6_trinket                        |
+|    47669 | spell_palehoof_awaken_subboss                    |
+|    47670 | spell_palehoof_awaken_gortok                     |
+|    48139 | spell_palehoof_crazed                            |
+|    48146 | spell_palehoof_crazed_effect                     |
+|    53385 | spell_pal_divine_storm                           |
+|    53385 | spell_pal_divine_storm_cap_ex                    |
+|    53385 | spell_pal_holy_flames_ex                         |
+|    53385 | spell_pal_light_within_damage_ex                 |
+|    53385 | spell_pal_lightforged_blessing_ex                |
+|    53385 | spell_pal_sotr_shake_heavens_ex                  |
+|    53385 | spell_pal_tempest_of_the_lightbringer_ex         |
+|    53595 | spell_pal_hammer_of_the_righteous                |
+|    53600 | spell_pal_shield_of_the_righteous                |
+|    53600 | spell_pal_shield_of_the_righteous_ex             |
+|    53600 | spell_pal_shield_of_the_righteous_vanguard_ex    |
+|    53600 | spell_pal_shining_righteousness_ex               |
+|    53600 | spell_pal_sotr_forge_ex                          |
+|    53600 | spell_pal_sotr_shake_heavens_ex                  |
+|    53651 | spell_pal_light_s_beacon                         |
+|    54149 | spell_pal_imbued_infusions_ex                    |
+|    54149 | spell_pal_infusion_of_light                      |
+|    54968 | spell_pal_glyph_of_holy_light                    |
+|    64890 | spell_pal_t8_2p_bonus                            |
+|    66545 | spell_paletress_summon_memory                    |
+|    81297 | spell_pal_consecration_prot_ex                   |
+|    81297 | spell_pal_golden_path_ex                         |
+|    82326 | spell_pal_beacon_of_the_savior_transfer_ex       |
+|    82326 | spell_pal_mastery_lightbringer_ex                |
+|    82326 | spell_pal_resplendent_light_ex                   |
+|    82326 | spell_pal_selfless_healer_ex                     |
+|    82326 | spell_pal_veneration_ex                          |
+|    85222 | spell_pal_beacon_of_the_savior_transfer_ex       |
+|    85222 | spell_pal_extrication_ex                         |
+|    85222 | spell_pal_liberation_ex                          |
+|    85222 | spell_pal_mastery_lightbringer_ex                |
+|    85222 | spell_pal_seraphic_barrier_ex                    |
+|    85256 | spell_pal_holy_flames_ex                         |
+|    85256 | spell_pal_light_within_damage_ex                 |
+|    85256 | spell_pal_sotr_shake_heavens_ex                  |
+|    85256 | spell_pal_templar_s_verdict                      |
+|    85673 | spell_pal_beacon_of_the_savior_transfer_ex       |
+|    85673 | spell_pal_extrication_ex                         |
+|    85673 | spell_pal_healing_hands_wog_ex                   |
+|    85673 | spell_pal_liberation_ex                          |
+|    85673 | spell_pal_light_of_the_titans_ex                 |
+|    85673 | spell_pal_mastery_lightbringer_ex                |
+|    85673 | spell_pal_seraphic_barrier_ex                    |
+|    85673 | spell_pal_shining_light_consume_ex               |
+|    85673 | spell_pal_sotr_shake_heavens_ex                  |
+|    85673 | spell_pal_valiance_ex                            |
+|    85673 | spell_pal_wog_sacred_word_ex                     |
+|    85673 | spell_pal_word_of_glory_ex                       |
+|    85804 | spell_pal_selfless_healer                        |
+|   114165 | spell_pal_holy_prism                             |
+|   114852 | spell_pal_holy_prism_selector                    |
+|   114871 | spell_pal_holy_prism_selector                    |
+|   114918 | spell_pal_light_hammer_periodic                  |
+|   115750 | spell_pal_blinding_light                         |
+|   122773 | spell_pal_light_hammer_init_summon               |
+|   132403 | spell_pal_sotr_aura_ex                           |
+|   156322 | spell_pal_beacon_of_the_savior_transfer_ex       |
+|   156322 | spell_pal_eternal_flame                          |
+|   156322 | spell_pal_mastery_lightbringer_ex                |
+|   156322 | spell_pal_seraphic_barrier_ex                    |
+|   156910 | spell_pal_beacon_of_faith_ex                     |
+|   157047 | spell_pal_saved_by_the_light_ex                  |
+|   184575 | spell_pal_blade_of_vengeance                     |
+|   184575 | spell_pal_holy_flames_ex                         |
+|   184575 | spell_pal_light_within_blade_ex                  |
+|   184662 | spell_pal_shield_of_vengeance                    |
+|   190784 | spell_pal_divine_steed                           |
+|   190784 | spell_pal_valiant_crusade_ex                     |
+|   196926 | spell_pal_crusader_might                         |
+|   200025 | spell_pal_beacon_of_virtue_ex                    |
+|   200653 | spell_pal_tyrs_deliverance_select_ex             |
+|   204018 | spell_pal_blessing_of_protection                 |
+|   204019 | spell_pal_blessed_hammer_ex                      |
+|   204074 | spell_pal_righteous_protector                    |
+|   204301 | spell_pal_seal_of_reprisal_bh_ex                 |
+|   205191 | spell_pal_eye_for_an_eye                         |
+|   215661 | spell_pal_justicars_vengeance                    |
+|   223817 | spell_pal_divine_purpose                         |
+|   224239 | spell_pal_tempest_wave_ex                        |
+|   231895 | spell_pal_awakening_on_aw_ex                     |
+|   231895 | spell_pal_hammer_of_wrath_aw_ex                  |
+|   231895 | spell_pal_hand_of_divinity_ex                    |
+|   231895 | spell_pal_tyrs_deliverance_trigger_ex            |
+|   248033 | spell_pal_awakening                              |
+|   255937 | spell_pal_holy_flames_ex                         |
+|   255937 | spell_pal_lights_guidance_wake_ex                |
+|   255937 | spell_pal_radiant_glory_ex                       |
+|   255937 | spell_pal_wake_of_ashes                          |
+|   267316 | spell_pal_highlords_judgment_ex                  |
+|   267344 | spell_pal_art_of_war                             |
+|   267610 | spell_pal_righteous_verdict                      |
+|   269569 | spell_pal_zeal                                   |
+|   275773 | spell_pal_awakening_consume_ex                   |
+|   275773 | spell_pal_divine_revelations_judg_ex             |
+|   275773 | spell_pal_glory_of_the_vanguard_ex               |
+|   275773 | spell_pal_holy_flames_ex                         |
+|   275773 | spell_pal_judgment                               |
+|   275773 | spell_pal_judgment_greater_ex                    |
+|   275773 | spell_pal_judgment_of_justice_ex                 |
+|   275773 | spell_pal_righteous_judgment_holy_ex             |
+|   275773 | spell_pal_sanctification_templar_ex              |
+|   275773 | spell_pal_truth_prevails_ex                      |
+|   275773 | spell_pal_zealots_paragon_ex                     |
+|   275779 | spell_pal_awakening_consume_ex                   |
+|   275779 | spell_pal_glory_of_the_vanguard_ex               |
+|   275779 | spell_pal_holy_flames_ex                         |
+|   275779 | spell_pal_judgment                               |
+|   275779 | spell_pal_judgment_greater_ex                    |
+|   275779 | spell_pal_judgment_of_justice_ex                 |
+|   275779 | spell_pal_sanctification_templar_ex              |
+|   275779 | spell_pal_zealots_paragon_ex                     |
+|   321136 | spell_pal_shining_light_ex                       |
+|   326732 | spell_pal_empyrean_power_ex                      |
+|   327193 | spell_pal_moment_of_glory                        |
+|   343527 | spell_pal_divine_auxiliary                       |
+|   343527 | spell_pal_execution_sentence                     |
+|   343721 | spell_pal_divine_auxiliary                       |
+|   375576 | spell_pal_divine_toll_ex                         |
+|   375576 | spell_pal_divine_toll_templar_ex                 |
+|   383328 | spell_pal_final_verdict                          |
+|   383328 | spell_pal_holy_flames_ex                         |
+|   383328 | spell_pal_light_within_damage_ex                 |
+|   383344 | spell_pal_expurgation                            |
+|   383346 | spell_pal_burn_to_ash_ex                         |
+|   383921 | spell_pal_holy_flames_ex                         |
+|   385633 | spell_pal_auras_of_the_resolute_ex               |
+|   386730 | spell_pal_divine_resonance_prot_ex               |
+|   387170 | spell_pal_empyrean_legacy_ex                     |
+|   402912 | spell_pal_righteous_cause_ex                     |
+|   403530 | spell_pal_punishment_ex                          |
+|   404357 | spell_pal_guided_prayer_ex                       |
+|   404358 | spell_pal_blade_of_vengeance_aoe_target_selector |
+|   405547 | spell_pal_t30_2p_protection_bonus                |
+|   406064 | spell_pal_art_of_war_ex                          |
+|   406157 | spell_pal_judge_jury_executioner_ex              |
+|   406647 | spell_pal_holy_flames_ex                         |
+|   406647 | spell_pal_templar_slash_crit_ex                  |
+|   406833 | spell_pal_crusading_strikes                      |
+|   407480 | spell_pal_holy_flames_ex                         |
+|   408385 | spell_pal_holy_flames_ex                         |
+|   410530 | spell_pal_t30_2p_protection_bonus_heal           |
+|   414195 | spell_pal_awakening_ex                           |
+|   427453 | spell_pal_hammer_of_light_ex                     |
+|   427453 | spell_pal_hol_templar_ex                         |
+|   431398 | spell_pal_empyrean_deliverance_ex                |
+|   431474 | spell_pal_second_sunrise_ex                      |
+|   454351 | spell_pal_awakening_on_aw_ex                     |
+|   454351 | spell_pal_hammer_of_wrath_aw_ex                  |
+|   469304 | spell_pal_steed_of_liberty                       |
+|   469411 | spell_pal_a_just_reward                          |
+|   469883 | spell_pal_refining_fire_ex                       |
+|   471195 | spell_pal_lay_on_hands                           |
+|  1241413 | spell_pal_holy_flames_ex                         |
+|  1241413 | spell_pal_sanctification_templar_ex              |
+|  1241413 | spell_pal_zealots_paragon_ex                     |
+|  1244878 | spell_pal_beacon_of_the_savior_apply_ex          |
+|  1253174 | spell_pal_judge_jury_executioner_refund_ex       |
+|  1253598 | spell_pal_crusade_ex                             |
+|  1260251 | spell_pal_holy_flames_ex                         |
+|  1261160 | spell_pal_holy_flames_ex                         |
+|  1266308 | spell_pal_divine_resonance_ret_ex                |
+|  1289728 | spell_pal_holy_armaments_ex                      |
++----------+--------------------------------------------------+
+217 rows in set (0.21 sec)
+
++----------+-----------------------------------------------+
+| spell_id | ScriptName                                    |
++----------+-----------------------------------------------+
+|    24275 | spell_pal_holy_flames_ex                      |
+|    24275 | spell_pal_sanctification_templar_ex           |
+|    24275 | spell_pal_zealots_paragon_ex                  |
+|    31935 | spell_pal_avengers_shield_ex                  |
+|    31935 | spell_pal_avengers_shield_vanguard_ex         |
+|    31935 | spell_pal_bulwark_of_order_ex                 |
+|    53600 | spell_pal_shield_of_the_righteous             |
+|    53600 | spell_pal_shield_of_the_righteous_ex          |
+|    53600 | spell_pal_shield_of_the_righteous_vanguard_ex |
+|    53600 | spell_pal_shining_righteousness_ex            |
+|    53600 | spell_pal_sotr_forge_ex                       |
+|    53600 | spell_pal_sotr_shake_heavens_ex               |
+|    85673 | spell_pal_beacon_of_the_savior_transfer_ex    |
+|    85673 | spell_pal_extrication_ex                      |
+|    85673 | spell_pal_healing_hands_wog_ex                |
+|    85673 | spell_pal_liberation_ex                       |
+|    85673 | spell_pal_light_of_the_titans_ex              |
+|    85673 | spell_pal_mastery_lightbringer_ex             |
+|    85673 | spell_pal_seraphic_barrier_ex                 |
+|    85673 | spell_pal_shining_light_consume_ex            |
+|    85673 | spell_pal_sotr_shake_heavens_ex               |
+|    85673 | spell_pal_valiance_ex                         |
+|    85673 | spell_pal_wog_sacred_word_ex                  |
+|    85673 | spell_pal_word_of_glory_ex                    |
+|   255937 | spell_pal_holy_flames_ex                      |
+|   255937 | spell_pal_lights_guidance_wake_ex             |
+|   255937 | spell_pal_radiant_glory_ex                    |
+|   255937 | spell_pal_wake_of_ashes                       |
+|   321136 | spell_pal_shining_light_ex                    |
+|   375576 | spell_pal_divine_toll_ex                      |
+|   375576 | spell_pal_divine_toll_templar_ex              |
+|   386730 | spell_pal_divine_resonance_prot_ex            |
+|   427453 | spell_pal_hammer_of_light_ex                  |
+|   427453 | spell_pal_hol_templar_ex                      |
+|  1266308 | spell_pal_divine_resonance_ret_ex             |
++----------+-----------------------------------------------+
+35 rows in set (0.06 sec)
+
 Шаг5:
 "SpellId"	"SchoolMask"	"SpellFamilyName"	"SpellFamilyMask0"	"SpellFamilyMask1"	"SpellFamilyMask2"	"SpellFamilyMask3"	"ProcFlags"	"ProcFlags2"	"SpellTypeMask"	"SpellPhaseMask"	"HitMask"	"AttributesMask"	"DisableEffectsMask"	"ProcsPerMinute"	"Chance"	"Cooldown"	"Charges"
 "11426"	"0"	"3"	"0"	"0"	"0"	"0"	"0"	"0"	"0"	"0"	"1024"	"0"	"0"	"0"	"0"	"0"	"0"
@@ -600,349 +948,3 @@
 "1280131"	"0"	"6"	"0"	"32768"	"0"	"0"	"0"	"0"	"1"	"2"	"0"	"0"	"0"	"0"	"0"	"0"	"0"
 
 
- -- ШАГ1. КОНТРОЛЬ ДО: все spell_proc паладина (ожидаем18 строк, все SpellFamilyName=10)
-SELECT SpellId, SpellFamilyName, SpellFamilyMask0, SpellFamilyMask1, SpellFamilyMask2, SpellFamilyMask3,
-       ProcFlags, ProcFlags2, Chance, Cooldown
-FROM spell_proc
-WHERE SpellId IN (157047,267316,321136,326732,378285,387170,402912,403530,404357,
-                  406064,406157,406833,431474,469309,469883,1253174,1253598,1266308)
-ORDER BY SpellId;
-
--- ШАГ2. ФИКС E4: фам-маски Щита мстителя требуют семейство PALADIN(2), иначе маски не читаются
-UPDATE spell_proc SET SpellFamilyName = 2
-WHERE SpellId IN (378285, 469883) AND SpellFamilyName <> 2;
-
--- ШАГ3. ФИКС E4: остальные (маски=0) ->0 = «фильтр семейства выключен» (стандарт TDB)
-UPDATE spell_proc SET SpellFamilyName = 0
-WHERE SpellId IN (157047,267316,321136,326732,387170,402912,403530,404357,
-                  406064,406157,406833,431474,469309,1253174,1253598,1266308)
-  AND SpellFamilyName <> 0;
-+---------+-----------------+------------------+------------------+------------------+------------------+-----------+------------+--------+----------+
-| SpellId | SpellFamilyName | SpellFamilyMask0 | SpellFamilyMask1 | SpellFamilyMask2 | SpellFamilyMask3 | ProcFlags | ProcFlags2 | Chance | Cooldown |
-+---------+-----------------+------------------+------------------+------------------+------------------+-----------+------------+--------+----------+
-|  157047 |               0 |                0 |                0 |                0 |                0 |    696864 |          0 |    100 |    10000 |
-|  267316 |               0 |                0 |                0 |                0 |                0 |        16 |          0 |      0 |        0 |
-|  321136 |               0 |                0 |                0 |                0 |                0 |         0 |          4 |      0 |        0 |
-|  326732 |               0 |                0 |                0 |                0 |                0 |        20 |          0 |      0 |        0 |
-|  378285 |               2 |            16384 |                0 |                2 |                0 |        16 |          0 |      0 |        0 |
-|  387170 |               0 |                0 |                0 |                0 |                0 |    349200 |          0 |      0 |        0 |
-|  402912 |               0 |                0 |                0 |                0 |                0 |    349200 |          0 |      0 |     1000 |
-|  403530 |               0 |                0 |                0 |                0 |                0 |         0 |          4 |      0 |        0 |
-|  404357 |               0 |                0 |                0 |                0 |                0 |    696864 |          0 |    100 |    60000 |
-|  406064 |               0 |                0 |                0 |                0 |                0 |         4 |          0 |      0 |     1000 |
-|  406157 |               0 |                0 |                0 |                0 |                0 |         0 |          4 |      0 |        0 |
-|  406833 |               0 |                0 |                0 |                0 |                0 |        20 |          0 |      0 |        0 |
-|  431474 |               0 |                0 |                0 |                0 |                0 |         0 |          4 |     15 |     1000 |
-|  469309 |               0 |                0 |                0 |                0 |                0 |       136 |          0 |      0 |        0 |
-|  469883 |               2 |            16384 |                0 |                2 |                0 |        16 |          0 |    100 |        0 |
-| 1253174 |               0 |                0 |                0 |                0 |                0 |    349200 |          0 |      0 |        0 |
-| 1253598 |               0 |                0 |                0 |                0 |                0 |    349200 |          0 |      0 |        0 |
-| 1266308 |               0 |                0 |                0 |                0 |                0 |         0 |          4 |      0 |        0 |
-+---------+-----------------+------------------+------------------+------------------+------------------+-----------+------------+--------+----------+
-18 rows in set (0.07 sec)
-
-Query OK, 0 rows affected (0.00 sec)
-Rows matched: 0  Changed: 0  Warnings: 0
-
-Query OK, 0 rows affected (0.00 sec)
-Rows matched: 0  Changed: 0  Warnings: 0
- -- ШАГ4. КОНТРОЛЬ ПОСЛЕ (ОЖИДАЕМ: 2 у 378285/469883, 0 у остальных)
-SELECT SpellId, SpellFamilyName,
-       CASE WHEN SpellId IN (378285,469883) THEN 'OK=2' ELSE 'OK=0' END AS expectation
-FROM spell_proc
-WHERE SpellId IN (157047,267316,321136,326732,378285,387170,402912,403530,404357,
-                  406064,406157,406833,431474,469309,469883,1253174,1253598,1266308)
-ORDER BY SpellId;
-+---------+-----------------+-------------+
-| SpellId | SpellFamilyName | expectation |
-+---------+-----------------+-------------+
-|  157047 |               0 | OK=0        |
-|  267316 |               0 | OK=0        |
-|  321136 |               0 | OK=0        |
-|  326732 |               0 | OK=0        |
-|  378285 |               2 | OK=2        |
-|  387170 |               0 | OK=0        |
-|  402912 |               0 | OK=0        |
-|  403530 |               0 | OK=0        |
-|  404357 |               0 | OK=0        |
-|  406064 |               0 | OK=0        |
-|  406157 |               0 | OK=0        |
-|  406833 |               0 | OK=0        |
-|  431474 |               0 | OK=0        |
-|  469309 |               0 | OK=0        |
-|  469883 |               2 | OK=2        |
-| 1253174 |               0 | OK=0        |
-| 1253598 |               0 | OK=0        |
-| 1266308 |               0 | OK=0        |
-+---------+-----------------+-------------+
-18 rows in set (0.06 sec)
-mysql> -- ШАГ6. БИНДИНГИ: все наши скрипты на месте (включая новые469309/157047/469883)
-SELECT * FROM spell_script_names WHERE ScriptName LIKE 'spell_pal%' ORDER BY spell_id;
-
--- ШАГ7. Цепочки-маяки (должны присутствовать)
-SELECT * FROM spell_script_names
-WHERE spell_id IN (375576,255937,427453,386730,1266308,85673,31935,321136,24275,53600)
-ORDER BY spell_id;
-+----------+--------------------------------------------------+
-| spell_id | ScriptName                                       |
-+----------+--------------------------------------------------+
-|   -75806 | spell_pal_grand_crusader                         |
-|      633 | spell_pal_healing_hands_loh_ex                   |
-|      633 | spell_pal_lay_on_hands                           |
-|      642 | spell_pal_divine_shield                          |
-|     1022 | spell_pal_blessing_of_protection                 |
-|     1022 | spell_pal_holy_ritual                            |
-|     6940 | spell_pal_hand_of_sacrifice                      |
-|     6940 | spell_pal_holy_ritual                            |
-|    19740 | spell_pal_blessing_of_might                      |
-|    19750 | spell_pal_beacon_of_the_savior_transfer_ex       |
-|    19750 | spell_pal_divine_revelations_fol_ex              |
-|    19750 | spell_pal_mastery_lightbringer_ex                |
-|    19750 | spell_pal_moment_of_compassion_ex                |
-|    19750 | spell_pal_selfless_healer_ex                     |
-|    19750 | spell_pal_veneration_ex                          |
-|    20217 | spell_pal_blessing_of_kings                      |
-|    20271 | spell_pal_awakening_consume_ex                   |
-|    20271 | spell_pal_dawnlight_ex                           |
-|    20271 | spell_pal_glory_of_the_vanguard_ex               |
-|    20271 | spell_pal_holy_flames_ex                         |
-|    20271 | spell_pal_judgment                               |
-|    20271 | spell_pal_judgment_greater_ex                    |
-|    20271 | spell_pal_judgment_of_justice_ex                 |
-|    20271 | spell_pal_righteous_judgment_holy_ex             |
-|    20271 | spell_pal_sanctification_templar_ex              |
-|    20271 | spell_pal_zealots_paragon_ex                     |
-|    20473 | spell_pal_beacon_of_the_savior_transfer_ex       |
-|    20473 | spell_pal_dawnlight_ex                           |
-|    20473 | spell_pal_glorious_dawn_ex                       |
-|    20473 | spell_pal_holy_shock                             |
-|    20473 | spell_pal_lights_conviction_ex                   |
-|    20473 | spell_pal_reclamation_ex                         |
-|    24275 | spell_pal_holy_flames_ex                         |
-|    24275 | spell_pal_sanctification_templar_ex              |
-|    24275 | spell_pal_zealots_paragon_ex                     |
-|    25912 | spell_pal_holy_shock_damage_visual               |
-|    25914 | spell_pal_holy_shock_heal_visual                 |
-|    25914 | spell_pal_overflowing_light_ex                   |
-|    26573 | spell_pal_consecration                           |
-|    28789 | spell_pal_t3_6p_bonus                            |
-|    31821 | spell_pal_protection_of_tyr_ex                   |
-|    31850 | spell_pal_ardent_defender                        |
-|    31884 | spell_pal_awakening_on_aw_ex                     |
-|    31884 | spell_pal_hammer_of_wrath_aw_ex                  |
-|    31884 | spell_pal_hand_of_divinity_ex                    |
-|    31884 | spell_pal_tyrs_deliverance_trigger_ex            |
-|    31935 | spell_pal_avengers_shield_ex                     |
-|    31935 | spell_pal_avengers_shield_vanguard_ex            |
-|    31935 | spell_pal_bulwark_of_order_ex                    |
-|    37705 | spell_pal_item_healing_discount                  |
-|    40470 | spell_pal_item_t6_trinket                        |
-|    47669 | spell_palehoof_awaken_subboss                    |
-|    47670 | spell_palehoof_awaken_gortok                     |
-|    48139 | spell_palehoof_crazed                            |
-|    48146 | spell_palehoof_crazed_effect                     |
-|    53385 | spell_pal_divine_storm                           |
-|    53385 | spell_pal_divine_storm_cap_ex                    |
-|    53385 | spell_pal_holy_flames_ex                         |
-|    53385 | spell_pal_light_within_damage_ex                 |
-|    53385 | spell_pal_lightforged_blessing_ex                |
-|    53385 | spell_pal_sotr_shake_heavens_ex                  |
-|    53385 | spell_pal_tempest_of_the_lightbringer_ex         |
-|    53595 | spell_pal_hammer_of_the_righteous                |
-|    53600 | spell_pal_shield_of_the_righteous                |
-|    53600 | spell_pal_shield_of_the_righteous_ex             |
-|    53600 | spell_pal_shield_of_the_righteous_vanguard_ex    |
-|    53600 | spell_pal_shining_righteousness_ex               |
-|    53600 | spell_pal_sotr_forge_ex                          |
-|    53600 | spell_pal_sotr_shake_heavens_ex                  |
-|    53651 | spell_pal_light_s_beacon                         |
-|    54149 | spell_pal_imbued_infusions_ex                    |
-|    54149 | spell_pal_infusion_of_light                      |
-|    54968 | spell_pal_glyph_of_holy_light                    |
-|    64890 | spell_pal_t8_2p_bonus                            |
-|    66545 | spell_paletress_summon_memory                    |
-|    81297 | spell_pal_consecration_prot_ex                   |
-|    81297 | spell_pal_golden_path_ex                         |
-|    82326 | spell_pal_beacon_of_the_savior_transfer_ex       |
-|    82326 | spell_pal_mastery_lightbringer_ex                |
-|    82326 | spell_pal_resplendent_light_ex                   |
-|    82326 | spell_pal_selfless_healer_ex                     |
-|    82326 | spell_pal_veneration_ex                          |
-|    85222 | spell_pal_beacon_of_the_savior_transfer_ex       |
-|    85222 | spell_pal_extrication_ex                         |
-|    85222 | spell_pal_liberation_ex                          |
-|    85222 | spell_pal_mastery_lightbringer_ex                |
-|    85222 | spell_pal_seraphic_barrier_ex                    |
-|    85256 | spell_pal_holy_flames_ex                         |
-|    85256 | spell_pal_light_within_damage_ex                 |
-|    85256 | spell_pal_sotr_shake_heavens_ex                  |
-|    85256 | spell_pal_templar_s_verdict                      |
-|    85673 | spell_pal_beacon_of_the_savior_transfer_ex       |
-|    85673 | spell_pal_extrication_ex                         |
-|    85673 | spell_pal_healing_hands_wog_ex                   |
-|    85673 | spell_pal_liberation_ex                          |
-|    85673 | spell_pal_light_of_the_titans_ex                 |
-|    85673 | spell_pal_mastery_lightbringer_ex                |
-|    85673 | spell_pal_seraphic_barrier_ex                    |
-|    85673 | spell_pal_shining_light_consume_ex               |
-|    85673 | spell_pal_sotr_shake_heavens_ex                  |
-|    85673 | spell_pal_valiance_ex                            |
-|    85673 | spell_pal_wog_sacred_word_ex                     |
-|    85673 | spell_pal_word_of_glory_ex                       |
-|    85804 | spell_pal_selfless_healer                        |
-|   114165 | spell_pal_holy_prism                             |
-|   114852 | spell_pal_holy_prism_selector                    |
-|   114871 | spell_pal_holy_prism_selector                    |
-|   114918 | spell_pal_light_hammer_periodic                  |
-|   115750 | spell_pal_blinding_light                         |
-|   122773 | spell_pal_light_hammer_init_summon               |
-|   132403 | spell_pal_sotr_aura_ex                           |
-|   156322 | spell_pal_beacon_of_the_savior_transfer_ex       |
-|   156322 | spell_pal_eternal_flame                          |
-|   156322 | spell_pal_mastery_lightbringer_ex                |
-|   156322 | spell_pal_seraphic_barrier_ex                    |
-|   156910 | spell_pal_beacon_of_faith_ex                     |
-|   157047 | spell_pal_saved_by_the_light_ex                  |
-|   184575 | spell_pal_blade_of_vengeance                     |
-|   184575 | spell_pal_holy_flames_ex                         |
-|   184575 | spell_pal_light_within_blade_ex                  |
-|   184662 | spell_pal_shield_of_vengeance                    |
-|   190784 | spell_pal_divine_steed                           |
-|   190784 | spell_pal_valiant_crusade_ex                     |
-|   196926 | spell_pal_crusader_might                         |
-|   200025 | spell_pal_beacon_of_virtue_ex                    |
-|   200653 | spell_pal_tyrs_deliverance_select_ex             |
-|   204018 | spell_pal_blessing_of_protection                 |
-|   204019 | spell_pal_blessed_hammer_ex                      |
-|   204074 | spell_pal_righteous_protector                    |
-|   204301 | spell_pal_seal_of_reprisal_bh_ex                 |
-|   205191 | spell_pal_eye_for_an_eye                         |
-|   215661 | spell_pal_justicars_vengeance                    |
-|   223817 | spell_pal_divine_purpose                         |
-|   224239 | spell_pal_tempest_wave_ex                        |
-|   231895 | spell_pal_awakening_on_aw_ex                     |
-|   231895 | spell_pal_hammer_of_wrath_aw_ex                  |
-|   231895 | spell_pal_hand_of_divinity_ex                    |
-|   231895 | spell_pal_tyrs_deliverance_trigger_ex            |
-|   248033 | spell_pal_awakening                              |
-|   255937 | spell_pal_holy_flames_ex                         |
-|   255937 | spell_pal_lights_guidance_wake_ex                |
-|   255937 | spell_pal_radiant_glory_ex                       |
-|   255937 | spell_pal_wake_of_ashes                          |
-|   267316 | spell_pal_highlords_judgment_ex                  |
-|   267344 | spell_pal_art_of_war                             |
-|   267610 | spell_pal_righteous_verdict                      |
-|   269569 | spell_pal_zeal                                   |
-|   275773 | spell_pal_awakening_consume_ex                   |
-|   275773 | spell_pal_divine_revelations_judg_ex             |
-|   275773 | spell_pal_glory_of_the_vanguard_ex               |
-|   275773 | spell_pal_holy_flames_ex                         |
-|   275773 | spell_pal_judgment                               |
-|   275773 | spell_pal_judgment_greater_ex                    |
-|   275773 | spell_pal_judgment_of_justice_ex                 |
-|   275773 | spell_pal_righteous_judgment_holy_ex             |
-|   275773 | spell_pal_sanctification_templar_ex              |
-|   275773 | spell_pal_truth_prevails_ex                      |
-|   275773 | spell_pal_zealots_paragon_ex                     |
-|   275779 | spell_pal_awakening_consume_ex                   |
-|   275779 | spell_pal_glory_of_the_vanguard_ex               |
-|   275779 | spell_pal_holy_flames_ex                         |
-|   275779 | spell_pal_judgment                               |
-|   275779 | spell_pal_judgment_greater_ex                    |
-|   275779 | spell_pal_judgment_of_justice_ex                 |
-|   275779 | spell_pal_sanctification_templar_ex              |
-|   275779 | spell_pal_zealots_paragon_ex                     |
-|   321136 | spell_pal_shining_light_ex                       |
-|   326732 | spell_pal_empyrean_power_ex                      |
-|   327193 | spell_pal_moment_of_glory                        |
-|   343527 | spell_pal_divine_auxiliary                       |
-|   343527 | spell_pal_execution_sentence                     |
-|   343721 | spell_pal_divine_auxiliary                       |
-|   375576 | spell_pal_divine_toll_ex                         |
-|   375576 | spell_pal_divine_toll_templar_ex                 |
-|   383328 | spell_pal_final_verdict                          |
-|   383328 | spell_pal_holy_flames_ex                         |
-|   383328 | spell_pal_light_within_damage_ex                 |
-|   383344 | spell_pal_expurgation                            |
-|   383346 | spell_pal_burn_to_ash_ex                         |
-|   383921 | spell_pal_holy_flames_ex                         |
-|   385633 | spell_pal_auras_of_the_resolute_ex               |
-|   386730 | spell_pal_divine_resonance_prot_ex               |
-|   387170 | spell_pal_empyrean_legacy_ex                     |
-|   402912 | spell_pal_righteous_cause_ex                     |
-|   403530 | spell_pal_punishment_ex                          |
-|   404357 | spell_pal_guided_prayer_ex                       |
-|   404358 | spell_pal_blade_of_vengeance_aoe_target_selector |
-|   405547 | spell_pal_t30_2p_protection_bonus                |
-|   406064 | spell_pal_art_of_war_ex                          |
-|   406157 | spell_pal_judge_jury_executioner_ex              |
-|   406647 | spell_pal_holy_flames_ex                         |
-|   406647 | spell_pal_templar_slash_crit_ex                  |
-|   406833 | spell_pal_crusading_strikes                      |
-|   407480 | spell_pal_holy_flames_ex                         |
-|   408385 | spell_pal_holy_flames_ex                         |
-|   410530 | spell_pal_t30_2p_protection_bonus_heal           |
-|   414195 | spell_pal_awakening_ex                           |
-|   427453 | spell_pal_hammer_of_light_ex                     |
-|   427453 | spell_pal_hol_templar_ex                         |
-|   431398 | spell_pal_empyrean_deliverance_ex                |
-|   431474 | spell_pal_second_sunrise_ex                      |
-|   454351 | spell_pal_awakening_on_aw_ex                     |
-|   454351 | spell_pal_hammer_of_wrath_aw_ex                  |
-|   469304 | spell_pal_steed_of_liberty                       |
-|   469411 | spell_pal_a_just_reward                          |
-|   469883 | spell_pal_refining_fire_ex                       |
-|   471195 | spell_pal_lay_on_hands                           |
-|  1241413 | spell_pal_holy_flames_ex                         |
-|  1241413 | spell_pal_sanctification_templar_ex              |
-|  1241413 | spell_pal_zealots_paragon_ex                     |
-|  1244878 | spell_pal_beacon_of_the_savior_apply_ex          |
-|  1253174 | spell_pal_judge_jury_executioner_refund_ex       |
-|  1253598 | spell_pal_crusade_ex                             |
-|  1260251 | spell_pal_holy_flames_ex                         |
-|  1261160 | spell_pal_holy_flames_ex                         |
-|  1266308 | spell_pal_divine_resonance_ret_ex                |
-|  1289728 | spell_pal_holy_armaments_ex                      |
-+----------+--------------------------------------------------+
-217 rows in set (0.21 sec)
-
-+----------+-----------------------------------------------+
-| spell_id | ScriptName                                    |
-+----------+-----------------------------------------------+
-|    24275 | spell_pal_holy_flames_ex                      |
-|    24275 | spell_pal_sanctification_templar_ex           |
-|    24275 | spell_pal_zealots_paragon_ex                  |
-|    31935 | spell_pal_avengers_shield_ex                  |
-|    31935 | spell_pal_avengers_shield_vanguard_ex         |
-|    31935 | spell_pal_bulwark_of_order_ex                 |
-|    53600 | spell_pal_shield_of_the_righteous             |
-|    53600 | spell_pal_shield_of_the_righteous_ex          |
-|    53600 | spell_pal_shield_of_the_righteous_vanguard_ex |
-|    53600 | spell_pal_shining_righteousness_ex            |
-|    53600 | spell_pal_sotr_forge_ex                       |
-|    53600 | spell_pal_sotr_shake_heavens_ex               |
-|    85673 | spell_pal_beacon_of_the_savior_transfer_ex    |
-|    85673 | spell_pal_extrication_ex                      |
-|    85673 | spell_pal_healing_hands_wog_ex                |
-|    85673 | spell_pal_liberation_ex                       |
-|    85673 | spell_pal_light_of_the_titans_ex              |
-|    85673 | spell_pal_mastery_lightbringer_ex             |
-|    85673 | spell_pal_seraphic_barrier_ex                 |
-|    85673 | spell_pal_shining_light_consume_ex            |
-|    85673 | spell_pal_sotr_shake_heavens_ex               |
-|    85673 | spell_pal_valiance_ex                         |
-|    85673 | spell_pal_wog_sacred_word_ex                  |
-|    85673 | spell_pal_word_of_glory_ex                    |
-|   255937 | spell_pal_holy_flames_ex                      |
-|   255937 | spell_pal_lights_guidance_wake_ex             |
-|   255937 | spell_pal_radiant_glory_ex                    |
-|   255937 | spell_pal_wake_of_ashes                       |
-|   321136 | spell_pal_shining_light_ex                    |
-|   375576 | spell_pal_divine_toll_ex                      |
-|   375576 | spell_pal_divine_toll_templar_ex              |
-|   386730 | spell_pal_divine_resonance_prot_ex            |
-|   427453 | spell_pal_hammer_of_light_ex                  |
-|   427453 | spell_pal_hol_templar_ex                      |
-|  1266308 | spell_pal_divine_resonance_ret_ex             |
-+----------+-----------------------------------------------+
-35 rows in set (0.06 sec)
