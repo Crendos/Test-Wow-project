@@ -242,13 +242,24 @@ class spell_pal_judgment_greater_ex : public SpellScript
     void HandleHitTarget()
     {
         Unit* caster = GetCaster();
-        if (!caster || !caster->HasAura(SPELL_EX_GREATER_JUDGMENT))
+        Unit* hit = GetHitUnit();
+        // Талант — пассив. HasAura иногда пуст (аура не села), HasSpell надёжнее.
+        if (!caster || !hit || (!caster->HasAura(SPELL_EX_GREATER_JUDGMENT) && !caster->HasSpell(SPELL_EX_GREATER_JUDGMENT)))
             return;
 
-        caster->CastSpell(GetHitUnit(), SPELL_EX_GREATER_JUDGMENT_DEBUFF, CastSpellExtraArgsInit{
+        caster->CastSpell(hit, SPELL_EX_GREATER_JUDGMENT_DEBUFF, CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
             .TriggeringSpell = GetSpell()
         });
+        // 197277 — 18с. Короткая серверная длительность снимает иконку раньше тултипа.
+        if (Aura* debuff = hit->GetAura(SPELL_EX_GREATER_JUDGMENT_DEBUFF, caster->GetGUID()))
+        {
+            constexpr int32 dur = 18000;
+            if (debuff->GetMaxDuration() < dur)
+                debuff->SetMaxDuration(dur);
+            if (debuff->GetDuration() < dur)
+                debuff->SetDuration(dur);
+        }
     }
 
     void Register() override

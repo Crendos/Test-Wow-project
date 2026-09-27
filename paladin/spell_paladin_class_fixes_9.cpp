@@ -40,8 +40,10 @@ enum PaladinEx9Spells
     SPELL_EX9_LIGHTS_DELIVERANCE  = 425518, // Избавление Света (талант)
     SPELL_EX9_DELIVERANCE_STACK   = 433674, // стакающийся бафф
     SPELL_EX9_DELIVERANCE_FREE    = 433732, // след. Молот Света бесплатен
-    SPELL_EX9_SANCTIFICATION_TAL  = 424616, // Освящение Темплара (талант)
+    SPELL_EX9_SANCTIFICATION_TAL  = 424616, // старый id Освящения
+    SPELL_EX9_SANCTIFICATION_TAL2 = 432977, // 12.x: Правосудие даёт стак, триггер в DBC = 0
     SPELL_EX9_SANCTIFICATION_BUFF = 433671, // стаки Освящения
+    SPELL_EX9_HOL_TOLL            = 1246643, // Прот: Благовест → Молот Света
     SPELL_EX9_DIVINE_TOLL         = 375576,
     SPELL_EX9_WAKE                = 255937,
     SPELL_EX9_HOL_READY           = 427441, // кнопка Молота Света
@@ -87,7 +89,7 @@ namespace
         if (!caster || !caster->HasSpell(SPELL_EX9_LIGHTS_DELIVERANCE))
             return;
         // во время OnRemove аура ещё числится висящей — для спадания кнопки проверку пропускаем
-        if (!buttonJustExpired && caster->HasAura(SPELL_EX9_HOL_READY))
+        if (!buttonJustExpired && (caster->HasAura(SPELL_EX9_HOL_READY) || caster->HasAura(SPELL_EX9_HOL_TOLL)))
             return;
 
         Player* player = caster->ToPlayer();
@@ -113,7 +115,11 @@ namespace
         ld->Remove();
         CastSpellExtraArgs args(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
         caster->CastSpell(caster, SPELL_EX9_DELIVERANCE_FREE, args);
-        caster->CastSpell(caster, SPELL_EX9_HOL_READY, args);
+        uint32 button = SPELL_EX9_HOL_READY;
+        if (player->GetPrimarySpecialization() == ChrSpecialization::PaladinProtection
+            && sSpellMgr->GetSpellInfo(SPELL_EX9_HOL_TOLL, DIFFICULTY_NONE))
+            button = SPELL_EX9_HOL_TOLL;
+        caster->CastSpell(caster, button, args);
     }
 
     void CastEmpyreanAt(Unit* caster, Unit* prefer, Spell const* triggering, int32 count)
@@ -356,7 +362,12 @@ class spell_pal_sanctification_templar_ex : public SpellScript
     void HandleAfterCast()
     {
         Unit* caster = GetCaster();
-        if (!caster || !caster->HasSpell(SPELL_EX9_SANCTIFICATION_TAL))
+        if (!caster)
+            return;
+        // 12.x талант — 432977 (DBC-триггер пустой, баф сам не встаёт). 424616 — старый id.
+        bool knows = caster->HasSpell(SPELL_EX9_SANCTIFICATION_TAL) || caster->HasAura(SPELL_EX9_SANCTIFICATION_TAL)
+            || caster->HasSpell(SPELL_EX9_SANCTIFICATION_TAL2) || caster->HasAura(SPELL_EX9_SANCTIFICATION_TAL2);
+        if (!knows)
             return;
 
         caster->CastSpell(caster, SPELL_EX9_SANCTIFICATION_BUFF, CastSpellExtraArgsInit{

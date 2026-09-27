@@ -28,17 +28,18 @@
 -- 0. ДО
 SELECT ao.SpellID, ao.ProcTypeMask1, ao.ProcTypeMask2, ao.ProcChance, ao.CumulativeAura, ao.ProcCharges
 FROM spell_aura_options ao
-WHERE ao.SpellID IN (432463, 431533, 425518, 431687, 427441, 431522, 1266308);
+WHERE ao.SpellID IN (432463, 431533, 425518, 431687, 427441, 431522, 1246643, 1266308);
 
 -- 1. Уже нулевые таланты (идемпотентно)
 UPDATE spell_aura_options
 SET ProcTypeMask1 = 0, ProcTypeMask2 = 0
 WHERE SpellID IN (432463, 431533, 425518, 431687);
 
--- 2. Прок «с любого каста», который сам ничего не кастует
+-- 2. Прок «с любого каста», который сам ничего не кастует.
+--    1246643 — прот-кнопка Молота (Благовест → 427453), та же маска 0/4, что была у 427441.
 UPDATE spell_aura_options
 SET ProcTypeMask1 = 0, ProcTypeMask2 = 0
-WHERE SpellID IN (427441, 431522)
+WHERE SpellID IN (427441, 431522, 1246643)
   AND (ProcTypeMask1 <> 0 OR ProcTypeMask2 <> 0);
 
 -- 3. Кап стаков зарядов Рассвета (уже 6 — совпадений 0)
@@ -46,7 +47,7 @@ UPDATE spell_aura_options
 SET CumulativeAura = 2
 WHERE SpellID = 431522 AND CumulativeAura < 2;
 
--- 4. ПОСЛЕ: у 427441 и 431522 маски 0/0; у 1266308 маска 0/4 на месте
+-- 4. ПОСЛЕ: у 427441, 431522 и 1246643 маски 0/0; у 1266308 маска 0/4 на месте
 SELECT ao.SpellID, ao.ProcTypeMask1, ao.ProcTypeMask2, ao.CumulativeAura
 FROM spell_aura_options ao
-WHERE ao.SpellID IN (432463, 431533, 425518, 431687, 427441, 431522, 1266308);
+WHERE ao.SpellID IN (432463, 431533, 425518, 431687, 427441, 431522, 1246643, 1266308);

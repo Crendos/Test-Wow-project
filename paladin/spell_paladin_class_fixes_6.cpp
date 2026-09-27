@@ -50,8 +50,75 @@ enum PaladinEx6Spells
 
     // Наставления Света (герой-талант): Звон выдает кнопку Молота Света
     SPELL_EX6_LIGHTS_GUIDANCE           = 427445,
-    SPELL_EX6_HAMMER_OF_LIGHT_BUFF      = 427441
+    // 427441 подменяет только семейство Пробуждения зол (маска класса).
+    // С 12.0.0 у Защиты кнопка — отдельная аура 1246643: MiscValue = 375576,
+    // замена на 427453. Без неё Благовест на панели не становится Молотом Света.
+    SPELL_EX6_HAMMER_OF_LIGHT_BUFF      = 427441,
+    SPELL_EX6_HAMMER_OF_LIGHT_TOLL      = 1246643,
+    SPELL_EX6_SPEC_AURA_PROT            = 137028
 };
+
+namespace
+{
+    [[nodiscard]] bool KnowsSpellOrAura(Unit const* unit, uint32 spellId)
+    {
+        return unit && (unit->HasAura(spellId) || unit->HasSpell(spellId));
+    }
+
+    [[nodiscard]] bool IsProtectionPaladin(Player const* player)
+    {
+        if (!player)
+            return false;
+        if (player->GetPrimarySpecialization() == ChrSpecialization::PaladinProtection)
+            return true;
+        // запасной гейт, если специализация на персонаже не проставлена
+        return player->HasAura(SPELL_EX6_SPEC_AURA_PROT) || player->HasSpell(SPELL_EX6_JUDGMENT_PROT);
+    }
+
+    void ForceAuraDuration(Unit* unit, uint32 spellId, int32 durationMs)
+    {
+        Aura* aura = unit ? unit->GetAura(spellId) : nullptr;
+        if (!aura || durationMs <= 0)
+            return;
+        if (aura->GetMaxDuration() < durationMs)
+            aura->SetMaxDuration(durationMs);
+        if (aura->GetDuration() < durationMs)
+            aura->SetDuration(durationMs);
+    }
+
+    void EnsureStacks(Aura* aura, uint8 stacks)
+    {
+        if (!aura || stacks <= 1)
+            return;
+        uint32 cap = aura->GetSpellInfo()->StackAmount;
+        if (cap > 0 && stacks > cap)
+            stacks = static_cast<uint8>(cap);
+        while (aura->GetStackAmount() < stacks)
+            aura->ModStackAmount(1);
+    }
+
+    // Прот: 1246643 (Благовест → Молот). Если спелла нет в данных сервера — 427441
+    // (иконка не сменится: у 427441 в клиенте нет Благовеста). Рет эту функцию не зовёт.
+    uint32 GrantProtectionHammerButton(Unit* caster)
+    {
+        uint32 button = SPELL_EX6_HAMMER_OF_LIGHT_BUFF;
+        if (sSpellMgr->GetSpellInfo(SPELL_EX6_HAMMER_OF_LIGHT_TOLL, DIFFICULTY_NONE))
+            button = SPELL_EX6_HAMMER_OF_LIGHT_TOLL;
+        else
+        {
+            static bool logged = false;
+            if (!logged)
+            {
+                logged = true;
+                TC_LOG_ERROR("scripts", "Paladin: спелл 1246643 отсутствует — Божественный благовест не станет Молотом Света. Нужны данные 12.0+.");
+            }
+        }
+
+        caster->CastSpell(caster, button, CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR));
+        ForceAuraDuration(caster, button, 20000);
+        return button;
+    }
+}
 
 // 375576 - Гневилище: кастует основную способность по 5 ближайшим врагам.
 //   Свет -> Святое сияние, Защита -> Щит мстителя, Воздаяние -> Правосудие
@@ -60,6 +127,8 @@ class spell_pal_divine_toll_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
+        // 1246643 в Validate не ставим: нет спелла в старых данных — скрипт Звона
+        // не должен выгрузиться целиком. Проверка — в GrantProtectionHammerButton.
         return ValidateSpellInfo({ SPELL_EX6_HOLY_SHOCK, SPELL_EX6_AVENGERS_SHIELD,
             SPELL_EX6_JUDGMENT_RET, SPELL_EX6_DIVINE_TOLL_RET_DEBUFF,
             SPELL_EX6_LIGHTS_GUIDANCE, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
@@ -123,33 +192,39 @@ class spell_pal_divine_toll_ex : public SpellScript
                 CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
                     .SetTriggeringSpell(GetSpell()));
 
-        // Резонанс света
-        if (caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_RET))
-            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_RET_BUFF,
-                CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                    .SetTriggeringSpell(GetSpell()));
-        if (caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_PROT))
-            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
-                CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                    .SetTriggeringSpell(GetSpell()));
+        // Резонанс света. Длительность не берём из данных как есть: клиент пишет
+        // 15с, а серверная длительность 386730 бывает 4с или 10с — иконка гаснет
+        // раньше (лог: ~4–5с; в игре отмена на 10-й секунде при таймере 15).
+        CastSpellExtraArgs resonanceArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR);
+        resonanceArgs.SetTriggeringSpell(GetSpell());
+        if (KnowsSpellOrAura(caster, SPELL_EX6_DIVINE_RESONANCE_RET))
+        {
+            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, resonanceArgs);
+            // 12.0: следующие 3 Правосудия, 30с (не 2 и не 15).
+            ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, 30000);
+            EnsureStacks(caster->GetAura(SPELL_EX6_DIVINE_RESONANCE_RET_BUFF), 3);
+        }
+        if (KnowsSpellOrAura(caster, SPELL_EX6_DIVINE_RESONANCE_PROT))
+        {
+            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, resonanceArgs);
+            ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, 15000);
+        }
         // АУДИТ26.09: Холи-Резонанс не выдавался (нет своей талант-ауры в цепочке)
-        // — добавлен гейт по379391; тик386730 для Холи → Святая вспышка
-        // (spec-ветка в spell_pal_divine_resonance_prot_ex)
-        if (caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_HOLY))
-            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
-                CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                    .SetTriggeringSpell(GetSpell()));
+        // — гейт по379391 оставлен как был; тик386730 для Холи → Святая вспышка
+        // (spec-ветка в spell_pal_divine_resonance_prot_ex). 379391 не расширяем.
+        if (KnowsSpellOrAura(caster, SPELL_EX6_DIVINE_RESONANCE_HOLY))
+        {
+            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, resonanceArgs);
+            ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, 15000);
+        }
 
-        // Свет наставления (427445, wowhead12.1): ПРОТ — Божественный звон
-        // заменяется на Молот Света (427441) на20с. РЕТ получает Молот от
-        // Пробуждения зол — spell_pal_lights_guidance_wake_ex (часть 6, fix_7).
-        // После PROC_FIX (маска427445 обнулена) это узкий путь вместо прока.
-        if (caster->HasAura(SPELL_EX6_LIGHTS_GUIDANCE))
+        // Свет наставления (427445): ПРОТ — Благовест заменяется на Молот Света
+        // на 20с аурой 1246643 (не 427441: та подменяет только Пробуждение зол).
+        // РЕТ получает Молот от Пробуждения зол — spell_pal_lights_guidance_wake_ex.
+        if (KnowsSpellOrAura(caster, SPELL_EX6_LIGHTS_GUIDANCE))
             if (Player* p = caster->ToPlayer())
-                if (p->GetPrimarySpecialization() == ChrSpecialization::PaladinProtection)
-                    caster->CastSpell(caster, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
-                        CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                            .SetTriggeringSpell(GetSpell()));
+                if (IsProtectionPaladin(p))
+                    GrantProtectionHammerButton(caster);
     }
 
     void Register() override
@@ -158,8 +233,9 @@ class spell_pal_divine_toll_ex : public SpellScript
     }
 };
 
-// 1266308 - Резонанс света (Воздаяние): следующие 2 Правосудия кастуются
-// повторно на 100% (стак потребляется, Правосудие кастуется снова бесплатно).
+// 1266308 - Резонанс света (Воздаяние): следующие 3 Правосудия кастуются
+// повторно на 100% (стак списывается ПОСЛЕ эха, иначе последний — и единственный —
+// стак съедался без повторного каста).
 class spell_pal_divine_resonance_ret_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -193,15 +269,15 @@ class spell_pal_divine_resonance_ret_ex : public AuraScript
         if (!aura) // аура потеряна — ре-каст без списания стаков дал бы бесконечный цикл
             return;
 
-        aura->ModStackAmount(-1, AURA_REMOVE_BY_ENEMY_SPELL);
-        if (aura->GetStackAmount() <= 0)
-            return;
-
         if (Unit* target = eventInfo.GetActionTarget())
             caster->CastSpell(target, eventInfo.GetSpellInfo()->Id, CastSpellExtraArgsInit{
                 .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_GCD | TRIGGERED_DONT_REPORT_CAST_ERROR,
                 .TriggeringSpell = eventInfo.GetProcSpell()
             });
+
+        // эхо уже ушло; triggered-каст CheckProc не пропускает, цикла нет
+        if (Aura* still = GetAura())
+            still->ModStackAmount(-1, AURA_REMOVE_BY_ENEMY_SPELL);
     }
 
     void Register() override
@@ -218,6 +294,13 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_EX6_AVENGERS_SHIELD, SPELL_EX6_HOLY_SHOCK });
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        // Клиентский тултип 386730 — 15с (DurationIndex 8). Серверные данные
+        // короче: аура снимается на 4с или на 10-й секунде, а иконка ещё пишет 15.
+        ForceAuraDuration(GetTarget(), SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, 15000);
     }
 
     void OnPeriodic(AuraEffect const* /*aurEff*/)
@@ -265,6 +348,7 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
 
     void Register() override
     {
+        OnEffectApply += AuraEffectApplyFn(spell_pal_divine_resonance_prot_ex::OnApply, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_divine_resonance_prot_ex::OnPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
     }
 };

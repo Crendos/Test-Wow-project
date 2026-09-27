@@ -44,6 +44,7 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (53595,   'spell_pal_higher_calling_ex'),
 -- спад кнопки Молота Света
 (427441,  'spell_pal_hol_ready_expire_ex'),
+(1246643, 'spell_pal_hol_ready_expire_ex'),
 -- Солнечный ожог (только Рет, гейт в скрипте)
 (24275,   'spell_pal_sun_sear_ex'),
 (1241413, 'spell_pal_sun_sear_ex'),

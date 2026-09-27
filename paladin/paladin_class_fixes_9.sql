@@ -39,4 +39,6 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (204019, 'spell_pal_higher_calling_ex'),
 (53595,  'spell_pal_higher_calling_ex'),
 -- спад кнопки Молота → проверка Избавления Света
-(427441, 'spell_pal_hol_ready_expire_ex');
+-- 1246643 — прот-оверрайд Благовеста (12.0+); 427441 — Пробуждение зол
+(427441, 'spell_pal_hol_ready_expire_ex'),
+(1246643, 'spell_pal_hol_ready_expire_ex');
