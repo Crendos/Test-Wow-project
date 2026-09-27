@@ -12,6 +12,7 @@
 // ============================================================================
 
 // === CUT HERE ===============================================================
+// PAL_NO_PROTECTED_TARGETINFO — step1: без этой строки партии устарели.
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -372,8 +373,7 @@ class spell_pal_dawnlight_ex : public SpellScript
             }
         }
 
-        // Число целей считаем сами: m_UniqueTargetInfo в этой сборке protected,
-        // а friend Spell не наследуется дочерним SpellScript.
+        // Число целей считаем сами: поле списка целей у Spell в этой сборке protected.
         for (HitNote const& hit : _hits)
             if (hit.guid == target->GetGUID())
                 return;

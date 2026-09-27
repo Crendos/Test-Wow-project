@@ -1,4 +1,4 @@
-﻿# Paladin fixes — ШАГ 1: дописать 10 партий в spell_paladin.cpp (+ проверить лоадер)
+# Paladin fixes — ШАГ 1: дописать 10 партий в spell_paladin.cpp (+ проверить лоадер)
 # Пути определяются автоматически. Запуск: двойной клик по step1_scripts.bat
 $ErrorActionPreference = 'Stop'
 $fix = Split-Path -Parent $PSScriptRoot
@@ -8,6 +8,10 @@ if (-not (Test-Path "$fix\spell_paladin_class_fixes.cpp")) {
 if (-not (Test-Path "$fix\spell_paladin_class_fixes.cpp")) { Write-Host "[X] файлы фиксов не найдены в $fix"; Read-Host Enter; exit 1 }
 
 $core = @(
+    (Join-Path (Split-Path $fix) 'Trinitycore'),
+    (Join-Path (Split-Path $fix) 'TrinityCore'),
+    'F:\Games\server\comp\Trinitycore',
+    'F:\Games\server\comp\TrinityCore',
     "$env:USERPROFILE\Desktop\new\test\TrinityCore",
     "$env:USERPROFILE\Desktop\TrinityCore",
     "C:\TrinityCore", "C:\TrinityCore\TrinityCore",
@@ -34,13 +38,15 @@ $hasNew = $raw.Contains('MakeSpellArgs')
 $hasAT    = $raw.Contains('RegisterAreaTriggerAI(at_pal_blessed_hammer)')
 $hasGuard = $raw.Contains('procSpell->IsTriggered()')
 $hasMech  = $raw.Contains('PAL_MECH_REV_20260926')
+$hasSafe  = $raw.Contains('PAL_NO_PROTECTED_TARGETINFO')
+$hasBad   = $raw.Contains('GetSpell()->m_UniqueTargetInfo')
 Write-Host "[1/4] маркеров в spell_paladin.cpp сейчас: $cur (нужно 0 или 10)"
 $needRollback = $false
 if ($cur -eq 10) {
-    if ($hasNew -and $hasAT -and $hasGuard -and $hasMech) {
+    if ($hasNew -and $hasAT -and $hasGuard -and $hasMech -and $hasSafe -and -not $hasBad) {
         Write-Host ">>> УЖЕ УСТАНОВЛЕНО (последняя версия) — вставка пропущена"
     } else {
-        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_MECH_REV_20260926 или анти-зацикливания) — заменяю на новую"
+        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_NO_PROTECTED_TARGETINFO или ещё есть protected-поле) — заменяю на новую"
         $needRollback = $true
     }
 } elseif ($cur -ne 0) {
@@ -54,10 +60,17 @@ if ($needRollback) {
     Pop-Location
     $cur = ([regex]::Matches((Get-Content -Raw $pal), [regex]::Escape($marker))).Count
     if ($cur -ne 0) {
-        Write-Host "[X] git не смог откатить файл — выполните ВРУЧНУЮ в этой консоли:" -ForegroundColor Red
-        Write-Host "    cd /d `"$core`""
-        Write-Host "    git checkout -- src/server/scripts/Spells/spell_paladin.cpp"
-        Write-Host "    затем запустите step1_scripts.bat заново"
+        $text = Get-Content -Raw $pal
+        $idx = $text.IndexOf($marker)
+        if ($idx -gt 0) {
+            $kept = $text.Substring(0, $idx).TrimEnd()
+            [IO.File]::WriteAllText($pal, $kept + "`r`n", (New-Object System.Text.UTF8Encoding $false))
+            $cur = 0
+            Write-Host ">>> git не откатил — обрезал файл до первого маркера партий"
+        }
+    }
+    if ($cur -ne 0) {
+        Write-Host "[X] не смог убрать старые партии из spell_paladin.cpp" -ForegroundColor Red
         Read-Host "Нажмите Enter для выхода"; exit 1
     }
     Write-Host ">>> откат выполнен (0 маркеров)"
@@ -77,11 +90,12 @@ if ($cur -eq 0) {
     $atN = ([regex]::Matches($raw2, [regex]::Escape('RegisterAreaTriggerAI(at_pal_blessed_hammer)'))).Count
     $gdN = ([regex]::Matches($raw2, [regex]::Escape('procSpell->IsTriggered()'))).Count
     $mech = $raw2.Contains('PAL_MECH_REV_20260926')
+    $safe = $raw2.Contains('PAL_NO_PROTECTED_TARGETINFO') -and -not $raw2.Contains('GetSpell()->m_UniqueTargetInfo')
     Write-Host "[3/4] маркеров стало: $now (нужно 10)"
     Write-Host "[3b]  MakeSpellArgs в файле: $ms (ожидается 18)"
     Write-Host "[3c]  AT-скрипт молота: $atN (ожидается 1); анти-зацикливание: $gdN (ожидается 2)"
-    Write-Host "[3d]  механика 26.09: $mech (ожидается True)"
-    if ($now -eq 10 -and $ms -eq 18 -and $atN -eq 1 -and $gdN -eq 2 -and $mech) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)" -ForegroundColor Green }
+    Write-Host "[3d]  механика 26.09: $mech ; без protected-поля: $safe (ожидается True True)"
+    if ($now -eq 10 -and $ms -eq 18 -and $atN -eq 1 -and $gdN -eq 2 -and $mech -and $safe) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)" -ForegroundColor Green }
     else { Write-Host "[X] НЕ СХОДИТСЯ — пришлите этот вывод целиком" -ForegroundColor Red; Read-Host Enter; exit 1 }
 }
 

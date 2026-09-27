@@ -560,10 +560,12 @@ findstr /c:"each Holy Power spent" src\server\scripts\Spells\spell_paladin.cpp
 Сделать по порядку:
 
 1. Заново скачать папку `paladin/` (или подтянуть этот коммит).
-2. Запустить `paladin\windows\step1_scripts.bat`. В логе должно быть
-   `механика 26.09: True` и `ШАГ 1.1 ВЫПОЛНЕН`. Если написало «УЖЕ УСТАНОВЛЕНО»,
-   а `check_all.bat` ругается на маркер — партии старые, step1 надо прогнать ещё раз
-   уже с новым ps1.
+2. Запустить `paladin\windows\step1_scripts.bat`. Скачивание папки само
+   `spell_paladin.cpp` не меняет. В логе ядро должно быть
+   `F:\Games\server\comp\Trinitycore`, затем «заменяю на новую» и
+   `ШАГ 1.1 ВЫПОЛНЕН`. Строка «УЖЕ УСТАНОВЛЕНО» значит bat старый —
+   скачайте `windows\step1_scripts.ps1` ещё раз. Пока в cpp есть
+   `GetSpell()->m_UniqueTargetInfo`, сборка будет падать на строке 5249.
 3. Пересобрать `scripts` + `worldserver` (новые классы скриптов должны быть в бинарнике
    до загрузки биндов, иначе в логе `script not found`).
 4. В **world** выполнить `FIX_FROM_AUDIT.sql`
