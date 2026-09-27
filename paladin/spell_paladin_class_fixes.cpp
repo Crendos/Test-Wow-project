@@ -239,6 +239,42 @@ class spell_pal_judgment_greater_ex : public SpellScript
         return ValidateSpellInfo({ SPELL_EX_GREATER_JUDGMENT_DEBUFF });
     }
 
+    // 267316 не аура-прок: E0/E1 — модификатор урона, E3 — spell-effect DUMMY, не аура.
+    // Старый хук SPELL_AURA_DUMMY никогда не вызывался, поэтому 383921 не бил.
+    // Шанс с Wowhead 12.1.5: урон Света = очки * 1.35, прок = этот процент * 0.75
+    // (тултип 11.0% урона → 8.3% шанс). Безграничное правосудие 405278 = +50.
+    void HandleMasteryBlast()
+    {
+        Unit* caster = GetCaster();
+        Unit* hit = GetHitUnit();
+        Player* player = caster ? caster->ToPlayer() : nullptr;
+        if (!player || !hit || !player->HasAura(SPELL_EX_MASTERY_RETRIBUTION))
+            return;
+        if (!sSpellMgr->GetSpellInfo(SPELL_EX_HIGHLORDS_JUDGMENT_DAMAGE, DIFFICULTY_NONE))
+            return;
+
+        float points = player->GetTotalAuraModifier(SPELL_AURA_MASTERY)
+            + player->GetRatingBonusValue(CR_MASTERY);
+        if (points <= 0.f)
+            return;
+
+        float chance = points * 1.35f * 0.75f;
+        if (player->HasAura(SPELL_EX_BOUNDLESS_JUDGMENT))
+        {
+            float bonus = 50.f;
+            if (AuraEffect const* boundless = player->GetAuraEffect(SPELL_EX_BOUNDLESS_JUDGMENT, EFFECT_0))
+                bonus = float(boundless->GetAmount());
+            chance *= 1.f + bonus / 100.f;
+        }
+        if (!roll_chance(chance))
+            return;
+
+        caster->CastSpell(hit, SPELL_EX_HIGHLORDS_JUDGMENT_DAMAGE, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
     void HandleHitTarget()
     {
         Unit* caster = GetCaster();
@@ -264,13 +300,14 @@ class spell_pal_judgment_greater_ex : public SpellScript
 
     void Register() override
     {
+        AfterHit += SpellHitFn(spell_pal_judgment_greater_ex::HandleMasteryBlast);
         AfterHit += SpellHitFn(spell_pal_judgment_greater_ex::HandleHitTarget);
     }
 };
 
-// 267316 - Мастерство: Правосудие Верховного лорда (проц-часть):
-// Правосудие с шансом (очки мастерства / 2, +50% от «Безграничного правосудия»)
-// бьёт цель Светом (383921). Пассивный бонус урона работает через DBC.
+// 267316 - Мастерство: Правосудие Верховного лорда.
+// Пассивный бонус урона — DBC (E0/E1, коэф. 1.35). Удар 383921 кастует
+// spell_pal_judgment_greater_ex: у 267316 нет ауры-прока, хук DUMMY не срабатывал.
 class spell_pal_highlords_judgment_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -278,39 +315,7 @@ class spell_pal_highlords_judgment_ex : public AuraScript
         return ValidateSpellInfo({ SPELL_EX_HIGHLORDS_JUDGMENT_DAMAGE });
     }
 
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo) const
-    {
-        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
-        if (!spellInfo || !IsPaladinJudgment(spellInfo->Id))
-            return false;
-
-        Player* player = eventInfo.GetActor()->ToPlayer();
-        if (!player)
-            return false;
-
-        float masteryPoints = player->GetTotalAuraModifier(SPELL_AURA_MASTERY)
-            + player->GetRatingBonusValue(CR_MASTERY);
-        float chance = masteryPoints / 2.f;
-        if (player->HasAura(SPELL_EX_BOUNDLESS_JUDGMENT))
-            chance *= 1.5f;
-
-        return roll_chance(chance);
-    }
-
-    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
-    {
-        if (Unit* target = eventInfo.GetActionTarget())
-            eventInfo.GetActor()->CastSpell(target, SPELL_EX_HIGHLORDS_JUDGMENT_DAMAGE, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringSpell = eventInfo.GetProcSpell()
-            });
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_highlords_judgment_ex::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_pal_highlords_judgment_ex::HandleProc, EFFECT_3, SPELL_AURA_DUMMY);
-    }
+    void Register() override { }
 };
 
 // 406157 - Судья, присяжные и палач: гейтим дефолт-триггер E1 (1253174) так,
