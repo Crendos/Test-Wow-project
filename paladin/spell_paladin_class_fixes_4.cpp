@@ -422,12 +422,19 @@ class spell_pal_divine_revelations_fol_ex : public SpellScript
 
 class spell_pal_divine_revelations_judg_ex : public SpellScript
 {
+    // Снимок до каста: Вливание снимает spell_pal_judgment_greater_ex в своём AfterCast,
+    // порядок AfterCast между скриптами не гарантирован.
+    void Snapshot()
+    {
+        _infused = GetCaster()->HasAura(SPELL_EX4_INFUSION_OF_LIGHT_BUFF);
+    }
+
     void HandleAfterCast()
     {
         Unit* caster = GetCaster();
         if (!caster || !caster->HasAura(SPELL_EX4_DIVINE_REVELATIONS))
             return;
-        if (!caster->HasAura(SPELL_EX4_INFUSION_OF_LIGHT_BUFF))
+        if (!_infused)
             return;
 
         caster->CastSpell(caster, SPELL_EX4_MANA_ENERGIZE_PCT, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, 1));
@@ -435,8 +442,11 @@ class spell_pal_divine_revelations_judg_ex : public SpellScript
 
     void Register() override
     {
+        BeforeCast += SpellCastFn(spell_pal_divine_revelations_judg_ex::Snapshot);
         AfterCast += SpellCastFn(spell_pal_divine_revelations_judg_ex::HandleAfterCast);
     }
+
+    bool _infused = false;
 };
 
 // 392961 - Насыщенные вливания: трата Вливания света -1с КД Св. сияния.
@@ -478,7 +488,11 @@ class spell_pal_veneration_ex : public SpellScript
         for (uint32 spellId : { SPELL_EX4_JUDGMENT_HOLY, SPELL_EX4_JUDGMENT_RET, SPELL_EX4_JUDGMENT_PROT })
             if (caster->HasSpell(spellId))
             {
+                // Правосудие на зарядах: ResetCooldown заряд не возвращает.
                 caster->GetSpellHistory()->ResetCooldown(spellId, true);
+                if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE))
+                    if (info->ChargeCategoryId)
+                        caster->GetSpellHistory()->RestoreCharge(info->ChargeCategoryId);
                 break;
             }
     }

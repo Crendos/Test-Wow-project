@@ -81,6 +81,9 @@ enum PaladinExSpells
     SPELL_EX_EMPYREAN_POWER_READY             = 326733,
     SPELL_EX_GREATER_JUDGMENT                 = 231663,
     SPELL_EX_GREATER_JUDGMENT_DEBUFF          = 197277,
+    SPELL_EX_GREATER_JUDGMENT_HOLY            = 231644, // Свет: E0 = 483% SP (уже с +250% из 12.0.5)
+    SPELL_EX_UNWORTHY                         = 414022, // «Недостойный»: E0 dummy = остаток поглощения
+    SPELL_EX_INFUSION_OF_LIGHT                = 54149,
     SPELL_EX_MASTERY_RETRIBUTION              = 267316,
     SPELL_EX_BOUNDLESS_JUDGMENT               = 405278,
     SPELL_EX_JUDGE_JURY_EXECUTIONER           = 406157,
@@ -108,6 +111,20 @@ enum PaladinExSpells
 
 namespace
 {
+    // «Сбросить откат» спеллу на зарядах: ResetCooldown в TC заряды не трогает.
+    // У Клинка правосудия в данных 1 заряд (2 с Улучшенным Клинком 403745), поэтому
+    // без RestoreCharge сброс от Искусства войны / Праведной причины не работал.
+    void ResetSpellOrChargeEx(Unit* unit, uint32 spellId)
+    {
+        if (!unit)
+            return;
+        SpellHistory* history = unit->GetSpellHistory();
+        history->ResetCooldown(spellId, true);
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE))
+            if (info->ChargeCategoryId)
+                history->RestoreCharge(info->ChargeCategoryId);
+    }
+
     [[nodiscard]] bool IsPaladinJudgment(uint32 spellId)
     {
         switch (spellId)
@@ -249,6 +266,72 @@ namespace
         return false;
     }
 
+    [[nodiscard]] bool IsHolyPaladinEx(Unit* unit)
+    {
+        if (!unit)
+            return false;
+        if (unit->HasAura(SPELL_EX_SPEC_HOLY) || unit->HasAura(SPELL_EX_GREATER_JUDGMENT_HOLY))
+            return true;
+        if (Player* player = unit->ToPlayer())
+            return player->GetPrimarySpecialization() == ChrSpecialization::PaladinHoly;
+        return false;
+    }
+
+    // 231644 (Свет): «предотвращает следующие (SP * 483%) * (1 + Универсальность) урона цели».
+    // Вливание света (54149, E4 = 250 → +150%) увеличивает поглощение. PvP-множитель 0.3714.
+    // Наложения суммируются («Multiple applications may overlap»), длительность 18 с (12.1.0).
+    void ApplyUnworthyEx(Unit* caster, Unit* target, bool infused, Spell const* triggering)
+    {
+        if (!caster || !target)
+            return;
+
+        float pct = 483.f;
+        if (AuraEffect const* talent = caster->GetAuraEffect(SPELL_EX_GREATER_JUDGMENT_HOLY, EFFECT_0))
+            if (talent->GetAmount() > 0)
+                pct = float(talent->GetAmount());
+
+        float amount = caster->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_HOLY) * pct / 100.f;
+        if (Player* player = caster->ToPlayer())
+            AddPct(amount, player->GetRatingBonusValue(CR_VERSATILITY_DAMAGE_DONE)
+                + player->GetTotalAuraModifier(SPELL_AURA_MOD_VERSATILITY));
+        if (infused)
+            amount *= 2.5f;
+        if (target->GetAffectingPlayer())
+            amount *= 0.3714f;
+        if (amount < 1.f)
+            return;
+
+        Aura* debuff = target->GetAura(SPELL_EX_UNWORTHY, caster->GetGUID());
+        int32 previous = 0;
+        if (debuff)
+        {
+            if (AuraEffect const* eff = debuff->GetEffect(EFFECT_0))
+                previous = eff->GetAmount();
+        }
+        else
+        {
+            caster->CastSpell(target, SPELL_EX_UNWORTHY, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_FULL_MASK,
+                .TriggeringSpell = triggering
+            });
+            debuff = target->GetAura(SPELL_EX_UNWORTHY, caster->GetGUID());
+        }
+        if (!debuff)
+            return;
+
+        if (AuraEffect* eff = debuff->GetEffect(EFFECT_0))
+        {
+            eff->SetCanBeRecalculated(false);
+            int64 const total = int64(previous) + int64(amount);
+            eff->ChangeAmount(int32(std::min<int64>(total, std::numeric_limits<int32>::max())));
+        }
+
+        constexpr int32 dur = 18000;
+        if (debuff->GetMaxDuration() < dur)
+            debuff->SetMaxDuration(dur);
+        debuff->SetDuration(dur);
+    }
+
     // Тултип 231663: Свет/Воздаяние 20%, Защита 50%. В эффекте таланта лежит только 20.
     [[nodiscard]] int32 GreaterJudgmentBonus(Unit* caster)
     {
@@ -321,7 +404,7 @@ namespace
     }
 }
 
-// 406064 - Искусство войны: автоатаки с шансом 15% (+10% относительного бонуса за крит)
+// 406064 - Искусство войны: автоатаки с шансом 15% (25% при крите)
 // сбрасывают КД Клинка правосудия и усиливают следующий Клинок (406086).
 class spell_pal_art_of_war_ex : public AuraScript
 {
@@ -336,17 +419,18 @@ class spell_pal_art_of_war_ex : public AuraScript
         if (!(eventInfo.GetTypeMask() & PROC_FLAG_DEAL_MELEE_SWING))
             return false;
 
+        // Тултип: 15%, крит «увеличивает шанс ещё на 10%» — пункты, то есть 25%, не 16.5%.
         float chance = aurEff->GetAmount();
         if (eventInfo.GetHitMask() & PROC_HIT_CRITICAL)
             if (AuraEffect const* critBonus = GetEffect(EFFECT_1))
-                chance *= 1.f + critBonus->GetAmount() / 100.f;
+                chance += critBonus->GetAmount();
 
         return roll_chance(chance);
     }
 
     void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
     {
-        GetTarget()->GetSpellHistory()->ResetCooldown(SPELL_EX_BLADE_OF_JUSTICE, true);
+        ResetSpellOrChargeEx(GetTarget(), SPELL_EX_BLADE_OF_JUSTICE);
         GetTarget()->CastSpell(GetTarget(), SPELL_EX_ART_OF_WAR_READY, CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
             .TriggeringSpell = eventInfo.GetProcSpell()
@@ -385,7 +469,7 @@ class spell_pal_righteous_cause_ex : public AuraScript
 
     void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
     {
-        GetTarget()->GetSpellHistory()->ResetCooldown(SPELL_EX_BLADE_OF_JUSTICE, true);
+        ResetSpellOrChargeEx(GetTarget(), SPELL_EX_BLADE_OF_JUSTICE);
         GetTarget()->CastSpell(GetTarget(), SPELL_EX_RIGHTEOUS_CAUSE_READY, CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
             .TriggeringSpell = eventInfo.GetProcSpell()
@@ -490,12 +574,43 @@ class spell_pal_judgment_greater_ex : public SpellScript
         });
     }
 
+    // Свет: снимок Вливания света до попаданий. Вливание тратится этим Правосудием:
+    // +150% к «Недостойному» и +1 Сила Света (54149 E4/E5, серверные эффекты).
+    void SnapshotInfusion()
+    {
+        Unit* caster = GetCaster();
+        _holy = IsHolyPaladinEx(caster);
+        _infused = _holy && caster->HasAura(SPELL_EX_INFUSION_OF_LIGHT);
+    }
+
+    void ConsumeInfusion()
+    {
+        Unit* caster = GetCaster();
+        if (!_infused || !caster)
+            return;
+        caster->EnergizeBySpell(caster, GetSpellInfo(), 1, POWER_HOLY_POWER);
+        caster->RemoveAurasDueToSpell(SPELL_EX_INFUSION_OF_LIGHT);
+    }
+
     void HandleHitTarget()
     {
         Unit* caster = GetCaster();
         Unit* hit = GetHitUnit();
+        if (!caster || !hit)
+            return;
+
+        // Свет: Великое правосудие = поглощение «Недостойный», а не +20% от 197277.
+        if (_holy)
+        {
+            if (caster->HasAura(SPELL_EX_GREATER_JUDGMENT_HOLY) || caster->HasSpell(SPELL_EX_GREATER_JUDGMENT_HOLY)
+                || caster->HasAura(SPELL_EX_GREATER_JUDGMENT) || caster->HasSpell(SPELL_EX_GREATER_JUDGMENT))
+                if (caster->IsValidAttackTarget(hit))
+                    ApplyUnworthyEx(caster, hit, _infused, GetSpell());
+            return;
+        }
+
         // Талант — пассив. HasAura иногда пуст (аура не села), HasSpell надёжнее.
-        if (!caster || !hit || (!caster->HasAura(SPELL_EX_GREATER_JUDGMENT) && !caster->HasSpell(SPELL_EX_GREATER_JUDGMENT)))
+        if (!caster->HasAura(SPELL_EX_GREATER_JUDGMENT) && !caster->HasSpell(SPELL_EX_GREATER_JUDGMENT))
             return;
 
         int32 const bonus = GreaterJudgmentBonus(caster);
@@ -528,9 +643,14 @@ class spell_pal_judgment_greater_ex : public SpellScript
 
     void Register() override
     {
+        BeforeCast += SpellCastFn(spell_pal_judgment_greater_ex::SnapshotInfusion);
         AfterHit += SpellHitFn(spell_pal_judgment_greater_ex::HandleMasteryBlast);
         AfterHit += SpellHitFn(spell_pal_judgment_greater_ex::HandleHitTarget);
+        AfterCast += SpellCastFn(spell_pal_judgment_greater_ex::ConsumeInfusion);
     }
+
+    bool _holy = false;
+    bool _infused = false;
 };
 
 // 197277 снимается одним наложением за удар способности, которую усиливает эффект 0.
@@ -1260,6 +1380,68 @@ class spell_pal_execution_sentence_ex : public AuraScript
     }
 };
 
+// 19750 - Вспышка света: тратит Вливание света (54149), если оно было при касте.
+// Стоковая строка spell_proc / скрипт 54149 лежат только в базовом дампе TDB.
+class spell_pal_infusion_of_light_fol_ex : public SpellScript
+{
+    void Snapshot()
+    {
+        _infused = GetCaster()->HasAura(SPELL_EX_INFUSION_OF_LIGHT);
+    }
+
+    void Consume()
+    {
+        if (_infused)
+            GetCaster()->RemoveAurasDueToSpell(SPELL_EX_INFUSION_OF_LIGHT);
+    }
+
+    void Register() override
+    {
+        BeforeCast += SpellCastFn(spell_pal_infusion_of_light_fol_ex::Snapshot);
+        AfterCast += SpellCastFn(spell_pal_infusion_of_light_fol_ex::Consume);
+    }
+
+    bool _infused = false;
+};
+
+// 414022 - «Недостойный»: урон, наносимый носителем, поглощается остатком E0.
+class spell_pal_unworthy_tracker : public UnitScript
+{
+public:
+    spell_pal_unworthy_tracker() : UnitScript("spell_pal_unworthy_tracker") { }
+
+    void OnDamage(Unit* attacker, Unit* victim, uint32& damage) override
+    {
+        if (!attacker || !victim || attacker == victim || !damage)
+            return;
+
+        while (damage)
+        {
+            AuraEffect* eff = attacker->GetAuraEffect(SPELL_EX_UNWORTHY, EFFECT_0);
+            if (!eff)
+                break;
+
+            int32 const left = eff->GetAmount();
+            if (left <= 0)
+            {
+                eff->GetBase()->Remove(AURA_REMOVE_BY_ENEMY_SPELL);
+                continue;
+            }
+
+            if (uint32(left) > damage)
+            {
+                eff->ChangeAmount(left - int32(damage));
+                damage = 0;
+            }
+            else
+            {
+                damage -= uint32(left);
+                eff->GetBase()->Remove(AURA_REMOVE_BY_ENEMY_SPELL);
+            }
+        }
+    }
+};
+
 class spell_pal_execution_sentence_tracker : public UnitScript
 {
 public:
@@ -1307,4 +1489,6 @@ void AddSC_paladin_spell_scripts_ex()
     RegisterSpellScript(spell_pal_consecrated_blade_ex);
     RegisterSpellScript(spell_pal_execution_sentence_ex);
     new spell_pal_execution_sentence_tracker();
+    RegisterSpellScript(spell_pal_infusion_of_light_fol_ex);
+    new spell_pal_unworthy_tracker();
 }
