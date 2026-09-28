@@ -3,10 +3,9 @@
 // Вставка после части 4a. Регистрация: AddSC_paladin_spell_scripts_ex5().
 // Спутник: paladin_class_fixes_4.sql (внизу).
 //
-// ВАЖНО (маяки v1): TC-скрипт spell_pal_light_s_beacon (53651) переносит хил
-// только на ОДИН маяк (applications.front()). Для двух маяков (Маяк веры)
-// поправьте его HandleProc: перебирайте ВСЕ ауры 53563 кастера и лечите каждую
-// (код ниже - GetBeaconTargetsOf). Остальное работает без правок.
+// Маяки: перенос на все маяки (53563/156910/200025) делает spell_pal_light_s_beacon_ex
+// из части 1. Маяк веры (156910) сам является маяком (своя аура + триггер 53651),
+// отдельный скрипт ему не нужен.
 // ============================================================================
 
 // === CUT HERE ===============================================================
@@ -37,112 +36,107 @@ enum PaladinEx5Spells
     SPELL_EX5_REFINING_FIRE_DOT         = 469882
 };
 
-namespace
-{
-    std::vector<Unit*> GetBeaconTargetsOf(Unit const* healer)
-    {
-        std::vector<Unit*> result;
-        for (Aura* aura : const_cast<Unit*>(healer)->GetSingleCastAuras())
-        {
-            if (aura->GetId() != SPELL_EX5_BEACON_OF_LIGHT)
-                continue;
-            std::vector<AuraApplication*> applications;
-            aura->GetApplicationVector(applications);
-            for (AuraApplication const* app : applications)
-                if (Unit* target = app->GetTarget())
-                    result.push_back(target);
-        }
-        return result;
-    }
-}
 
-// 156910 - Маяк веры: кастует второй Маяк света на цель (v1: полный перенос;
-// для 70% см. примечание в шапке файла).
-class spell_pal_beacon_of_faith_ex : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_EX5_BEACON_OF_FAITH, SPELL_EX5_BEACON_OF_LIGHT });
-    }
-
-    void HandleHitTarget(SpellEffIndex /*effIndex*/)
-    {
-        Unit* caster = GetCaster();
-        Unit* target = GetHitUnit();
-        if (!caster || !target)
-            return;
-
-        caster->CastSpell(target, SPELL_EX5_BEACON_OF_LIGHT, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-    }
-
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_pal_beacon_of_faith_ex::HandleHitTarget, EFFECT_0, SPELL_EFFECT_DUMMY);
-    }
-};
-
-// 200025 - Маяк добродетели: маяк на цель + до 4 раненых союзников рядом (9с).
+// 200025 - Маяк добродетели: аура-маяк на цель + до 4 раненых союзников (9 с).
+// Эффекты спелла — Apply Aura (не SPELL_EFFECT_DUMMY), тип области в данных может
+// отличаться, поэтому цели не фильтруем в выборке, а подрезаем после каста:
+// основная цель + E1 (4) самых раненых, с остальных аура снимается; недостающих
+// раненых членов группы в 30 м добираем сами.
+// Сам 200025 не триггерит 53651, поэтому прок-аура переноса вешается на паладина.
 class spell_pal_beacon_of_virtue_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX5_BEACON_OF_VIRTUE, SPELL_EX5_BEACON_OF_LIGHT });
+        return ValidateSpellInfo({ SPELL_EX5_BEACON_OF_VIRTUE, SPELL_EX_LIGHTS_BEACON });
     }
 
-    void SelectTargets(std::list<WorldObject*>& targets)
+    void CollectTarget()
     {
-        // раненые, ближайшие по проценту здоровья
-        targets.remove_if([](WorldObject* obj)
+        if (Unit* target = GetHitUnit())
+            _hitTargets.push_back(target->GetGUID());
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        size_t extra = 4;
+        if (GetSpellInfo()->GetEffects().size() > EFFECT_1)
+            if (int32 value = GetSpellInfo()->GetEffect(EFFECT_1).CalcValue(caster); value > 0)
+                extra = size_t(value);
+
+        Unit* mainTarget = GetExplTargetUnit();
+        std::vector<Unit*> others;
+        for (ObjectGuid const& guid : _hitTargets)
+            if (Unit* unit = ObjectAccessor::GetUnit(*caster, guid))
+                if (unit != mainTarget && std::find(others.begin(), others.end(), unit) == others.end())
+                    others.push_back(unit);
+
+        std::stable_sort(others.begin(), others.end(), [](Unit const* a, Unit const* b)
         {
-            Unit* unit = obj->ToUnit();
-            return !unit || unit->IsFullHealth();
+            return a->GetHealthPct() < b->GetHealthPct();
         });
 
-        if (targets.size() > 4)
+        size_t kept = 0;
+        for (Unit* unit : others)
         {
-            targets.sort([](WorldObject* a, WorldObject* b)
+            if (kept < extra && !unit->IsFullHealth())
             {
-                return a->ToUnit()->GetHealthPct() < b->ToUnit()->GetHealthPct();
-            });
-            targets.resize(4);
+                ++kept;
+                continue;
+            }
+            unit->RemoveAurasDueToSpell(SPELL_EX5_BEACON_OF_VIRTUE, caster->GetGUID());
         }
-    }
 
-    void HandleHitAreaTarget(SpellEffIndex /*effIndex*/)
-    {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
+        // Ретейл: цель + E1 раненых союзников в 30 м. Если область из данных дала меньше —
+        // добираем самых раненых членов группы/рейда в 30 м от основной цели.
+        if (kept < extra && mainTarget)
+        {
+            float const radius = 30.f;
+            std::vector<Unit*> nearby;
+            Trinity::AnyFriendlyUnitInObjectRangeCheck check(mainTarget, caster, radius);
+            Trinity::UnitListSearcher searcher(mainTarget, nearby, check);
+            Cell::VisitAllObjects(mainTarget, searcher, radius);
 
-        caster->CastSpell(GetHitUnit(), SPELL_EX5_BEACON_OF_LIGHT, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-    }
+            std::vector<Unit*> candidates;
+            for (Unit* unit : nearby)
+            {
+                if (unit == mainTarget || !unit->IsAlive() || unit->IsFullHealth())
+                    continue;
+                if (unit->HasAura(SPELL_EX5_BEACON_OF_VIRTUE, caster->GetGUID()))
+                    continue;
+                if (unit != caster && !unit->IsInRaidWith(caster))
+                    continue;
+                candidates.push_back(unit);
+            }
+            std::stable_sort(candidates.begin(), candidates.end(), [](Unit const* a, Unit const* b)
+            {
+                return a->GetHealthPct() < b->GetHealthPct();
+            });
+            for (Unit* unit : candidates)
+            {
+                if (kept >= extra)
+                    break;
+                if (caster->AddAura(SPELL_EX5_BEACON_OF_VIRTUE, unit))
+                    ++kept;
+            }
+        }
 
-    void HandleHitMainTarget(SpellEffIndex /*effIndex*/)
-    {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        caster->CastSpell(GetHitUnit(), SPELL_EX5_BEACON_OF_LIGHT, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+        caster->CastSpell(caster, SPELL_EX_LIGHTS_BEACON, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_FULL_MASK,
             .TriggeringSpell = GetSpell()
         });
     }
 
     void Register() override
     {
-        // E1 - SRC_AREA_ALLY (4 раненых)
-        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_beacon_of_virtue_ex::SelectTargets, EFFECT_1, TARGET_UNIT_SRC_AREA_ALLY);
-        OnEffectHitTarget += SpellEffectFn(spell_pal_beacon_of_virtue_ex::HandleHitAreaTarget, EFFECT_1, SPELL_EFFECT_DUMMY);
-        // E0 - основная цель
-        OnEffectHitTarget += SpellEffectFn(spell_pal_beacon_of_virtue_ex::HandleHitMainTarget, EFFECT_0, SPELL_EFFECT_DUMMY);
+        AfterHit += SpellHitFn(spell_pal_beacon_of_virtue_ex::CollectTarget);
+        AfterCast += SpellCastFn(spell_pal_beacon_of_virtue_ex::HandleAfterCast);
     }
+
+    std::vector<ObjectGuid> _hitTargets;
 };
 
 // 1241275 - Избавление Тира: активация АН -> 200652 (аура-канал).
@@ -235,43 +229,8 @@ class spell_pal_hand_of_divinity_ex : public SpellScript
     }
 };
 
-// 157047 - Спасение светом: союзник с маяком получил урон -> щит 157128
-// (300 базово, до +9% по низкому здоровью; внутренний КД 30с - в spell_proc).
-class spell_pal_saved_by_the_light_ex : public AuraScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_EX5_SAVED_BY_THE_LIGHT, SPELL_EX5_SAVED_BY_THE_LIGHT_ABSORB });
-    }
-
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo) const
-    {
-        Unit* caster = GetCaster();
-        Unit* victim = eventInfo.GetActionTarget();
-        if (!caster || !victim)
-            return false;
-        if (!victim->HasAura(SPELL_EX5_BEACON_OF_LIGHT, caster->GetGUID()))
-            return false;
-        if (!eventInfo.GetDamageInfo() || eventInfo.GetDamageInfo()->GetDamage() <= 0)
-            return false;
-        return true;
-    }
-
-    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
-    {
-        Unit* target = GetTarget();
-        float missingFrac = 1.f - target->GetHealthPct() / 100.f;
-        int32 absorb = int32(300.f * (1.f + 0.09f * missingFrac));
-
-        target->CastSpell(target, SPELL_EX5_SAVED_BY_THE_LIGHT_ABSORB, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, eventInfo.GetProcSpell(), SPELLVALUE_BASE_POINT0, absorb));
-    }
-
-    void Register() override
-    {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_saved_by_the_light_ex::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_pal_saved_by_the_light_ex::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
-    }
-};
+// 157047 - Спасённый Светом: перенесён в основную часть (UnitScript
+// spell_pal_saved_by_the_light_tracker) — прок-аура паладина не видит урон по союзнику.
 
 // 469883 - Очищающий огонь: Щит мстителя поджигает цель (469882).
 class spell_pal_refining_fire_ex : public AuraScript
@@ -298,11 +257,9 @@ class spell_pal_refining_fire_ex : public AuraScript
 
 void AddSC_paladin_spell_scripts_ex5()
 {
-    RegisterSpellScript(spell_pal_beacon_of_faith_ex);
     RegisterSpellScript(spell_pal_beacon_of_virtue_ex);
     RegisterSpellScript(spell_pal_tyrs_deliverance_trigger_ex);
     RegisterSpellScript(spell_pal_tyrs_deliverance_select_ex);
     RegisterSpellScript(spell_pal_hand_of_divinity_ex);
-    RegisterSpellScript(spell_pal_saved_by_the_light_ex);
     RegisterSpellScript(spell_pal_refining_fire_ex);
 }

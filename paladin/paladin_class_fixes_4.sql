@@ -11,6 +11,7 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (19750,  'spell_pal_mastery_lightbringer_ex'),
 (82326,  'spell_pal_mastery_lightbringer_ex'),
 (156322, 'spell_pal_mastery_lightbringer_ex'),
+(25914,  'spell_pal_mastery_lightbringer_ex'), -- Шок Света (хил), не каст 20473
 -- Избавление (крит-шанс по HP цели)
 (85673,  'spell_pal_extrication_ex'),
 (85222,  'spell_pal_extrication_ex'),
@@ -22,6 +23,8 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (20271,  'spell_pal_awakening_consume_ex'),
 (275779, 'spell_pal_awakening_consume_ex'),
 (275773, 'spell_pal_awakening_consume_ex'),
+(24275,  'spell_pal_awakening_consume_ex'),
+(1241413,'spell_pal_awakening_consume_ex'),
 -- Праведное правосудие (Свет): Правосудие -> Освящение
 (275773, 'spell_pal_righteous_judgment_holy_ex'),
 (20271,  'spell_pal_righteous_judgment_holy_ex'),
@@ -52,25 +55,26 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (53600,  'spell_pal_shining_righteousness_ex');
 
 -- 4b: маяки и триггеры АН -----------------------------------------------------
+-- Маяк веры больше не скриптуется: 156910 сам является маяком (см. spell_pal_light_s_beacon_ex).
+DELETE FROM `spell_script_names` WHERE `spell_id` = 156910 AND `ScriptName` = 'spell_pal_beacon_of_faith_ex';
 REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
-(156910, 'spell_pal_beacon_of_faith_ex'),
 (200025, 'spell_pal_beacon_of_virtue_ex'),
 (31884,  'spell_pal_tyrs_deliverance_trigger_ex'),
 (231895, 'spell_pal_tyrs_deliverance_trigger_ex'),
 (200653, 'spell_pal_tyrs_deliverance_select_ex'),
 (31884,  'spell_pal_hand_of_divinity_ex'),
 (231895, 'spell_pal_hand_of_divinity_ex'),
--- АУДИТ26.09: биндинги к proc-строкам ниже (были только proc-строки — таланты
--- «Спасение светом» и «Очищающий огонь» не работали)
-(157047, 'spell_pal_saved_by_the_light_ex'),
+-- АУДИТ26.09: биндинг к proc-строке ниже. «Спасённый Светом» (157047) с ревизии
+-- PAL_REV2 — UnitScript в основной части, ни биндинга, ни spell_proc не нужно.
 (469883, 'spell_pal_refining_fire_ex');
 
 -- spell_proc ------------------------------------------------------------------
--- 157047 Спасение светом: цель с маяком получает урон (успех фильтруется скриптом)
--- ProcFlags: 0x00aa220 (TAKE melee/spell/periodic damage)
-VALUES (157047,0x00,0,0,0,0,0,0x00AA220,0x0,0x1,0x2,0x0,0x0,0x0,0,100,10000,0);
--- 469883 Очищающий огонь: Щит мстителя (FamMask 0x4000/0x0/0x2/0x0)
-VALUES (469883,0x00,2,0x4000,0x0,0x2,0x0,0x10,0x0,0x1,0x2,0x3,0x0,0x0,0,100,0,0);
+-- 469883 Очищающий огонь: Щит мстителя (FamMask 0x4000/0x0/0x2/0x0), семейство 10
+REPLACE INTO `spell_proc`
+(`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,
+ `ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,
+ `ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
+VALUES (469883,0x00,10,0x4000,0x0,0x2,0x0,0x10,0x0,0x1,0x2,0x3,0x0,0x0,0,100,0,0);
 
 -- ПРИМЕЧАНИЯ:
 -- * 53576 (Вливание света — проц) НЕ нуждается в строке: PROC_TRIGGER_SPELL

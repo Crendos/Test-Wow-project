@@ -32,9 +32,8 @@ enum PaladinEx6Spells
     SPELL_EX6_DIVINE_RESONANCE_RET_BUFF = 1266308,
     SPELL_EX6_DIVINE_RESONANCE_PROT     = 386738,
     SPELL_EX6_DIVINE_RESONANCE_PROT_AURA = 386730,
-    // Холи-токен Резонанса:379391 Quickened Invocation (wowhead:386731 «После
-    // Призмы/Вооружения/Звона — Святая вспышка каждые5с»; Related = только он)
-    SPELL_EX6_DIVINE_RESONANCE_HOLY     = 379391,
+    // 379391 — это Ускоренное воззвание, не Резонанс. Холи-ветка читается со спека.
+    SPELL_EX6_HOLY_PRISM                = 114165,
     SPELL_EX6_GOLDEN_PATH               = 377128,
     SPELL_EX6_GOLDEN_PATH_HEAL          = 339119,
     SPELL_EX6_SELFLESS_HEALER           = 469434,
@@ -49,8 +48,78 @@ enum PaladinEx6Spells
 
     // Наставления Света (герой-талант): Звон выдает кнопку Молота Света
     SPELL_EX6_LIGHTS_GUIDANCE           = 427445,
-    SPELL_EX6_HAMMER_OF_LIGHT_BUFF      = 427441
+    // 427441 подменяет только семейство Пробуждения зол (маска класса).
+    // С 12.0.0 у Защиты кнопка — отдельная аура 1246643: MiscValue = 375576,
+    // замена на 427453. Без неё Благовест на панели не становится Молотом Света.
+    SPELL_EX6_HAMMER_OF_LIGHT_BUFF      = 427441,
+    SPELL_EX6_HAMMER_OF_LIGHT_TOLL      = 1246643,
+    SPELL_EX6_SPEC_AURA_PROT            = 137028
 };
+
+namespace
+{
+    // Метка доп. ударов Божественного взыскания (1260429): PvP-множитель 0.75.
+    struct DivineExactionMark { };
+
+    [[nodiscard]] bool KnowsSpellOrAura(Unit const* unit, uint32 spellId)
+    {
+        return unit && (unit->HasAura(spellId) || unit->HasSpell(spellId));
+    }
+
+    [[nodiscard]] bool IsProtectionPaladin(Player const* player)
+    {
+        if (!player)
+            return false;
+        if (player->GetPrimarySpecialization() == ChrSpecialization::PaladinProtection)
+            return true;
+        // запасной гейт, если специализация на персонаже не проставлена
+        return player->HasAura(SPELL_EX6_SPEC_AURA_PROT) || player->HasSpell(SPELL_EX6_JUDGMENT_PROT);
+    }
+
+    void ForceAuraDuration(Unit* unit, uint32 spellId, int32 durationMs)
+    {
+        Aura* aura = unit ? unit->GetAura(spellId) : nullptr;
+        if (!aura || durationMs <= 0)
+            return;
+        if (aura->GetMaxDuration() < durationMs)
+            aura->SetMaxDuration(durationMs);
+        if (aura->GetDuration() < durationMs)
+            aura->SetDuration(durationMs);
+    }
+
+    void EnsureStacks(Aura* aura, uint8 stacks)
+    {
+        if (!aura || stacks <= 1)
+            return;
+        uint32 cap = aura->GetSpellInfo()->StackAmount;
+        if (cap > 0 && stacks > cap)
+            stacks = static_cast<uint8>(cap);
+        while (aura->GetStackAmount() < stacks)
+            aura->ModStackAmount(1);
+    }
+
+    // Прот: 1246643 (Благовест → Молот). Если спелла нет в данных сервера — 427441
+    // (иконка не сменится: у 427441 в клиенте нет Благовеста). Рет эту функцию не зовёт.
+    uint32 GrantProtectionHammerButton(Unit* caster)
+    {
+        uint32 button = SPELL_EX6_HAMMER_OF_LIGHT_BUFF;
+        if (sSpellMgr->GetSpellInfo(SPELL_EX6_HAMMER_OF_LIGHT_TOLL, DIFFICULTY_NONE))
+            button = SPELL_EX6_HAMMER_OF_LIGHT_TOLL;
+        else
+        {
+            static bool logged = false;
+            if (!logged)
+            {
+                logged = true;
+                TC_LOG_ERROR("scripts", "Paladin: спелл 1246643 отсутствует — Божественный благовест не станет Молотом Света. Нужны данные 12.0+.");
+            }
+        }
+
+        caster->CastSpell(caster, button, CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR));
+        ForceAuraDuration(caster, button, 20000);
+        return button;
+    }
+}
 
 // 375576 - Гневилище: кастует основную способность по 5 ближайшим врагам.
 //   Свет -> Святое сияние, Защита -> Щит мстителя, Воздаяние -> Правосудие
@@ -59,11 +128,13 @@ class spell_pal_divine_toll_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
+        // 1246643 в Validate не ставим: нет спелла в старых данных — скрипт Звона
+        // не должен выгрузиться целиком. Проверка — в GrantProtectionHammerButton.
         return ValidateSpellInfo({ SPELL_EX6_HOLY_SHOCK, SPELL_EX6_AVENGERS_SHIELD,
             SPELL_EX6_JUDGMENT_RET, SPELL_EX6_DIVINE_TOLL_RET_DEBUFF,
             SPELL_EX6_LIGHTS_GUIDANCE, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
-            SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
-            SPELL_EX6_DIVINE_RESONANCE_HOLY });
+            SPELL_EX6_DIVINE_RESONANCE_RET, SPELL_EX6_DIVINE_RESONANCE_PROT,
+            SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA });
     }
 
     void HandleAfterCast()
@@ -116,39 +187,91 @@ class spell_pal_divine_toll_ex : public SpellScript
                 .TriggeringSpell = GetSpell()
             });
 
+        // Раскатистый удар (1271553, Прот): Звон запускает Молот и наковальню (433717)
+        // по каждой цели на 100%.
+        if (spellId == SPELL_EX6_AVENGERS_SHIELD && caster->HasAura(1271553) && caster->HasAura(433718))
+            for (Unit* enemy : enemies)
+                caster->CastSpell(enemy, 433717, CastSpellExtraArgsInit{
+                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                    .TriggeringSpell = GetSpell()
+                });
+
+        // Божественное взыскание (1260429, Храмовник): Звон ещё E0 (=2) раза по ВАШЕЙ цели
+        // на 100% (E1) с шагом 300 мс (simc). Рет — Правосудие, либо Молот гнева, если он
+        // доступен (цель <20% или Гнев); Прот — Щит мстителя.
+        if (caster->HasAura(1260429) && (spellId == SPELL_EX6_JUDGMENT_RET || spellId == SPELL_EX6_AVENGERS_SHIELD))
+        {
+            Unit* primary = GetExplTargetUnit();
+            if (!primary || !caster->IsValidAttackTarget(primary))
+                primary = enemies.empty() ? nullptr : enemies.front();
+            if (primary)
+            {
+                int32 extra = 2;
+                if (AuraEffect const* e = caster->GetAuraEffect(1260429, EFFECT_0))
+                    if (e->GetAmount() > 0 && e->GetAmount() <= 5)
+                        extra = int32(e->GetAmount());
+                ObjectGuid const primaryGuid = primary->GetGUID();
+                uint32 const baseSpell = spellId;
+                for (int32 i = 0; i < extra; ++i)
+                {
+                    caster->m_Events.AddEventAtOffset([caster, primaryGuid, baseSpell]()
+                    {
+                        Unit* t = ObjectAccessor::GetUnit(*caster, primaryGuid);
+                        if (!t || !t->IsAlive() || !caster->IsValidAttackTarget(t))
+                            return;
+                        uint32 id = baseSpell;
+                        // Молот гнева доступен: цель <20%, Гнев карателя / Крестовый поход,
+                        // 8-с АН (454351) или оверрайд «Молот гнева в АН» (1241410).
+                        if (id == SPELL_EX6_JUDGMENT_RET
+                            && (t->HealthBelowPct(20) || caster->HasAura(31884) || caster->HasAura(231895)
+                                || caster->HasAura(454351) || caster->HasAura(1241410)))
+                            id = 24275; // Молот гнева
+                        CastSpellExtraArgs exArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS
+                            | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR);
+                        exArgs.SetCustomArg(DivineExactionMark{});
+                        caster->CastSpell(t, id, exArgs);
+                    }, Milliseconds(300 * (i + 1)));
+                }
+            }
+        }
+
         // Воздаяние: усиленные Правосудия
         if (spellId == SPELL_EX6_JUDGMENT_RET)
             caster->CastSpell(caster, SPELL_EX6_DIVINE_TOLL_RET_DEBUFF,
                 CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
                     .SetTriggeringSpell(GetSpell()));
 
-        // Резонанс света
-        if (caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_RET))
-            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_RET_BUFF,
-                CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                    .SetTriggeringSpell(GetSpell()));
-        if (caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_PROT))
-            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
-                CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                    .SetTriggeringSpell(GetSpell()));
-        // АУДИТ26.09: Холи-Резонанс не выдавался (нет своей талант-ауры в цепочке)
-        // — добавлен гейт по379391; тик386730 для Холи → Святая вспышка
-        // (spec-ветка в spell_pal_divine_resonance_prot_ex)
-        if (caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_HOLY))
-            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
-                CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                    .SetTriggeringSpell(GetSpell()));
+        // Резонанс света — талант 384027 / 386738. 379391 это Ускоренное воззвание,
+        // им больше не гейтим. Ветка по спеку: wowhead 384027.
+        // Рет: следующие 3 Правосудия (1266308, 30с). Прот/Свет: тик 386730, 15с.
+        if (KnowsSpellOrAura(caster, SPELL_EX6_DIVINE_RESONANCE_RET) || KnowsSpellOrAura(caster, SPELL_EX6_DIVINE_RESONANCE_PROT))
+        {
+            CastSpellExtraArgs resonanceArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR);
+            resonanceArgs.SetTriggeringSpell(GetSpell());
+            ChrSpecialization spec = ChrSpecialization::PaladinRetribution;
+            if (Player* player = caster->ToPlayer())
+                spec = player->GetPrimarySpecialization();
 
-        // Свет наставления (427445, wowhead12.1): ПРОТ — Божественный звон
-        // заменяется на Молот Света (427441) на20с. РЕТ получает Молот от
-        // Пробуждения зол — spell_pal_lights_guidance_wake_ex (часть 6, fix_7).
-        // После PROC_FIX (маска427445 обнулена) это узкий путь вместо прока.
-        if (caster->HasAura(SPELL_EX6_LIGHTS_GUIDANCE))
+            if (spec == ChrSpecialization::PaladinRetribution)
+            {
+                caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, resonanceArgs);
+                ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, 30000);
+                EnsureStacks(caster->GetAura(SPELL_EX6_DIVINE_RESONANCE_RET_BUFF), 3);
+            }
+            else
+            {
+                caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, resonanceArgs);
+                ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, 15000);
+            }
+        }
+
+        // Свет наставления (427445): ПРОТ — Благовест заменяется на Молот Света
+        // на 20с аурой 1246643 (не 427441: та подменяет только Пробуждение зол).
+        // РЕТ получает Молот от Пробуждения зол — spell_pal_lights_guidance_wake_ex.
+        if (KnowsSpellOrAura(caster, SPELL_EX6_LIGHTS_GUIDANCE))
             if (Player* p = caster->ToPlayer())
-                if (p->GetPrimarySpecialization() == ChrSpecialization::PaladinProtection)
-                    caster->CastSpell(caster, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
-                        CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                            .SetTriggeringSpell(GetSpell()));
+                if (IsProtectionPaladin(p))
+                    GrantProtectionHammerButton(caster);
     }
 
     void Register() override
@@ -157,8 +280,9 @@ class spell_pal_divine_toll_ex : public SpellScript
     }
 };
 
-// 1266308 - Резонанс света (Воздаяние): следующие 2 Правосудия кастуются
-// повторно на 100% (стак потребляется, Правосудие кастуется снова бесплатно).
+// 1266308 - Резонанс света (Воздаяние): следующие 3 Правосудия кастуются
+// повторно на 100% (стак списывается ПОСЛЕ эха, иначе последний — и единственный —
+// стак съедался без повторного каста).
 class spell_pal_divine_resonance_ret_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -192,15 +316,15 @@ class spell_pal_divine_resonance_ret_ex : public AuraScript
         if (!aura) // аура потеряна — ре-каст без списания стаков дал бы бесконечный цикл
             return;
 
-        aura->ModStackAmount(-1, AURA_REMOVE_BY_ENEMY_SPELL);
-        if (aura->GetStackAmount() <= 0)
-            return;
-
         if (Unit* target = eventInfo.GetActionTarget())
             caster->CastSpell(target, eventInfo.GetSpellInfo()->Id, CastSpellExtraArgsInit{
                 .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_GCD | TRIGGERED_DONT_REPORT_CAST_ERROR,
                 .TriggeringSpell = eventInfo.GetProcSpell()
             });
+
+        // эхо уже ушло; triggered-каст CheckProc не пропускает, цикла нет
+        if (Aura* still = GetAura())
+            still->ModStackAmount(-1, AURA_REMOVE_BY_ENEMY_SPELL);
     }
 
     void Register() override
@@ -217,6 +341,13 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_EX6_AVENGERS_SHIELD, SPELL_EX6_HOLY_SHOCK });
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        // Клиентский тултип 386730 — 15с (DurationIndex 8). Серверные данные
+        // короче: аура снимается на 4с или на 10-й секунде, а иконка ещё пишет 15.
+        ForceAuraDuration(GetTarget(), SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, 15000);
     }
 
     void OnPeriodic(AuraEffect const* /*aurEff*/)
@@ -264,6 +395,7 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
 
     void Register() override
     {
+        OnEffectApply += AuraEffectApplyFn(spell_pal_divine_resonance_prot_ex::OnApply, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
         OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_divine_resonance_prot_ex::OnPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
     }
 };
@@ -287,7 +419,7 @@ class spell_pal_golden_path_ex : public SpellScript
             .TriggeringSpell = GetSpell()
         });
 
-        // v1: ещё 4 самых раненых союзника рядом (в версии с АТ — по зоне Освящения)
+        // Тултип: вы и ещё максимум 5 союзников. Кастера лечим отдельно выше.
         float const radius = 10.f;
         std::vector<Unit*> allies;
         Trinity::AnyFriendlyUnitInObjectRangeCheck check(caster, caster, radius, true);
@@ -303,9 +435,15 @@ class spell_pal_golden_path_ex : public SpellScript
             return a->GetHealthPct() < b->GetHealthPct();
         });
 
-        int32 count = 4;
+        int32 count = 5;
+        if (AuraEffect const* cap = caster->GetAuraEffect(SPELL_EX6_GOLDEN_PATH, EFFECT_1))
+            if (cap->GetAmount() > 0.0)
+                count = int32(cap->GetAmount());
+
         for (Unit* ally : allies)
         {
+            if (ally == caster)
+                continue;
             caster->CastSpell(ally, SPELL_EX6_GOLDEN_PATH_HEAL, CastSpellExtraArgsInit{
                 .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
                 .TriggeringSpell = GetSpell()
@@ -336,7 +474,17 @@ class spell_pal_selfless_healer_ex : public SpellScript
         if (!caster || !victim || victim == caster || !caster->HasAura(SPELL_EX6_SELFLESS_HEALER))
             return;
 
-        AddPct(pctMod, 30);
+        // Свет небес — только у Света. Защита и Воздаяние усиливают только Вспышку Света.
+        if (GetSpellInfo()->Id == 82326)
+            if (Player const* player = caster->ToPlayer())
+                if (player->GetPrimarySpecialization() != ChrSpecialization::PaladinHoly)
+                    return;
+
+        float bonus = 30.f;
+        if (AuraEffect const* pct = caster->GetAuraEffect(SPELL_EX6_SELFLESS_HEALER, EFFECT_0))
+            if (pct->GetAmount() > 0.0)
+                bonus = float(pct->GetAmount());
+        AddPct(pctMod, bonus);
     }
 
     void HandleHitTarget()
@@ -346,7 +494,17 @@ class spell_pal_selfless_healer_ex : public SpellScript
         if (!caster || !target || target == caster || !caster->HasAura(SPELL_EX6_SELFLESS_HEALER))
             return;
 
-        int64 shared = CalculatePct(static_cast<int64>(GetHitHeal()), 40);
+        if (GetSpellInfo()->Id == 82326)
+            if (Player const* player = caster->ToPlayer())
+                if (player->GetPrimarySpecialization() != ChrSpecialization::PaladinHoly)
+                    return;
+
+        float sharedPct = 40.f;
+        if (AuraEffect const* pct = caster->GetAuraEffect(SPELL_EX6_SELFLESS_HEALER, EFFECT_1))
+            if (pct->GetAmount() > 0.0)
+                sharedPct = float(pct->GetAmount());
+
+        int64 shared = CalculatePct(static_cast<int64>(GetHitHeal()), sharedPct);
         if (shared <= 0)
             return;
 
@@ -360,46 +518,45 @@ class spell_pal_selfless_healer_ex : public SpellScript
     }
 };
 
-// 403530 - Наказание: успешный интеррапт (Реприманд/Щит мстителя) —
-// бесплатный финишер спека (Удар крестоносца / Благословенный молот / Св. сияние).
+// 403530 - Наказание: успешный интеррапт Укора.
+// Воздаяние и Защита — Удар воина Света. Свет — Шок небес.
 class spell_pal_punishment_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX6_CRUSADER_STRIKE, SPELL_EX6_BLESSED_HAMMER, SPELL_EX6_HOLY_SHOCK });
+        return ValidateSpellInfo({ SPELL_EX6_CRUSADER_STRIKE, SPELL_EX6_HOLY_SHOCK, SPELL_EX6_REBUKE });
     }
 
     bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
     {
         SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
-        return spellInfo && (spellInfo->Id == SPELL_EX6_REBUKE || spellInfo->Id == SPELL_EX6_AVENGERS_SHIELD);
+        if (!spellInfo || spellInfo->Id != SPELL_EX6_REBUKE)
+            return false;
+
+        return (eventInfo.GetHitMask() & PROC_HIT_INTERRUPT) != 0;
     }
 
-    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
     {
-        Unit* target = GetTarget();
-        if (!target)
+        Unit* caster = GetTarget();
+        if (!caster)
             return;
 
-        uint32 filler = SPELL_EX6_CRUSADER_STRIKE;
-        if (Player* player = target->ToPlayer())
-            switch (player->GetPrimarySpecialization())
-            {
-                case ChrSpecialization::PaladinProtection:
-                    filler = SPELL_EX6_BLESSED_HAMMER;
-                    break;
-                case ChrSpecialization::PaladinHoly:
-                    filler = SPELL_EX6_HOLY_SHOCK;
-                    break;
-                default:
-                    break;
-            }
+        uint32 followUp = SPELL_EX6_CRUSADER_STRIKE;
+        if (Player* player = caster->ToPlayer())
+            if (player->GetPrimarySpecialization() == ChrSpecialization::PaladinHoly)
+                followUp = SPELL_EX6_HOLY_SHOCK;
 
-        if (Unit* victim = target->GetVictim())
-            target->CastSpell(victim, filler, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_GCD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringAura = GetEffect(EFFECT_0)
-            });
+        Unit* victim = eventInfo.GetActionTarget();
+        if (!victim)
+            victim = caster->GetVictim();
+        if (!victim)
+            return;
+
+        caster->CastSpell(victim, followUp, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_GCD | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringAura = GetEffect(EFFECT_0)
+        });
     }
 
     void Register() override
@@ -409,8 +566,13 @@ class spell_pal_punishment_ex : public AuraScript
     }
 };
 
+struct GuidedPrayerMod
+{
+    float Multiplier = 0.6f;
+};
+
 // 326734 - Исцеляющие длани: КД ЛаО снижается до 60% по недостающему
-// здоровью цели; Слово света на себя +до 30%.
+// здоровью цели; Торжество на себя усиливается максимум на 100%.
 class spell_pal_healing_hands_loh_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -445,12 +607,17 @@ class spell_pal_healing_hands_wog_ex : public SpellScript
 {
     void CalculateHealing(SpellEffectInfo const& /*effectInfo*/, Unit const* victim, int32& /*healing*/, int32& /*flatMod*/, float& pctMod) const
     {
+        if (GetSpell())
+            if (auto const* mod = std::any_cast<GuidedPrayerMod>(&GetSpell()->m_customArg))
+                pctMod *= mod->Multiplier;
+
         Unit* caster = GetCaster();
         if (!caster || !victim || victim != caster || !caster->HasAura(SPELL_EX6_HEALING_HANDS))
             return;
 
         float missingFrac = 1.f - caster->GetHealthPct() / 100.f;
-        if (AuraEffect const* bonus = caster->GetAuraEffect(SPELL_EX6_HEALING_HANDS, EFFECT_1))
+        // Эффект 1 = 30 (старое значение). Тултип и эффект 2 = до 100%.
+        if (AuraEffect const* bonus = caster->GetAuraEffect(SPELL_EX6_HEALING_HANDS, EFFECT_2))
             AddPct(pctMod, bonus->GetAmount() * missingFrac);
     }
 
@@ -460,8 +627,8 @@ class spell_pal_healing_hands_wog_ex : public SpellScript
     }
 };
 
-// 404357 - Наставляемая молитва: падение ниже 25% здоровья -> бесплатное
-// Слово света (v1: полной силы; ICD 60с в spell_proc).
+// 404357 - Наставляемая молитва: ниже 25% здоровья — бесплатное Торжество
+// с эффективностью 60% (эффект 1). ICD 60с в spell_proc.
 class spell_pal_guided_prayer_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -476,9 +643,15 @@ class spell_pal_guided_prayer_ex : public AuraScript
 
     void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
     {
-        GetTarget()->CastSpell(GetTarget(), SPELL_EX6_WORD_OF_GLORY,
-            CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                .SetTriggeringSpell(eventInfo.GetProcSpell()));
+        float mult = 0.6f;
+        if (AuraEffect const* pct = GetEffect(EFFECT_1))
+            if (pct->GetAmount() > 0.0)
+                mult = float(pct->GetAmount() / 100.0);
+
+        CastSpellExtraArgs args(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR);
+        args.SetTriggeringSpell(eventInfo.GetProcSpell());
+        args.CustomArg = GuidedPrayerMod{ mult };
+        GetTarget()->CastSpell(GetTarget(), SPELL_EX6_WORD_OF_GLORY, args);
     }
 
     void Register() override
@@ -513,9 +686,36 @@ class spell_pal_auras_of_the_resolute_ex : public AuraScript
     }
 };
 
+// 114165 больше не запускает Резонанс. Актуальный тултип 384027: у Света
+// тики только после Звона. Старый текст 386732 про Призму и Вооружение не используем.
+// Скрипт оставлен, чтобы уже залитая привязка SQL не искала отсутствующее имя.
+class spell_pal_divine_resonance_prism_ex : public SpellScript
+{
+    void Register() override { }
+};
+
+// 20271 / 24275 / 31935 - доп. удары Божественного взыскания: по игрокам ×0.75 (PvP).
+class spell_pal_divine_exaction_pvp_ex : public SpellScript
+{
+    void HandleCalcDamage(SpellEffectInfo const& /*spellEffectInfo*/, Unit* victim, int32& /*damage*/, int32& /*flatMod*/, float& pctMod)
+    {
+        if (!victim || !victim->IsControlledByPlayer())
+            return;
+        if (std::any_cast<DivineExactionMark>(&GetSpell()->m_customArg))
+            pctMod *= 0.75f;
+    }
+
+    void Register() override
+    {
+        CalcDamage += SpellCalcDamageFn(spell_pal_divine_exaction_pvp_ex::HandleCalcDamage);
+    }
+};
+
 void AddSC_paladin_spell_scripts_ex6()
 {
+    RegisterSpellScript(spell_pal_divine_exaction_pvp_ex);
     RegisterSpellScript(spell_pal_divine_toll_ex);
+    RegisterSpellScript(spell_pal_divine_resonance_prism_ex);
     RegisterSpellScript(spell_pal_divine_resonance_ret_ex);
     RegisterSpellScript(spell_pal_divine_resonance_prot_ex);
     RegisterSpellScript(spell_pal_golden_path_ex);

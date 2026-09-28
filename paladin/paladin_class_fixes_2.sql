@@ -24,14 +24,21 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (81297,  'spell_pal_consecration_prot_ex'),
 -- Печать возмездия (Благословенный молот)
 (204301, 'spell_pal_seal_of_reprisal_bh_ex'),
--- Благословение Света
+-- Дар озаренных: 403479 — Буря света; 406468 — Правосудие / Щит праведника. Кап союзников — 403460.
 (53385,  'spell_pal_lightforged_blessing_ex'),
+(20271,  'spell_pal_lightforged_blessing_ex'),
+(275779, 'spell_pal_lightforged_blessing_ex'),
+(275773, 'spell_pal_lightforged_blessing_ex'),
+(53600,  'spell_pal_lightforged_blessing_ex'),
+(403460, 'spell_pal_lightforged_blessing_cap_ex'),
 -- Око за око (скрипт fix_2: отражение469311 по атакующим во время щитов;
 -- AУДИТ26.09: биндинг отсутствовал — талант не работал, proc-строка уже была)
 (469309, 'spell_pal_eye_for_an_eye_ex');
 
 -- spell_proc: Око за око (удары по вам во время щитов)
 -- SpellId, SchoolMask, Family, FamMask0-3, ProcFlags, ProcFlags2, TypeMask, PhaseMask, HitMask, Attributes, DisableEffects, PPM, Chance, CD, Charges
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (469309,0x00,0,0,0,0,0,0x88,0x0,0x1,0x2,0x0,0x0,0x0,0,0,0,0);
 -- Сияние: успешный каст Щита праведника (ProcFlags2 = CAST_SUCCESSFUL)
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (321136,0x00,0,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,0,0,0);

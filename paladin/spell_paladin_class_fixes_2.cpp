@@ -30,7 +30,8 @@ enum PaladinEx2Spells
     SPELL_EX2_GOLDEN_PATH_HEAL          = 339119, // лечилка (для Отрады, bp override)
     SPELL_EX2_SEAL_OF_REPRISAL_DEBUFF   = 1302139,
     SPELL_EX2_EYE_FOR_AN_EYE_DAMAGE     = 469311,
-    SPELL_EX2_LIGHTFORGED_HEAL          = 403460,
+    SPELL_EX2_LIGHTFORGED_HEAL          = 403460, // союзники, кастер исключён
+    SPELL_EX2_LIGHTFORGED_SELF_HEAL     = 407467, // хил кастера, 125% силы атаки
 
     // таланты
     SPELL_EX2_TEMPEST_OF_THE_LIGHTBRINGER = 383396,
@@ -41,6 +42,7 @@ enum PaladinEx2Spells
     SPELL_EX2_BULWARK_OF_ORDER_TALENT     = 209389,
     SPELL_EX2_LIGHT_OF_THE_TITANS         = 378405,
     SPELL_EX2_SOLACE                      = 1245891,
+    SPELL_EX2_SOLACE_HEAL                 = 1245923, // лечение «Утешение» (WCL)
     SPELL_EX2_VISION_OF_SANCTITY          = 1245354,
     SPELL_EX2_SEAL_OF_REPRISAL            = 377053,
     SPELL_EX2_EYE_FOR_AN_EYE              = 469309,
@@ -190,7 +192,7 @@ class spell_pal_shining_light_ex : public AuraScript
 
         if (Aura* stacks = target->GetAura(SPELL_EX2_SHINING_LIGHT_STACKS))
         {
-            if (stacks->GetStackAmount() < 4)
+            if (stacks->GetStackAmount() < 2)
                 stacks->ModStackAmount(1, AURA_REMOVE_BY_ENEMY_SPELL);
         }
         else
@@ -198,7 +200,10 @@ class spell_pal_shining_light_ex : public AuraScript
 
         if (Aura* freeWoG = target->GetAura(SPELL_EX2_SHINING_LIGHT_FREE))
         {
-            if (freeWoG->GetStackAmount() < freeWoG->GetSpellInfo()->StackAmount)
+            uint32 cap = 2;
+            if (uint32 const spellCap = freeWoG->GetSpellInfo()->StackAmount)
+                cap = std::min(cap, spellCap);
+            if (freeWoG->GetStackAmount() < cap)
                 freeWoG->ModStackAmount(1, AURA_REMOVE_BY_ENEMY_SPELL);
         }
         else
@@ -220,7 +225,8 @@ class spell_pal_shining_light_consume_ex : public SpellScript
     void HandleAfterCast()
     {
         Unit* caster = GetCaster();
-        if (!caster)
+        Spell const* spell = GetSpell();
+        if (!caster || !spell || spell->IsTriggered())
             return;
 
         if (Aura* freeWoG = caster->GetAura(SPELL_EX2_SHINING_LIGHT_FREE))
@@ -270,8 +276,8 @@ class spell_pal_bulwark_of_order_ex : public SpellScript
     bool _shieldDone = false;
 };
 
-// 378405 - Свет титанов: Слово света лечит ещё 40% ХОТ-ом (378412, 5 тиков);
-// на себя — втрое больше.
+// 378405 - Свет титанов: Торжество всегда даёт ещё 40% ХОТ-ом (378412, 5 тиков).
+// +200% только если каст по себе и на кастере висит периодический урон.
 class spell_pal_light_of_the_titans_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -285,11 +291,22 @@ class spell_pal_light_of_the_titans_ex : public SpellScript
         if (!caster || !caster->HasAura(SPELL_EX2_LIGHT_OF_THE_TITANS))
             return;
 
-        float mult = 1.f;
-        if (GetHitUnit() == caster)
-            mult = 3.f; // +200% (E1)
+        float pct = 40.f;
+        if (AuraEffect const* hot = caster->GetAuraEffect(SPELL_EX2_LIGHT_OF_THE_TITANS, EFFECT_0))
+            if (hot->GetAmount() > 0.0)
+                pct = float(hot->GetAmount());
 
-        int32 hotBase = int32(CalculatePct(GetHitHeal(), 40 * mult) / 5); // 5 тиков по 2с
+        // +200% только если Торжество по себе и на кастере висит периодический урон.
+        if (GetHitUnit() == caster && (caster->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE) || caster->HasAuraType(SPELL_AURA_PERIODIC_LEECH)))
+        {
+            float bonus = 200.f;
+            if (AuraEffect const* extra = caster->GetAuraEffect(SPELL_EX2_LIGHT_OF_THE_TITANS, EFFECT_1))
+                if (extra->GetAmount() > 0.0)
+                    bonus = float(extra->GetAmount());
+            pct *= 1.f + bonus / 100.f;
+        }
+
+        int32 hotBase = int32(CalculatePct(GetHitHeal(), pct) / 5); // 5 тиков по 2с
         if (hotBase <= 0)
             return;
 
@@ -302,7 +319,7 @@ class spell_pal_light_of_the_titans_ex : public SpellScript
     }
 };
 
-// 1245891 Отрада (Отвага): Освящение лечит на 3.75% урона.
+// 1245891 Утешение: Освящение лечит на 375% нанесённого урона.
 // 1245354 Зрение святости: при одной цели урон Освящения x2.
 class spell_pal_consecration_prot_ex : public SpellScript
 {
@@ -327,12 +344,26 @@ class spell_pal_consecration_prot_ex : public SpellScript
         if (!caster || !caster->HasAura(SPELL_EX2_SOLACE))
             return;
 
-        int64 heal = CalculatePct(static_cast<int64>(GetHitDamage()), 3.75f);
-        // 339119 имеет ap-коэффициент 0.05 — вычитаем его, чтобы не задваивать
-        heal -= int64(0.05f * caster->GetTotalAttackPowerValue(BASE_ATTACK));
+        float pct = 375.f;
+        if (AuraEffect const* bonus = caster->GetAuraEffect(SPELL_EX2_SOLACE, EFFECT_0))
+            if (bonus->GetAmount() > 0.0)
+                pct = float(bonus->GetAmount());
+
+        int64 heal = CalculatePct(static_cast<int64>(GetHitDamage()), pct);
         if (heal <= 0)
             return;
 
+        // WCL: лечение идёт отдельным спеллом «Утешение» 1245923 (Heal без коэффициента,
+        // не критует, игнорирует модификаторы лечения заклинателя). 339119 — только запасной вариант.
+        if (sSpellMgr->GetSpellInfo(SPELL_EX2_SOLACE_HEAL, DIFFICULTY_NONE))
+        {
+            caster->CastSpell(caster, SPELL_EX2_SOLACE_HEAL, MakeSpellArgs(TRIGGERED_FULL_MASK, GetSpell(), SPELLVALUE_BASE_POINT0, int32(std::min<int64>(heal, std::numeric_limits<int32>::max()))));
+            return;
+        }
+
+        heal -= int64(0.05f * caster->GetTotalAttackPowerValue(BASE_ATTACK)); // 339119: ap-коэф. 0.05
+        if (heal <= 0)
+            return;
         caster->CastSpell(caster, SPELL_EX2_GOLDEN_PATH_HEAL, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, int32(heal)));
     }
 
@@ -401,26 +432,37 @@ class spell_pal_eye_for_an_eye_ex : public AuraScript
     }
 };
 
-// 403479/406468 - Благословение Света: Буря света лечит вас и союзников рядом (403460).
+// Дар озаренных. 403479: Божественная буря. 406468: Правосудие или Щит праведника.
+// 407467 лечит кастера, 403460 — до 2 союзников в 12 ярдах и кастера исключает.
 class spell_pal_lightforged_blessing_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX2_LIGHTFORGED_BLESSING_RET, SPELL_EX2_LIGHTFORGED_BLESSING_PROT, SPELL_EX2_LIGHTFORGED_HEAL });
+        return ValidateSpellInfo({ SPELL_EX2_LIGHTFORGED_BLESSING_RET, SPELL_EX2_LIGHTFORGED_BLESSING_PROT, SPELL_EX2_LIGHTFORGED_HEAL, SPELL_EX2_LIGHTFORGED_SELF_HEAL });
     }
 
     void HandleAfterCast()
     {
         Unit* caster = GetCaster();
-        if (!caster)
-            return;
-        if (!caster->HasAura(SPELL_EX2_LIGHTFORGED_BLESSING_RET) && !caster->HasAura(SPELL_EX2_LIGHTFORGED_BLESSING_PROT))
+        if (!caster || GetSpell()->IsTriggered())
             return;
 
-        caster->CastSpell(caster, SPELL_EX2_LIGHTFORGED_HEAL, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
+        uint32 const spellId = GetSpellInfo()->Id;
+        bool const divineStorm = spellId == SPELL_EX2_DIVINE_STORM;
+        bool const judgmentOrShield = spellId == SPELL_EX2_JUDGMENT_RET || spellId == SPELL_EX2_JUDGMENT_PROT
+            || spellId == SPELL_EX2_JUDGMENT_HOLY || spellId == SPELL_EX2_SHIELD_OF_THE_RIGHTEOUS;
+        if (divineStorm && !caster->HasAura(SPELL_EX2_LIGHTFORGED_BLESSING_RET))
+            return;
+        if (judgmentOrShield && !caster->HasAura(SPELL_EX2_LIGHTFORGED_BLESSING_PROT))
+            return;
+        if (!divineStorm && !judgmentOrShield)
+            return;
+
+        // CastSpellExtraArgsInit принимается только временным объектом — для двух кастов берём CastSpellExtraArgs.
+        CastSpellExtraArgs args(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+        args.SetTriggeringSpell(GetSpell());
+        caster->CastSpell(caster, SPELL_EX2_LIGHTFORGED_SELF_HEAL, args);
+        caster->CastSpell(caster, SPELL_EX2_LIGHTFORGED_HEAL, args);
     }
 
     void Register() override
@@ -429,8 +471,35 @@ class spell_pal_lightforged_blessing_ex : public SpellScript
     }
 };
 
+class spell_pal_lightforged_blessing_cap_ex : public SpellScript
+{
+    void SelectTargets(std::list<WorldObject*>& targets)
+    {
+        uint32 cap = 2;
+        if (Unit* caster = GetCaster())
+        {
+            AuraEffect const* allies = caster->GetAuraEffect(SPELL_EX2_LIGHTFORGED_BLESSING_PROT, EFFECT_1);
+            if (!allies)
+                allies = caster->GetAuraEffect(SPELL_EX2_LIGHTFORGED_BLESSING_RET, EFFECT_1);
+            if (allies && allies->GetAmount() > 0.0)
+                cap = uint32(allies->GetAmount());
+        }
+
+        if (cap && targets.size() > cap)
+            Trinity::Containers::RandomResize(targets, cap);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_lightforged_blessing_cap_ex::SelectTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ALLY);
+    }
+};
+
 void AddSC_paladin_spell_scripts_ex2()
 {
+    // Скрипты основного файла (партия 1) регистрируются отсюда — лоадер вызывает только ex2..ex10.
+    AddSC_paladin_spell_scripts_ex();
+
     RegisterSpellScript(spell_pal_tempest_of_the_lightbringer_ex);
     RegisterSpellScript(spell_pal_tempest_wave_ex);
     RegisterSpellScript(spell_pal_judgment_of_justice_ex);
@@ -443,4 +512,5 @@ void AddSC_paladin_spell_scripts_ex2()
     RegisterSpellScript(spell_pal_seal_of_reprisal_bh_ex);
     RegisterSpellScript(spell_pal_eye_for_an_eye_ex);
     RegisterSpellScript(spell_pal_lightforged_blessing_ex);
+    RegisterSpellScript(spell_pal_lightforged_blessing_cap_ex);
 }

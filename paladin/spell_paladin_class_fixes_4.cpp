@@ -1,7 +1,7 @@
 // ============================================================================
 // Paladin 12.1.0 class fixes — часть 4a: Свет (ядро хила).
 // Вставка: конец spell_paladin.cpp ПОСЛЕ частей 1-3 (использует хелперы
-// IsPaladinJudgment/GetHolyPowerCost из части 1). Регистрация: AddSC_paladin_spell_scripts_ex4().
+// GetHolyPowerCost из части 1). Регистрация: AddSC_paladin_spell_scripts_ex4().
 // Спутник: paladin_class_fixes_4.sql
 // ============================================================================
 
@@ -25,6 +25,7 @@ enum PaladinEx4Spells
     SPELL_EX4_AW_8S                     = 454351,
     SPELL_EX4_CONSECRATION              = 26573,
     SPELL_EX4_DIVINE_PURPOSE_BUFF       = 223819, // бафф Пробуждения судьбы ( Holy)
+    SPELL_EX4_DIVINE_PURPOSE_RET        = 408458, // Рет-версия (талант 408459)
 
     // таланты/баффы
     SPELL_EX4_MASTERY_LIGHTBRINGER      = 183997,
@@ -63,22 +64,14 @@ namespace
     {
         Unit* best = nullptr;
         float bestDist = 0.f;
-        for (Aura* aura : const_cast<Player*>(healer)->GetSingleCastAuras())
+        for (Unit* target : CollectPaladinBeaconsEx(const_cast<Player*>(healer)))
         {
-            if (aura->GetId() != SPELL_EX4_BEACON_OF_LIGHT)
-                continue;
-            std::vector<AuraApplication*> applications;
-            aura->GetApplicationVector(applications);
-            for (AuraApplication const* app : applications)
-                if (Unit* target = app->GetTarget())
-                {
-                    float dist = target->GetDistance2d(nearTo);
-                    if (!best || dist < bestDist)
-                    {
-                        best = target;
-                        bestDist = dist;
-                    }
-                }
+            float dist = target->GetDistance2d(nearTo);
+            if (!best || dist < bestDist)
+            {
+                best = target;
+                bestDist = dist;
+            }
         }
         return best;
     }
@@ -246,7 +239,7 @@ class spell_pal_moment_of_compassion_ex : public SpellScript
         Unit* caster = GetCaster();
         if (!caster || !victim || !caster->HasAura(SPELL_EX4_MOMENT_OF_COMPASSION))
             return;
-        if (!victim->HasAura(SPELL_EX4_BEACON_OF_LIGHT, caster->GetGUID()))
+        if (!IsPaladinBeaconOfEx(victim, caster->GetGUID()))
             return;
 
         AddPct(pctMod, 50);
@@ -258,7 +251,7 @@ class spell_pal_moment_of_compassion_ex : public SpellScript
     }
 };
 
-// 392902 - Лучезарный свет: Св. свет лечит до 5 союзников рядом с целью на 8%.
+// 392902 - Лучезарный свет: Свет небес лечит ещё до 5 союзников в 12 м на 8%.
 class spell_pal_resplendent_light_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -273,11 +266,21 @@ class spell_pal_resplendent_light_ex : public SpellScript
         if (!caster || !target || !caster->HasAura(SPELL_EX4_RESPLENDENT_LIGHT))
             return;
 
-        int32 heal = int32(CalculatePct(static_cast<int64>(GetHitHeal()), 8));
+        float pct = 8.f;
+        int32 cap = 5;
+        if (AuraEffect const* bonus = caster->GetAuraEffect(SPELL_EX4_RESPLENDENT_LIGHT, EFFECT_0))
+            if (bonus->GetAmount() > 0.0)
+                pct = float(bonus->GetAmount());
+        if (AuraEffect const* targets = caster->GetAuraEffect(SPELL_EX4_RESPLENDENT_LIGHT, EFFECT_1))
+            if (targets->GetAmount() > 0.0)
+                cap = int32(targets->GetAmount());
+        _targets = cap;
+
+        int32 heal = int32(CalculatePct(static_cast<int64>(GetHitHeal()), pct));
         if (heal <= 0)
             return;
 
-        float const radius = 8.f;
+        float const radius = 12.f;
         std::vector<Unit*> allies;
         Trinity::AnyFriendlyUnitInObjectRangeCheck check(target, caster, radius, true);
         Trinity::UnitListSearcher searcher(target, allies, check);
@@ -412,12 +415,19 @@ class spell_pal_divine_revelations_fol_ex : public SpellScript
 
 class spell_pal_divine_revelations_judg_ex : public SpellScript
 {
+    // Снимок до каста: Вливание снимает spell_pal_judgment_greater_ex в своём AfterCast,
+    // порядок AfterCast между скриптами не гарантирован.
+    void Snapshot()
+    {
+        _infused = GetCaster()->HasAura(SPELL_EX4_INFUSION_OF_LIGHT_BUFF);
+    }
+
     void HandleAfterCast()
     {
         Unit* caster = GetCaster();
         if (!caster || !caster->HasAura(SPELL_EX4_DIVINE_REVELATIONS))
             return;
-        if (!caster->HasAura(SPELL_EX4_INFUSION_OF_LIGHT_BUFF))
+        if (!_infused)
             return;
 
         caster->CastSpell(caster, SPELL_EX4_MANA_ENERGIZE_PCT, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, 1));
@@ -425,8 +435,11 @@ class spell_pal_divine_revelations_judg_ex : public SpellScript
 
     void Register() override
     {
+        BeforeCast += SpellCastFn(spell_pal_divine_revelations_judg_ex::Snapshot);
         AfterCast += SpellCastFn(spell_pal_divine_revelations_judg_ex::HandleAfterCast);
     }
+
+    bool _infused = false;
 };
 
 // 392961 - Насыщенные вливания: трата Вливания света -1с КД Св. сияния.
@@ -468,7 +481,11 @@ class spell_pal_veneration_ex : public SpellScript
         for (uint32 spellId : { SPELL_EX4_JUDGMENT_HOLY, SPELL_EX4_JUDGMENT_RET, SPELL_EX4_JUDGMENT_PROT })
             if (caster->HasSpell(spellId))
             {
+                // Правосудие на зарядах: ResetCooldown заряд не возвращает.
                 caster->GetSpellHistory()->ResetCooldown(spellId, true);
+                if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE))
+                    if (info->ChargeCategoryId)
+                        caster->GetSpellHistory()->RestoreCharge(info->ChargeCategoryId);
                 break;
             }
     }
@@ -569,7 +586,7 @@ class spell_pal_liberation_ex : public SpellScript
 };
 
 // 414443 - Сияющая праведность: Щит праведника бьёт первую цель (414448)
-// и с шансом 35% даёт Пробуждение судьбы (223819 — обрабатывается скриптом TC).
+// и с шансом 35% даёт Божественную цель (Рет 408458, иначе 223819).
 class spell_pal_shining_righteousness_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -589,8 +606,14 @@ class spell_pal_shining_righteousness_ex : public SpellScript
                 .TriggeringSpell = GetSpell()
             });
 
+        // Божественная цель: у Воздаяния — 408458 (Рет-версия, модифицирует Рет-спендеры),
+        // у остальных спеков — 223819.
+        uint32 purpose = SPELL_EX4_DIVINE_PURPOSE_BUFF;
+        if (Player const* player = caster->ToPlayer())
+            if (player->GetPrimarySpecialization() == ChrSpecialization::PaladinRetribution)
+                purpose = SPELL_EX4_DIVINE_PURPOSE_RET;
         if (roll_chance(35))
-            caster->CastSpell(caster, SPELL_EX4_DIVINE_PURPOSE_BUFF, CastSpellExtraArgsInit{
+            caster->CastSpell(caster, purpose, CastSpellExtraArgsInit{
                 .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
                 .TriggeringSpell = GetSpell()
             });

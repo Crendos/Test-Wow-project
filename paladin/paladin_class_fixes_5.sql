@@ -6,6 +6,8 @@
 REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- Гневилище: основной каст + Резонансы
 (375576, 'spell_pal_divine_toll_ex'),
+-- Холи-Резонанс также от Святой призмы (114165)
+(114165, 'spell_pal_divine_resonance_prism_ex'),
 -- Резонанс света (Воздаяние): ре-каст Правосудий
 (1266308, 'spell_pal_divine_resonance_ret_ex'),
 -- Резонанс света (Защита): периодические Щиты мстителя
@@ -27,10 +29,22 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (385633, 'spell_pal_auras_of_the_resolute_ex');
 
 -- spell_proc ------------------------------------------------------------------
--- Наказание: успешный каст Реприманда/Щита мстителя
--- (ProcFlags2 = 0x4 CAST_SUCCESSFUL; фильтр по ID — в скрипте)
-VALUES (403530,0x00,0,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,0,0,0);
+-- Наказание: только успешный интеррапт Укора.
+-- ProcFlags: harmful spell/ability + melee ability. Phase HIT. HitMask INTERRUPT.
+REPLACE INTO `spell_proc`
+(`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,
+ `ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,
+ `ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
+VALUES (403530,0x00,0,0,0,0,0,0x11010,0x0,0x5,0x2,0x1000,0x0,0x0,0,100,0,0);
 -- Резонанс света (Рет): успешный каст Правосудия (гейт — в скрипте)
+REPLACE INTO `spell_proc`
+(`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,
+ `ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,
+ `ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (1266308,0x00,0,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,0,0,0);
 -- Наставляемая молитва: получен урон при <25% HP, ICD 60с
+REPLACE INTO `spell_proc`
+(`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,
+ `ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,
+ `ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (404357,0x00,0,0,0,0,0,0x00AA220,0x0,0x1,0x2,0x0,0x0,0x0,0,100,60000,0);

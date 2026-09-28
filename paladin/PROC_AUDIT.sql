@@ -11,7 +11,7 @@
 -- 1. Маски/шансы/кумулятивность ВСЕХ отслеживаемых аур --------------------------
 SELECT ao.SpellID,
        ao.ProcTypeMask1, ao.ProcTypeMask2,
-       ao.ProcChance, ao.ProcCharges, ao.ProcInterval,
+       ao.ProcChance, ao.ProcCharges, ao.ProcCategoryRecovery,
        ao.CumulativeAura
 FROM spell_aura_options AS ao
 WHERE ao.SpellID IN (
@@ -33,10 +33,10 @@ WHERE ao.SpellID IN (
 --    Легитимные цепочки: 378405->378412, 386732->386730, 427445->427441, 432626->432629.
 --    После нуления масок сами аплееры не срабатывают — их кидают наши скрипты;
 --    строки нужны лишь как карта зависимостей DBC.
-SELECT e.ID, e.Effect, e.EffectTriggerSpell, e.EffectMiscValue, e.EffectBasePoints
+SELECT e.SpellID, e.EffectIndex, e.Effect, e.EffectTriggerSpell, e.EffectMiscValue1, e.EffectBasePoints
 FROM spell_effect AS e
 WHERE e.EffectTriggerSpell IN (378412, 386730, 427441, 432629, 386732, 386731)
-   OR e.EffectMiscValue   IN (378412, 386730, 427441, 432629);
+   OR e.EffectMiscValue1  IN (378412, 386730, 427441, 432629);
 
 -- 3. Биндинги цепочек (БД `world`!) -------------------------------------------SELECT *
 FROM spell_script_names

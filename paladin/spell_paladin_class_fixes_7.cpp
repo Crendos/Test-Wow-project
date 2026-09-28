@@ -12,6 +12,12 @@
 // ============================================================================
 
 // === CUT HERE ===============================================================
+// PAL_NO_PROTECTED_TARGETINFO — step1: без этой строки партии устарели.
+
+#include "CellImpl.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
+#include "ObjectAccessor.h"
 
 enum PaladinEx7Spells
 {
@@ -30,7 +36,7 @@ enum PaladinEx7Spells
     SPELL_EX7_EMPIREAN_HAMMER           = 431398, // летящий молоток
     SPELL_EX7_SACROSANCT_CRUSADE        = 431730,
     SPELL_EX7_SACROSANCT_CRUSADE_HEAL   = 461885,
-    SPELL_EX7_HAMMERFALL                = 432463,
+    SPELL_EX7_ZEALOUS_VINDICATION       = 431463,
     SPELL_EX7_HAMMER_OF_LIGHT_BUFF      = 427441, // кнопка «Молот Света» (20с)
 
     // АУДИТ26.09: эхо-эффекты Неоспоримого постановления (432626, wowhead):
@@ -38,11 +44,25 @@ enum PaladinEx7Spells
     // Прот: Удар в праведности + Консекрат под целью» = серверная часть.
     SPELL_EX7_UNDISPUTED_TAL            = 432626,
     SPELL_EX7_SOTR                      = 53600,
+    SPELL_EX7_SOTR_BUFF                 = 132403, // бафф брони Щита праведника, НЕ каст 53600
+    SPELL_EX7_JUDGMENT_DEBUFF           = 197277, // дебафф Правосудия, НЕ полный каст
     SPELL_EX7_CONSECRATION              = 26573, // тот же id, что в части 4
 
     // Вестник солнца
     SPELL_EX7_DAWNLIGHT_TALENT          = 431377,
     SPELL_EX7_DAWNLIGHT_DOT             = 431380,
+    SPELL_EX7_DAWNLIGHT_HOT             = 431381, // Свет: Рассвет на союзнике (HoT)
+    SPELL_EX7_DAWNLIGHT_CHARGE          = 431522, // заряды «след. спендер вешает Рассвет»
+    SPELL_EX7_WAKE                      = 255937,
+    SPELL_EX7_DIVINE_TOLL               = 375576,
+    SPELL_EX7_HOLY_PRISM                = 114165,
+    SPELL_EX7_TV                        = 85256,
+    SPELL_EX7_FV                        = 383328,
+    SPELL_EX7_DS                        = 53385,
+    SPELL_EX7_LIGHT_OF_DAWN             = 85222,
+    SPELL_EX7_SUN_SEAR_TALENT           = 431413,
+    SPELL_EX7_SUN_SEAR_DOT              = 431414,
+    SPELL_EX7_ENDLESS_GLEAM             = 1263787, // +длительность Рассвета от спендеров
     SPELL_EX7_SECOND_SUNRISE            = 431474,
 
     // Ламповщик
@@ -53,6 +73,24 @@ enum PaladinEx7Spells
     SPELL_EX7_BOS                       = 6940
 };
 
+namespace
+{
+    // Затяжное сияние (431407), Свет: Рассвет на союзнике истёк/продлён -> Вечное пламя
+    // (156322) только HoT на 6 с. Прямой хил глушит spell_pal_eternal_flame_lr_ex (часть 11)
+    // по этой метке в CustomArg.
+    struct LingeringRadianceFlameMark { };
+
+    void PalLingeringRadianceFlame(Unit* paladin, Unit* ally)
+    {
+        if (!paladin || !ally || !ally->IsAlive())
+            return;
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.SetCustomArg(LingeringRadianceFlameMark{});
+        args.AddSpellMod(SPELLVALUE_DURATION, 6000);
+        paladin->CastSpell(ally, 156322, args);
+    }
+}
+
 // --- ХРАМОВНИК ---------------------------------------------------------------
 
 // 427453 - Молот Света (кнопка «Света наставления»): урон по цели + 2 летящих
@@ -61,40 +99,72 @@ enum PaladinEx7Spells
 class spell_pal_hammer_of_light_ex : public SpellScript
 {
     bool _undisputedEchoDone = false; // Прот: СоП+Освящение один раз на каст
+    bool _hitDone = false;
 
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
         return ValidateSpellInfo({ SPELL_EX7_LIGHTS_GUIDANCE, SPELL_EX7_HOL_DAMAGE, SPELL_EX7_EMPIREAN_HAMMER,
-            SPELL_EX7_UNDISPUTED_TAL, SPELL_EX7_JUDGMENT_RET, SPELL_EX7_SOTR, SPELL_EX7_CONSECRATION });
+            SPELL_EX7_UNDISPUTED_TAL, SPELL_EX7_JUDGMENT_DEBUFF, SPELL_EX7_SOTR_BUFF, SPELL_EX7_CONSECRATION });
     }
 
-    void CastEmpyreanHammers(int32 count)
+    // simc trigger_empyrean_hammer: первый молоток — в цель, остальные — в случайных
+    // врагов рядом (randomAfterFirst). Задержка первого — E4 Света наставления,
+    // шаг между молотками — E3 (обе в мс). Ревностное оправдание — 2 молотка в цель сразу.
+    void CastEmpyreanHammers(int32 count, bool randomAfterFirst, bool useDelays)
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit() ? GetHitUnit() : GetExplTargetUnit();
         if (!caster || !target || count <= 0)
             return;
 
-        float const radius = 20.f;
         std::vector<Unit*> enemies;
-        Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(target, caster, radius);
-        Trinity::UnitListSearcher searcher(target, enemies, check);
-        Cell::VisitAllObjects(target, searcher, radius);
-
-        enemies.erase(std::remove_if(enemies.begin(), enemies.end(), [caster, target](Unit* enemy)
+        if (randomAfterFirst)
         {
-            return enemy == target || !caster->IsValidAttackTarget(enemy) || !enemy->IsWithinLOSInMap(caster);
-        }), enemies.end());
+            float const radius = 20.f;
+            Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(target, caster, radius);
+            Trinity::UnitListSearcher searcher(target, enemies, check);
+            Cell::VisitAllObjects(target, searcher, radius);
+            enemies.erase(std::remove_if(enemies.begin(), enemies.end(), [caster](Unit* enemy)
+            {
+                return !caster->IsValidAttackTarget(enemy) || !enemy->IsWithinLOSInMap(caster);
+            }), enemies.end());
+        }
 
-        Trinity::Containers::RandomShuffle(enemies);
+        int32 firstDelay = 0;
+        int32 step = 0;
+        if (useDelays)
+        {
+            if (AuraEffect const* e = caster->GetAuraEffect(SPELL_EX7_LIGHTS_GUIDANCE, EFFECT_3))
+                firstDelay = std::clamp(int32(e->GetAmount()), 0, 3000);
+            if (AuraEffect const* e = caster->GetAuraEffect(SPELL_EX7_LIGHTS_GUIDANCE, EFFECT_2))
+                step = std::clamp(int32(e->GetAmount()), 0, 2000);
+        }
 
         for (int32 i = 0; i < count; ++i)
         {
-            Unit* dest = i < int32(enemies.size()) ? enemies[i] : target;
-            caster->CastSpell(dest, SPELL_EX7_EMPIREAN_HAMMER, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringSpell = GetSpell()
-            });
+            Unit* dest = target;
+            if (i > 0 && randomAfterFirst && !enemies.empty())
+                dest = Trinity::Containers::SelectRandomContainerElement(enemies);
+
+            int32 const delay = firstDelay + step * i;
+            if (delay <= 0)
+            {
+                caster->CastSpell(dest, SPELL_EX7_EMPIREAN_HAMMER, CastSpellExtraArgsInit{
+                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                    .TriggeringSpell = GetSpell()
+                });
+                continue;
+            }
+
+            ObjectGuid const destGuid = dest->GetGUID();
+            caster->m_Events.AddEventAtOffset([caster, destGuid]()
+            {
+                Unit* d = ObjectAccessor::GetUnit(*caster, destGuid);
+                if (!d || !d->IsAlive() || !caster->IsValidAttackTarget(d))
+                    return;
+                caster->CastSpell(d, SPELL_EX7_EMPIREAN_HAMMER, CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS
+                    | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR));
+            }, Milliseconds(delay));
         }
     }
 
@@ -105,6 +175,11 @@ class spell_pal_hammer_of_light_ex : public SpellScript
         Unit* caster = GetCaster();
         if (!caster || !caster->HasAura(SPELL_EX7_LIGHTS_GUIDANCE))
             return;
+        // Всё эхо (429826, Неоспоримое постановление, молотки) — один раз за каст,
+        // даже если в данных у 427453 окажется несколько целей.
+        if (_hitDone)
+            return;
+        _hitDone = true;
 
         // основной урон
         caster->CastSpell(GetHitUnit(), SPELL_EX7_HOL_DAMAGE, CastSpellExtraArgsInit{
@@ -112,9 +187,10 @@ class spell_pal_hammer_of_light_ex : public SpellScript
             .TriggeringSpell = GetSpell()
         });
 
-        // Эхо Неоспоримого постановления (432626): Рет — Правосудие по цели;
-        // Прот — бесплатный Удар в праведности + Консекрат (один раз на каст).
-        // Хаст-баф432629 даёт spell_pal_hol_templar_ex (часть 9).
+        // Эхо Неоспоримого постановления (432626, wowhead):
+        // Рет — наложить ДЕБАФФ Правосудия (не полный каст 20271: тот даёт СС и чужие проки);
+        // Прот — бафф брони Щита праведника (132403, не каст 53600 — тот тратит СС) + Освящение под целью.
+        // Хаст-бафф 432629 даёт spell_pal_hol_templar_ex (часть 9).
         if (Player* p = caster->ToPlayer())
             if (p->HasSpell(SPELL_EX7_UNDISPUTED_TAL))
             {
@@ -125,13 +201,13 @@ class spell_pal_hammer_of_light_ex : public SpellScript
                 switch (p->GetPrimarySpecialization())
                 {
                     case ChrSpecialization::PaladinRetribution:
-                        caster->CastSpell(GetHitUnit(), SPELL_EX7_JUDGMENT_RET, echoArgs);
+                        caster->CastSpell(GetHitUnit(), SPELL_EX7_JUDGMENT_DEBUFF, echoArgs);
                         break;
                     case ChrSpecialization::PaladinProtection:
                         if (!_undisputedEchoDone)
                         {
                             _undisputedEchoDone = true;
-                            caster->CastSpell(caster, SPELL_EX7_SOTR, echoArgs);
+                            caster->CastSpell(caster, SPELL_EX7_SOTR_BUFF, echoArgs);
                             caster->CastSpell(GetHitUnit(), SPELL_EX7_CONSECRATION, echoArgs);
                         }
                         break;
@@ -140,17 +216,34 @@ class spell_pal_hammer_of_light_ex : public SpellScript
                 }
             }
 
-        // 2 молотка (E2 «Света наставления»)
-        CastEmpyreanHammers(2);
+        // молотки «Света наставления»: wowhead E2 = 3; если в ауре другое число — берём его
+        int32 hammers = 3;
+        if (AuraEffect const* hammerCount = caster->GetAuraEffect(SPELL_EX7_LIGHTS_GUIDANCE, EFFECT_1))
+            if (hammerCount->GetAmount() > 0 && hammerCount->GetAmount() <= 10)
+                hammers = hammerCount->GetAmount();
+        // Ревностное оправдание (431463, E0 = 2): молотки сразу в цель.
+        if (caster->HasAura(SPELL_EX7_ZEALOUS_VINDICATION))
+        {
+            int32 zv = 2;
+            if (AuraEffect const* e = caster->GetAuraEffect(SPELL_EX7_ZEALOUS_VINDICATION, EFFECT_0))
+                if (e->GetAmount() > 0 && e->GetAmount() <= 5)
+                    zv = int32(e->GetAmount());
+            CastEmpyreanHammers(zv, false, false);
+        }
+        CastEmpyreanHammers(hammers, true, true);
 
-        // Сакросанктный крестовый поход: лечение (% макс. HP + за цель, кап 5)
+        // Сакросанктный крестовый поход: лечение (% макс. HP + за цель, кап 5).
+        // simc: Рет — эффекты 5/6 (EFFECT_4/5), Прот — 2/3 (EFFECT_1/2).
         if (caster->HasAura(SPELL_EX7_SACROSANCT_CRUSADE))
         {
-            if (AuraEffect const* healPct = caster->GetAuraEffect(SPELL_EX7_SACROSANCT_CRUSADE, EFFECT_4))
+            bool const prot = caster->ToPlayer() && caster->ToPlayer()->GetPrimarySpecialization() == ChrSpecialization::PaladinProtection;
+            SpellEffIndex const baseIdx = prot ? EFFECT_1 : EFFECT_4;
+            SpellEffIndex const perIdx = prot ? EFFECT_2 : EFFECT_5;
+            if (AuraEffect const* healPct = caster->GetAuraEffect(SPELL_EX7_SACROSANCT_CRUSADE, baseIdx))
             {
                 int32 pct = healPct->GetAmount();
                 int32 targetsHit = std::min<int32>(GetUnitTargetCountForEffect(EFFECT_0), 5);
-                if (AuraEffect const* perTarget = caster->GetAuraEffect(SPELL_EX7_SACROSANCT_CRUSADE, EFFECT_5))
+                if (AuraEffect const* perTarget = caster->GetAuraEffect(SPELL_EX7_SACROSANCT_CRUSADE, perIdx))
                     pct += perTarget->GetAmount() * targetsHit;
 
                 int64 heal = caster->CountPctFromMaxHealth(pct);
@@ -159,18 +252,11 @@ class spell_pal_hammer_of_light_ex : public SpellScript
         }
     }
 
-    void HandleAfterCast()
-    {
-        Unit* caster = GetCaster();
-        // Молотопад (Hammerfall): ещё один молоток
-        if (caster && caster->HasAura(SPELL_EX7_HAMMERFALL))
-            CastEmpyreanHammers(1);
-    }
-
     void Register() override
     {
+        // Молотопад с Молота Света снят: wowhead 432463 — только спендеры
+        // (Приговор/Буря у Рета, Щит праведника/Слово света у Прота). См. часть 9.
         OnHit += SpellHitFn(spell_pal_hammer_of_light_ex::HandleHitTarget);
-        AfterCast += SpellCastFn(spell_pal_hammer_of_light_ex::HandleAfterCast);
     }
 };
 
@@ -204,35 +290,247 @@ class spell_pal_lights_guidance_wake_ex : public SpellScript
 
 // --- ВЕСТНИК СОЛНЦА ----------------------------------------------------------
 
-// 431377 - Рассветный свет: Правосудие (Рет) и Святое сияние (Свет) оставляют
-// Рассветный свет на цели (DoT; взрыв по области — v1 без взрыва).
+// 431377 Рассветный свет (wowhead 12.x + simc midnight):
+//   Рет: Пробуждение зол даёт N зарядов (431522, эффект 1 таланта, обычно 2).
+//   Свет: Святая призма или Божественный звон (simc холи-выдачу не моделирует — по тултипу).
+//   Спендер СС тратит 1 заряд и вешает DoT 431380 на первую цель без DoT
+//   (если цель одна — обновляет уже висящий). Старые бинды 20271/20473 игнорируются.
+// 1263787 Бесконечный отблеск: удар Приговора/Бури по уже висящему DoT +300мс;
+//   Буря по 2+ таким целям — ещё +500мс. Холи: хил по союзнику на полном здоровье +500мс.
 class spell_pal_dawnlight_ex : public SpellScript
 {
+    struct HitNote
+    {
+        ObjectGuid guid;
+        bool hadDot = false;
+    };
+
+    bool _chargeUsed = false;
+    std::vector<ObjectGuid> _gleamDots;
+    std::vector<HitNote> _hits;
+
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX7_DAWNLIGHT_TALENT, SPELL_EX7_DAWNLIGHT_DOT });
+        return ValidateSpellInfo({ SPELL_EX7_DAWNLIGHT_TALENT, SPELL_EX7_DAWNLIGHT_DOT, SPELL_EX7_DAWNLIGHT_CHARGE });
     }
 
-    void HandleHitTarget()
+    static bool IsGrant(uint32 id)
+    {
+        return id == SPELL_EX7_WAKE || id == SPELL_EX7_DIVINE_TOLL || id == SPELL_EX7_HOLY_PRISM;
+    }
+
+    static bool IsSpender(uint32 id)
+    {
+        switch (id)
+        {
+            case SPELL_EX7_TV:
+            case SPELL_EX7_FV:
+            case SPELL_EX7_DS:
+            case SPELL_EX7_WORD_OF_GLORY:
+            case SPELL_EX7_SOTR:
+            case SPELL_EX7_HOL_DRIVER:
+            case SPELL_EX7_LIGHT_OF_DAWN:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    static int32 GleamMs(Unit* caster, SpellEffIndex idx, int32 fallback)
+    {
+        if (AuraEffect const* e = caster->GetAuraEffect(SPELL_EX7_ENDLESS_GLEAM, idx))
+        {
+            int32 amt = e->GetAmount();
+            if (amt < 0)
+                amt = -amt;
+            if (amt >= 100 && amt <= 5000)
+                return amt;
+        }
+        return fallback;
+    }
+
+    static bool HasDawnlight(Unit const* unit, ObjectGuid casterGuid)
+    {
+        return unit->HasAura(SPELL_EX7_DAWNLIGHT_DOT, casterGuid) || unit->HasAura(SPELL_EX7_DAWNLIGHT_HOT, casterGuid);
+    }
+
+    static void ExtendDot(Unit* target, ObjectGuid casterGuid, int32 ms)
+    {
+        if (!target || ms <= 0)
+            return;
+        Aura* dot = target->GetAura(SPELL_EX7_DAWNLIGHT_DOT, casterGuid);
+        if (!dot)
+            dot = target->GetAura(SPELL_EX7_DAWNLIGHT_HOT, casterGuid);
+        if (dot)
+        {
+            int32 dur = dot->GetDuration() + ms;
+            if (dur > dot->GetMaxDuration())
+                dot->SetMaxDuration(dur);
+            dot->SetDuration(dur);
+            // Затяжное сияние (431407): «истекает ИЛИ продлевается» -> враг: Великое правосудие,
+            // союзник: Вечное пламя (только HoT, 6 с) — PalLingeringRadianceFlame (часть 11).
+            if (Unit* owner = dot->GetCaster())
+                if (owner->HasAura(431407))
+                {
+                    if (owner->IsValidAttackTarget(target))
+                        owner->CastSpell(target, SPELL_EX7_JUDGMENT_DEBUFF, CastSpellExtraArgs(TRIGGERED_FULL_MASK));
+                    else if (target->IsFriendlyTo(owner))
+                        PalLingeringRadianceFlame(owner, target);
+                }
+        }
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        SpellInfo const* info = GetSpellInfo();
+        if (!caster || !info || !caster->HasSpell(SPELL_EX7_DAWNLIGHT_TALENT))
+            return;
+
+        Player* player = caster->ToPlayer();
+        if (!player)
+            return;
+
+        uint32 id = info->Id;
+        auto spec = player->GetPrimarySpecialization();
+
+        if (IsGrant(id))
+        {
+            bool grant = (spec == ChrSpecialization::PaladinRetribution && id == SPELL_EX7_WAKE)
+                || (spec == ChrSpecialization::PaladinHoly && (id == SPELL_EX7_HOLY_PRISM || id == SPELL_EX7_DIVINE_TOLL));
+            if (!grant)
+                return;
+
+            int32 charges = 2;
+            if (AuraEffect const* e = caster->GetAuraEffect(SPELL_EX7_DAWNLIGHT_TALENT, EFFECT_0))
+                if (e->GetAmount() > 0 && e->GetAmount() <= 10)
+                    charges = e->GetAmount();
+
+            caster->CastSpell(caster, SPELL_EX7_DAWNLIGHT_CHARGE, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                .TriggeringSpell = GetSpell()
+            });
+            if (Aura* aura = caster->GetAura(SPELL_EX7_DAWNLIGHT_CHARGE))
+            {
+                uint8 cap = aura->GetSpellInfo()->StackAmount;
+                if (cap > 0 && charges > cap)
+                    charges = cap;
+                aura->SetStackAmount(uint8(charges));
+            }
+            return;
+        }
+
+        // AfterCast идёт после OnHit: бонус Бури по 2+ уже висевшим DoT
+        if (id == SPELL_EX7_DS && _gleamDots.size() > 1 && caster->HasSpell(SPELL_EX7_ENDLESS_GLEAM))
+        {
+            int32 extra = GleamMs(caster, EFFECT_2, 500);
+            for (ObjectGuid const& guid : _gleamDots)
+                if (Unit* unit = ObjectAccessor::GetUnit(*caster, guid))
+                    ExtendDot(unit, caster->GetGUID(), extra);
+        }
+
+        SpendDawnlight(caster);
+    }
+
+    void HandleHit()
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
-        if (!caster || !target || !caster->HasAura(SPELL_EX7_DAWNLIGHT_TALENT))
+        SpellInfo const* info = GetSpellInfo();
+        if (!caster || !target || !info || !IsSpender(info->Id) || GetSpell()->IsTriggered())
+            return;
+        if (!caster->HasSpell(SPELL_EX7_DAWNLIGHT_TALENT))
             return;
 
-        SpellInfo const* spellInfo = GetSpellInfo();
-        if (!spellInfo)
+        bool const hadDot = HasDawnlight(target, caster->GetGUID());
+        if (hadDot && caster->HasSpell(SPELL_EX7_ENDLESS_GLEAM))
+        {
+            Player* player = caster->ToPlayer();
+            if (player && player->GetPrimarySpecialization() == ChrSpecialization::PaladinRetribution
+                && (info->Id == SPELL_EX7_TV || info->Id == SPELL_EX7_FV || info->Id == SPELL_EX7_DS))
+            {
+                ExtendDot(target, caster->GetGUID(), GleamMs(caster, EFFECT_1, 300));
+                if (info->Id == SPELL_EX7_DS)
+                    _gleamDots.push_back(target->GetGUID());
+            }
+            else if (player && player->GetPrimarySpecialization() == ChrSpecialization::PaladinHoly
+                && target->IsFriendlyTo(caster) && target->GetHealth() >= target->GetMaxHealth()
+                && (info->Id == SPELL_EX7_WORD_OF_GLORY || info->Id == SPELL_EX7_LIGHT_OF_DAWN))
+            {
+                ExtendDot(target, caster->GetGUID(), GleamMs(caster, EFFECT_0, 500));
+            }
+        }
+
+        // Число целей считаем сами: поле списка целей у Spell в этой сборке protected.
+        for (HitNote const& hit : _hits)
+            if (hit.guid == target->GetGUID())
+                return;
+        _hits.push_back({ target->GetGUID(), hadDot });
+    }
+
+    static Unit* FindWithoutDot(Unit* caster, Unit* origin)
+    {
+        float const radius = 12.f;
+        std::vector<Unit*> nearby;
+        bool const friendly = origin->IsFriendlyTo(caster);
+        if (friendly)
+        {
+            Trinity::AnyFriendlyUnitInObjectRangeCheck check(origin, caster, radius);
+            Trinity::UnitListSearcher searcher(origin, nearby, check);
+            Cell::VisitAllObjects(origin, searcher, radius);
+        }
+        else
+        {
+            Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(origin, caster, radius);
+            Trinity::UnitListSearcher searcher(origin, nearby, check);
+            Cell::VisitAllObjects(origin, searcher, radius);
+        }
+        for (Unit* unit : nearby)
+            if (unit != origin && unit->IsAlive()
+                && (friendly ? unit->IsFriendlyTo(caster) : caster->IsValidAttackTarget(unit))
+                && !HasDawnlight(unit, caster->GetGUID()))
+                return unit;
+        return nullptr;
+    }
+
+    void SpendDawnlight(Unit* caster)
+    {
+        if (_chargeUsed || _hits.empty() || !caster)
+            return;
+        Aura* charges = caster->GetAura(SPELL_EX7_DAWNLIGHT_CHARGE);
+        if (!charges || charges->GetStackAmount() <= 0)
             return;
 
-        // Рет: Правосудие; Свет: Святое сияние
-        bool applicable = spellInfo->Id == SPELL_EX7_JUDGMENT_RET || spellInfo->Id == SPELL_EX7_HOLY_SHOCK;
-        if (!applicable)
+        bool const single = _hits.size() <= 1;
+        Unit* dest = nullptr;
+        for (HitNote const& hit : _hits)
+        {
+            if (hit.hadDot)
+                continue;
+            dest = ObjectAccessor::GetUnit(*caster, hit.guid);
+            if (dest)
+                break;
+        }
+
+        if (!dest && single)
+            dest = ObjectAccessor::GetUnit(*caster, _hits.front().guid);
+
+        if (!dest && !single)
+        {
+            if (Unit* origin = ObjectAccessor::GetUnit(*caster, _hits.front().guid))
+                dest = FindWithoutDot(caster, origin);
+            if (!dest)
+                return; // все цели уже с DoT — заряд не тратим (simc)
+        }
+
+        if (!dest)
             return;
 
-        if (target->HasAura(SPELL_EX7_DAWNLIGHT_DOT, caster->GetGUID()))
-            return;
-
-        caster->CastSpell(target, SPELL_EX7_DAWNLIGHT_DOT, CastSpellExtraArgsInit{
+        _chargeUsed = true;
+        charges->ModStackAmount(-1);
+        // Враг — DoT 431380, союзник (Свет: Слово славы / Свет зари) — HoT 431381.
+        uint32 const dawnlightId = dest->IsFriendlyTo(caster) ? SPELL_EX7_DAWNLIGHT_HOT : SPELL_EX7_DAWNLIGHT_DOT;
+        caster->CastSpell(dest, dawnlightId, CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
             .TriggeringSpell = GetSpell()
         });
@@ -240,7 +538,48 @@ class spell_pal_dawnlight_ex : public SpellScript
 
     void Register() override
     {
-        AfterHit += SpellHitFn(spell_pal_dawnlight_ex::HandleHitTarget);
+        OnHit += SpellHitFn(spell_pal_dawnlight_ex::HandleHit);
+        AfterCast += SpellCastFn(spell_pal_dawnlight_ex::HandleAfterCast);
+    }
+};
+
+// 431413 Солнечный ожог: крит Молота гнева / Божественной бури (только Рет) вешает 431414.
+// Холи-вариант (крит Шока/Зари) — отдельный хил, его id simc не моделирует; 431414 туда не кастуем.
+class spell_pal_sun_sear_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX7_SUN_SEAR_TALENT, SPELL_EX7_SUN_SEAR_DOT });
+    }
+
+    void HandleHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        SpellInfo const* info = GetSpellInfo();
+        if (!caster || !target || !info || !IsHitCrit() || !caster->HasSpell(SPELL_EX7_SUN_SEAR_TALENT))
+            return;
+        if (GetSpell()->IsTriggered())
+            return;
+
+        Player* player = caster->ToPlayer();
+        if (!player)
+            return;
+
+        if (player->GetPrimarySpecialization() != ChrSpecialization::PaladinRetribution)
+            return;
+        if (info->Id != SPELL_EX7_HAMMER_OF_WRATH && info->Id != SPELL_EX7_HAMMER_OF_WRATH_AW && info->Id != SPELL_EX7_DS)
+            return;
+
+        caster->CastSpell(target, SPELL_EX7_SUN_SEAR_DOT, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_pal_sun_sear_ex::HandleHit);
     }
 };
 
@@ -285,37 +624,14 @@ class spell_pal_second_sunrise_ex : public AuraScript
 
 // --- ЛАМПОВЩИК ---------------------------------------------------------------
 
-// 432919 - Доблесть (Прот): Слово света снижает КД БЗ/БП/БС/ЩБ на 3с.
-class spell_pal_valiance_ex : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_EX7_VALIANCE });
-    }
-
-    void HandleAfterCast()
-    {
-        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        if (!player || !player->HasAura(SPELL_EX7_VALIANCE))
-            return;
-        if (player->GetPrimarySpecialization() != ChrSpecialization::PaladinProtection)
-            return;
-
-        for (uint32 spellId : { SPELL_EX7_BOS, SPELL_EX7_BOP, SPELL_EX7_SPELLWARDING, SPELL_EX7_DIVINE_SHIELD })
-            player->GetSpellHistory()->ModifyCooldown(spellId, Seconds(-3));
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_pal_valiance_ex::HandleAfterCast);
-    }
-};
+// 432919 - Доблесть: перенесена в часть 11 (spell_pal_valiance_consume_ex).
+// Старая версия («Слово славы -> КД БЗ/БП/БС/ЩБ -3с») не соответствовала 12.1.
 
 void AddSC_paladin_spell_scripts_ex7()
 {
     RegisterSpellScript(spell_pal_hammer_of_light_ex);
     RegisterSpellScript(spell_pal_lights_guidance_wake_ex);
     RegisterSpellScript(spell_pal_dawnlight_ex);
+    RegisterSpellScript(spell_pal_sun_sear_ex);
     RegisterSpellScript(spell_pal_second_sunrise_ex);
-    RegisterSpellScript(spell_pal_valiance_ex);
 }
