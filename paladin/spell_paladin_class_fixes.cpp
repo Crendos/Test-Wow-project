@@ -184,8 +184,13 @@ enum PaladinExTierSpells
     SPELL_EX_DIVINE_ARBITER_FOR_VERDICT       = 1306162, // «след. Приговор и Молот Света»
     SPELL_EX_DIVINE_ARBITER_FOR_STORM_ALT     = 1310461, // тот же текст, что 1306161
     SPELL_EX_DIVINE_ARBITER_DAMAGE            = 1306923, // 1012.5% AP в цель + 472.5% AP в 8 м
-    SPELL_EX_DIVINE_PURPOSE_BUFF              = 223819, // Цель Света (15%)
-    SPELL_EX_DIVINE_PURPOSE_BUFF_RET          = 408458, // Цель Воздаяния/Защиты (10%, прок 408459)
+    SPELL_EX_DIVINE_PURPOSE_BUFF              = 223819, // Божественный замысел (баф, 12 с)
+    SPELL_EX_DIVINE_PURPOSE_BUFF_RET          = 408458, // Рет-версия бафа (прок 408459)
+    SPELL_EX_DIVINE_PURPOSE_TALENT            = 223817, // талант (пассивка, dummy 15 = шанс 15%)
+    SPELL_EX_DIVINE_PURPOSE_TALENT_RET        = 408459, // Рет-версия таланта
+    SPELL_EX_AVENGING_CRUSADER                = 216331, // Рыцарь мститель (баф, 15 с)
+    SPELL_EX_AVENGING_CRUSADER_TALENT         = 394088, // скрытая пассивка таланта Рыцаря мстителя
+    SPELL_EX_AVENGING_CRUSADER_HEAL           = 216371, // лечение ОС/Правосудия от Рыцаря мстителя
     SPELL_EX_DIVINE_POWER_STORM               = 1306159, // «Божественная сила: Буря» (+200% Бури) — справочно
     SPELL_EX_DIVINE_STORM_DAMAGE              = 224239,
     SPELL_EX_DIVINE_STORM_ALT                 = 423593,
@@ -278,9 +283,47 @@ namespace
         return unit && (unit->HasAura(SPELL_EX_CRUSADE_TALENT) || unit->HasSpell(SPELL_EX_CRUSADE_TALENT));
     }
 
+    // «Гнев карателя» во всех вариантах. С 12.0 у Света эту кнопку заменяет Рыцарь
+    // мститель (216331, скрытая пассивка таланта — 394088), поэтому он тоже считается.
+    // PAL_AVENGING_CRUSADER_20260928
     [[nodiscard]] bool HasAvengingWrathAura(Unit* unit)
     {
-        return unit && (unit->HasAura(SPELL_EX_AVENGING_WRATH) || unit->HasAura(SPELL_EX_AVENGING_WRATH_8S));
+        return unit && (unit->HasAura(SPELL_EX_AVENGING_WRATH) || unit->HasAura(SPELL_EX_AVENGING_WRATH_8S)
+            || unit->HasAura(SPELL_EX_AVENGING_CRUSADER) || unit->HasAura(SPELL_EX_AVENGING_CRUSADER_TALENT));
+    }
+
+    // Раненые союзники паладина (плюс сам паладин) в радиусе: сначала самые «просевшие»
+    // по здоровью, не больше maxCount. Нужно Избавлению Тира и Рыцарю мстителю.
+    [[nodiscard]] std::vector<Unit*> ExCollectInjuredAllies(Unit* caster, float radius, uint32 maxCount)
+    {
+        std::vector<Unit*> result;
+        if (!caster)
+            return result;
+
+        auto add = [&](Unit* unit)
+        {
+            if (!unit || !unit->IsAlive() || unit->IsFullHealth())
+                return;
+            if (!caster->IsInMap(unit) || !caster->IsWithinDistInMap(unit, radius))
+                return;
+            if (std::find(result.begin(), result.end(), unit) == result.end())
+                result.push_back(unit);
+        };
+
+        add(caster);
+        if (Player* player = caster->ToPlayer())
+            if (Group* group = player->GetGroup())
+                for (GroupReference const& ref : group->GetMembers())
+                    add(ref.GetSource());
+
+        std::sort(result.begin(), result.end(), [](Unit* a, Unit* b)
+        {
+            return a->GetHealthPct() < b->GetHealthPct();
+        });
+
+        if (result.size() > maxCount)
+            result.resize(maxCount);
+        return result;
     }
 
     void CrusadeRates(Unit* unit, int32& perPoint, int32& cap)
@@ -1676,6 +1719,306 @@ class spell_pal_t36_ret_divine_purpose_ex : public SpellScript
     uint32 _arbiterBuff = 0;
 };
 
+// ============================================================================
+// PAL_DP_FREE_20260928 — Божественный замысел (Divine Purpose), 12.x:
+//   223817 (талант-пассивка; эффект Dummy 15 = «15% шанс», ВКД 100 мс)
+//     -> баф 223819 (12 с): «следующая трата Силы Света бесплатна и наносит/лечит +15%».
+// У Рет-версии таланта своя пара: 408459 -> 408458 (её тоже поддерживаем).
+//
+// Как это устроено в клиентских данных бафа 223819:
+//   E1 «Modifies Power Cost (14)» = -100%, E2 «Modifies Damage/Healing Done» = 15%
+//   (список «Affected Spells» = спендеры Силы Света). Модификаторы применяются ядром
+//   только если у эффекта непустая маска семейства — а она берётся из данных эффекта.
+//   Если маска пустая, модификатор не работает, баф висит 12 с и НЕ делает трату
+//   бесплатной — ровно то, что видно в игре («очки света всё равно тратятся»).
+// Поэтому вешаем СВОЙ модификатор на владельца бафа (пока баф висит): -100% к стоимости
+// (SpellModOp::PowerCost0) для списка спендеров и +15% урона/лечения, если в данных
+// своего модификатора нет. Прок 15% и расход бафа делаем сами в скрипте спендеров —
+// не зависим ни от spell_proc, ни от масок клиента.
+// ============================================================================
+namespace
+{
+    // Список «Affected Spells» бафа 223819 (E1/E2) из клиентских данных 12.1.
+    constexpr uint32 ExDpSpellList[] =
+    {
+        SPELL_EX_SHIELD_OF_THE_RIGHTEOUS,   // 53600 Щит праведника
+        SPELL_EX_WORD_OF_GLORY,             // 85673 Торжество
+        SPELL_EX_DIVINE_STORM,              // 53385 Божественная буря
+        SPELL_EX_LIGHT_OF_DAWN,             // 85222 Свет зари
+        SPELL_EX_ETERNAL_FLAME,             // 156322 Вечное пламя
+        SPELL_EX_FINAL_VERDICT,             // 383328 Окончательный приговор
+        SPELL_EX_TEMPLARS_VERDICT,          // 85256 Приговор храмовника
+        SPELL_EX_HAMMER_OF_LIGHT,           // 427453 Молот Света
+        SPELL_EX_DIVINE_ARBITER_DAMAGE,     // 1306923 Божественный арбитр (урон)
+        215661,   // Кара возмездия
+        84963,    // Инквизиция
+        172320, 172321,  // Серафим
+        383469,   // Сияющий приговор
+        391309,   // Послеобраз
+        1257064,  // Сияние праведного
+        391054,   // Заступничество
+        415091, 290491, 336872, 157048, 174333, 213842, 213843, 224266, 276033,  // варианты ЩП/Бури/Приговора
+        461432, 461622,  // варианты Вечного пламени и Заступничества
+        2812      // Обличение (старая версия)
+    };
+
+    // Маска паладинских семейств: объединение флагов всех заклинаний списка.
+    // Считается один раз за запуск сервера.
+    [[nodiscard]] flag128 const& ExDpSpellMask()
+    {
+        static flag128 const mask = []
+        {
+            flag128 result;
+            for (uint32 id : ExDpSpellList)
+                if (SpellInfo const* info = sSpellMgr->GetSpellInfo(id, DIFFICULTY_NONE))
+                    result |= info->SpellFamilyFlags;
+            return result;
+        }();
+        return mask;
+    }
+
+    // «Родной» спелл модификатора: важно лишь, чтобы его SpellFamilyName (10 — паладин)
+    // совпадал с семейством спендеров, иначе ядро модификатор отбросит (IsAffectedBySpellMod).
+    constexpr uint32 EX_DP_MOD_OWNER_SPELL = 85673;
+
+    // Баф Божественного замысла на юните (223819 — все спеки, 408458 — Рет-версия).
+    [[nodiscard]] Aura* ExDpBuff(Unit* unit)
+    {
+        if (!unit)
+            return nullptr;
+        if (Aura* aura = unit->GetAura(SPELL_EX_DIVINE_PURPOSE_BUFF))
+            return aura;
+        return unit->GetAura(SPELL_EX_DIVINE_PURPOSE_BUFF_RET);
+    }
+
+    [[nodiscard]] bool ExDpKnowsTalent(Unit* unit)
+    {
+        return unit && (unit->HasSpell(SPELL_EX_DIVINE_PURPOSE_TALENT) || unit->HasAura(SPELL_EX_DIVINE_PURPOSE_TALENT)
+            || unit->HasSpell(SPELL_EX_DIVINE_PURPOSE_TALENT_RET) || unit->HasAura(SPELL_EX_DIVINE_PURPOSE_TALENT_RET));
+    }
+
+    // Есть ли у бафа рабочий модификатор урона/лечения из данных (E2)? Если маски/метки нет —
+    // ядро его не применит, и +15% придётся вешать самим (иначе был бы двойной бонус).
+    [[nodiscard]] bool ExDpDataHasDamageMod(Aura* aura)
+    {
+        if (!aura)
+            return false;
+        for (AuraEffect const* eff : aura->GetAuraEffects())
+        {
+            if (!eff)
+                continue;
+            AuraType const type = eff->GetAuraType();
+            if (type != SPELL_AURA_ADD_FLAT_MODIFIER && type != SPELL_AURA_ADD_PCT_MODIFIER
+                && type != SPELL_AURA_ADD_FLAT_MODIFIER_BY_SPELL_LABEL && type != SPELL_AURA_ADD_PCT_MODIFIER_BY_SPELL_LABEL)
+                continue;
+            if (eff->GetMiscValue() != int32(SpellModOp::HealingAndDamage))
+                continue;
+            if (eff->GetSpellEffectInfo().SpellClassMask || eff->GetMiscValueB())
+                return true;
+        }
+        return false;
+    }
+}
+
+// 223819 / 408458 — баф Божественного замысла: пока висит, вешаем игроку свои
+// модификаторы (-100% стоимости спендера, +15% урона/лечения без своего из данных),
+// а при снятии бафа — снимаем их. Модификаторы живут ровно столько же, сколько баф.
+class spell_pal_divine_purpose_buff_ex : public AuraScript
+{
+public:
+    ~spell_pal_divine_purpose_buff_ex() override
+    {
+        // Страховка: если хук снятия не сработал (выход игрока, удаление ауры),
+        // обязательно отцепляем модификаторы — иначе в списке игрока остался бы
+        // указатель на уже уничтоженную ауру.
+        DetachMods(true);
+    }
+
+private:
+    void AttachMods()
+    {
+        if (_attached)
+            return;
+
+        Player* player = GetTarget() ? GetTarget()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        flag128 const& mask = ExDpSpellMask();
+        if (!mask)
+        {
+            TC_LOG_ERROR("scripts", "Paladin: Божественный замысел — пустая маска спендеров, бесплатная трата не включена");
+            return;
+        }
+
+        _ownerGuid = player->GetGUID();
+
+        _costMod = new SpellPctModifierByClassMask(SpellModOp::PowerCost0, EX_DP_MOD_OWNER_SPELL, GetAura(), mask);
+        static_cast<SpellPctModifierByClassMask*>(_costMod)->value = -100.f;
+        player->AddSpellMod(_costMod, true);
+
+        if (!ExDpDataHasDamageMod(GetAura()))
+        {
+            _damageMod = new SpellPctModifierByClassMask(SpellModOp::HealingAndDamage, EX_DP_MOD_OWNER_SPELL, GetAura(), mask);
+            static_cast<SpellPctModifierByClassMask*>(_damageMod)->value = 15.f;
+            player->AddSpellMod(_damageMod, true);
+        }
+
+        _attached = true;
+
+        static bool logged = false;
+        if (!logged)
+        {
+            TC_LOG_INFO("scripts", "Paladin: Божественный замысел — трата Силы Света бесплатна (модификатор повешен), +15% {}",
+                _damageMod ? "ставим сами" : "из данных клиента");
+            logged = true;
+        }
+    }
+
+    void DetachMods(bool destroying)
+    {
+        if (!_costMod && !_damageMod)
+            return;
+
+        Player* player = ObjectAccessor::FindPlayer(_ownerGuid);
+        auto drop = [&](SpellModifier*& mod)
+        {
+            if (!mod)
+                return;
+            if (player)
+            {
+                player->AddSpellMod(mod, false);
+                delete mod;
+            }
+            else
+            {
+                // Игрока уже нет: обнуляем маску (модификатор больше ни на что не влияет)
+                // и не удаляем объект — иначе в списке игрока остался бы висячий указатель.
+                static_cast<SpellModifierByClassMask*>(mod)->mask.Set();
+                if (destroying)
+                    TC_LOG_DEBUG("scripts", "Paladin: Божественный замысел — игрок недоступен, маска модификатора обнулена");
+            }
+            mod = nullptr;
+        };
+        drop(_costMod);
+        drop(_damageMod);
+        _attached = false;
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        AttachMods();
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        DetachMods(false);
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_pal_divine_purpose_buff_ex::OnApply, EFFECT_FIRST_FOUND, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_pal_divine_purpose_buff_ex::OnRemove, EFFECT_FIRST_FOUND, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
+    }
+
+    ObjectGuid _ownerGuid;
+    SpellModifier* _costMod = nullptr;
+    SpellModifier* _damageMod = nullptr;
+    bool _attached = false;
+};
+
+// Спендеры Силы Света: 15% шанс получить Божественный замысел, расход бафа при трате.
+// Прок считаем сами (шанс — из эффекта таланта 223817/408459), потому что стоковый
+// скрипт ядра зависит от строки spell_proc, а расход бафа в данных 12.x не описан.
+class spell_pal_divine_purpose_spender_ex : public SpellScript
+{
+    void HandleBeforeCast()
+    {
+        _buff = nullptr;
+        _spent = 0;
+        _rolled = false;
+
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        Optional<int32> const cost = GetHolyPowerCost(GetSpell());
+        if (!cost || *cost <= 0)
+            return; // не трата Силы Света — замысел не при чём
+
+        // Стоимость уже посчитана с модификаторами (наш -100% из бафа): если баф висит,
+        // эта трата «бесплатная».
+        _spent = *cost;
+
+        if (Aura* buff = ExDpBuff(caster))
+        {
+            _buff = buff;
+            return;
+        }
+
+        if (!ExDpKnowsTalent(caster))
+            return;
+
+        int32 chance = 15;
+        if (AuraEffect const* eff = caster->GetAuraEffect(SPELL_EX_DIVINE_PURPOSE_TALENT, EFFECT_0))
+        {
+            if (eff->GetAmount() > 0)
+                chance = eff->GetAmount();
+        }
+        else if (AuraEffect const* effRet = caster->GetAuraEffect(SPELL_EX_DIVINE_PURPOSE_TALENT_RET, EFFECT_0))
+        {
+            if (effRet->GetAmount() > 0)
+                chance = effRet->GetAmount();
+        }
+
+        _rolled = roll_chance(chance);
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        if (_buff)
+        {
+            // Баф израсходован этой тратой. Если по какой-то причине стоимость всё-таки
+            // снялась (нашего модификатора не было), возвращаем потраченную Силу Света.
+            if (_spent > 0)
+                caster->ModifyPower(POWER_HOLY_POWER, _spent);
+
+            uint32 const buffId = _buff->GetId();
+            caster->RemoveAurasDueToSpell(buffId);
+            _buff = nullptr;
+            return;
+        }
+
+        if (!_rolled)
+            return;
+
+        CastSpellExtraArgs args(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR);
+        args.SetTriggeringSpell(GetSpell());
+        caster->CastSpell(caster, SPELL_EX_DIVINE_PURPOSE_BUFF, args);
+
+        static bool logged = false;
+        if (!logged)
+        {
+            TC_LOG_INFO("scripts", "Paladin: Божественный замысел — прок (следующая трата Силы Света бесплатна)");
+            logged = true;
+        }
+    }
+
+    void Register() override
+    {
+        BeforeCast += SpellCastFn(spell_pal_divine_purpose_spender_ex::HandleBeforeCast);
+        AfterCast += SpellCastFn(spell_pal_divine_purpose_spender_ex::HandleAfterCast);
+    }
+
+    Aura* _buff = nullptr;
+    int32 _spent = 0;
+    bool _rolled = false;
+};
+
 // T36 Ret 4pc (1296661), бонусы спендера, выпускающего арбитра (ретейл, поверх БД):
 //   E0 = 200: Божественная буря, выпускающая арбитра, наносит +200% урона —
 //             это и есть «Божественная сила: Буря» (1306159: +200% урона Бури от заклинателя).
@@ -2275,6 +2618,9 @@ void AddSC_paladin_spell_scripts_ex()
     new spell_pal_unworthy_tracker();
     new spell_pal_saved_by_the_light_tracker();
     RegisterSpellScript(spell_pal_t36_ret_divine_purpose_ex);
+    // PAL_DP_FREE_20260928: свой Божественный замысел (бесплатная трата + прок)
+    RegisterSpellScript(spell_pal_divine_purpose_buff_ex);
+    RegisterSpellScript(spell_pal_divine_purpose_spender_ex);
     RegisterSpellScript(spell_pal_t36_divine_arbiter_bonus_ex);
     RegisterSpellScript(spell_pal_t36_divine_power_storm_ex);
     RegisterSpellScript(spell_pal_t35_ret_expurgation_ex);

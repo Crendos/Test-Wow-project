@@ -22,8 +22,9 @@ Chk ($a -match 'HandleNoImmediateEffect,\s*//529') 'Шаг 0: 529 заменён
 $pal = Get-Content -Raw "$core\src\server\scripts\Spells\spell_paladin.cpp"
 $n = ([regex]::Matches($pal, [regex]::Escape('// === CUT HERE'))).Count
 Chk ($n -eq 11) "Шаг 1.1: партий 11" "Шаг 1.1: партий $n (нужно 11)"
-Chk ($pal -match 'PAL_REV9_20260928') 'Шаг 1.1: ревизия 28.09 (v9) на месте' 'Шаг 1.1: старые партии (нет PAL_REV9_20260928) — скачайте свежую папку paladin и перезапустите step1_scripts.bat'
+Chk ($pal -match 'PAL_REV10_20260928') 'Шаг 1.1: ревизия 28.09 (v10) на месте' 'Шаг 1.1: старые партии (нет PAL_REV10_20260928) — скачайте свежую папку paladin и перезапустите step1_scripts.bat'
 Chk (($pal -match 'PAL_TITANS_FIX_20260928') -and ($pal -match 'PAL_RESONANCE_15S_20260928') -and ($pal -match 'PAL_CRUSADER_RESET_20260928')) 'Шаг 1.1: v9 — Свет титанов, Резонанс 15с/3 тика, Крестоносец и КД' 'Шаг 1.1: нет правок v9 (Свет титанов / Резонанс / Крестоносец) — перезапустите step1_scripts.bat'
+Chk (($pal -match 'PAL_DP_FREE_20260928') -and ($pal -match 'PAL_AVENGING_CRUSADER_20260928') -and ($pal -match 'PAL_TYRS_FIX_20260928')) 'Шаг 1.1: v10 — Замысел (бесплатная трата), Рыцарь мститель, Избавление Тира' 'Шаг 1.1: нет правок v10 (Замысел / Рыцарь мститель / Избавление Тира) — перезапустите step1_scripts.bat'
 Chk (($pal -match 'struct ExCritTargetAccess') -and ($pal -match [regex]::Escape('ExIsHitCrit(this)'))) 'Шаг 1.1: крит считается без ASSERT (ExIsHitCrit)' 'Шаг 1.1: нет ExIsHitCrit — перезапустите step1_scripts.bat'
 $spellCpp = Get-Content -Raw "$core\src\server\game\Spells\Spell.cpp"
 Chk ($spellCpp -match 'PAL_CORE_CRITFIX_20260928') 'Шаг 0b: правка ядра Spell.cpp (крит на «летящих» спеллах) на месте' 'Шаг 0b: ЯДРО БЕЗ ПРАВКИ Spell.cpp — запустите paladin\windows\step0b_core_critfix.bat и пересоберите (иначе падение на Правосудии/Молоте гнева)'
