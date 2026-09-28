@@ -33,7 +33,7 @@
 // ============================================================================
 
 // === CUT HERE ===============================================================
-// PAL_REV7_20260928 (включает PAL_REV6, PAL_REV5, PAL_REV4, PAL_REV3, PAL_REV2)
+// PAL_REV8_20260928 (включает PAL_REV7, PAL_REV6, PAL_REV5, PAL_REV4, PAL_REV3, PAL_REV2)
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -396,7 +396,7 @@ class spell_pal_empyrean_hammer_crit_ex : public SpellScript
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
-        if (!caster || !target || !IsHitCrit())
+        if (!caster || !target || !ExIsHitCrit(this))
             return;
 
         // Гнев нисхождения: 50% (E1) урона крита — соседям.
@@ -583,7 +583,7 @@ class spell_pal_hammer_and_anvil_ex : public SpellScript
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
-        if (!caster || !target || !IsHitCrit() || !caster->HasAura(SPELL_EX11_HAMMER_AND_ANVIL))
+        if (!caster || !target || !ExIsHitCrit(this) || !caster->HasAura(SPELL_EX11_HAMMER_AND_ANVIL))
             return;
         CastSpellExtraArgs args(EX11_TRIGGER);
         args.SetTriggeringSpell(GetSpell());

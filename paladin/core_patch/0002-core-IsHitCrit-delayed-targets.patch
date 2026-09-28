@@ -1,0 +1,59 @@
+diff --git a/src/server/game/Spells/Spell.cpp b/src/server/game/Spells/Spell.cpp
+index 03cde96..2c8f88c 100644
+--- a/src/server/game/Spells/Spell.cpp
++++ b/src/server/game/Spells/Spell.cpp
+@@ -4128,22 +4128,44 @@ uint64 Spell::handle_delayed(uint64 t_offset)
+ 
+     // now recheck units targeting correctness (need before any effects apply to prevent adding immunity at first effect not allow apply second spell effect and similar cases)
+     {
+-        std::vector<TargetInfo> delayedTargets;
+-        m_UniqueTargetInfo.erase(std::remove_if(m_UniqueTargetInfo.begin(), m_UniqueTargetInfo.end(), [&](TargetInfo& target) -> bool
++        // PAL_CORE_CRITFIX_20260928:
++        // Targets that the missile already reached are processed directly in m_UniqueTargetInfo and
++        // removed from the list only AFTER processing. Previously they were moved into a local vector
++        // BEFORE processing, so SpellScript::IsHitCrit() could not find the current target in
++        // m_UniqueTargetInfo and hit ASSERT (itr != m_UniqueTargetInfo.end()) - worldserver crashed
++        // on any spell with travel time (Judgment, Hammer of Wrath, Empyrean Hammer, ...).
++        // Processing order and next_time logic are unchanged.
++        std::vector<size_t> readyTargets;
++        readyTargets.reserve(m_UniqueTargetInfo.size());
++        for (TargetInfo const& target : m_UniqueTargetInfo)
+         {
+             if (ignoreTargetInfoTimeDelay || target.TimeDelay <= t_offset)
+-            {
+-                target.TimeDelay = t_offset;
+-                delayedTargets.emplace_back(std::move(target));
+-                return true;
+-            }
++                readyTargets.push_back(size_t(&target - m_UniqueTargetInfo.data()));
+             else if (!single_missile && (next_time == 0 || target.TimeDelay < next_time))
+                 next_time = target.TimeDelay;
++        }
+ 
+-            return false;
+-        }), m_UniqueTargetInfo.end());
++        for (size_t index : readyTargets)
++        {
++            TargetInfo& target = m_UniqueTargetInfo[index];
++            target.TimeDelay = t_offset;
++            target.PreprocessTarget(this);
++        }
++
++        for (SpellEffectInfo const& spellEffectInfo : m_spellInfo->GetEffects())
++            for (size_t index : readyTargets)
++            {
++                TargetInfo& target = m_UniqueTargetInfo[index];
++                if (target.EffectMask & (1 << spellEffectInfo.EffectIndex))
++                    target.DoTargetSpellHit(this, spellEffectInfo);
++            }
++
++        for (size_t index : readyTargets)
++            m_UniqueTargetInfo[index].DoDamageAndTriggers(this);
+ 
+-        DoProcessTargetContainer(delayedTargets);
++        // remove already processed targets (previously it was done before processing)
++        for (auto itr = readyTargets.rbegin(); itr != readyTargets.rend(); ++itr)
++            m_UniqueTargetInfo.erase(m_UniqueTargetInfo.begin() + std::ptrdiff_t(*itr));
+     }
+ 
+     // now recheck gameobject targeting correctness

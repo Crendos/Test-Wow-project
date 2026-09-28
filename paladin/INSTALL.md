@@ -122,13 +122,18 @@ findstr /n "spellBlockChance" src\server\game\Entities\Unit\Unit.cpp
 > **Если вы уже ставили старую версию партий** (получали ошибки C2440 при сборке) —
 > просто запустите `step1_scripts.bat` ещё раз: он сам увидит старый код, откатит
 > `spell_paladin.cpp` через git и вставит новую MSVC-совместимую версию. В конце
-> должно быть: `маркеров стало: 11` и `MakeSpellArgs в файле: 20` (ревизия `PAL_REV7_20260928`; версии v5/v6 — старые, step1 заменит их сам).
+> должно быть: `маркеров стало: 11` и `MakeSpellArgs в файле: 20` (ревизия `PAL_REV8_20260928`; версии v5–v7 — старые, step1 заменит их сам).
 >
 > **v6 (28.09.2026):** правка в части 11 (`Прилив Света`): вложенный список
 > `SpellValueOverrides = { { … } }` внутри designated-инициализатора заменён на пошаговую
 > сборку аргументов, как в остальном паке. Логика та же.
 >
-> **v7 (28.09.2026) — лечит `error C2248: Spell::AddUnitTarget` (это ваша текущая ошибка):**
+> **v8 (28.09.2026) — лечит ПАДЕНИЕ сервера на крите «летящих» спеллов** (Правосудие, Молот
+> гнева, Эмпирейский молот): `ASSERTION FAILED ... SpellScript::IsHitCrit`. Нужны ДВА шага:
+> правка ядра `windows\step0b_core_critfix.bat` (Spell.cpp) и `step1_scripts.bat` (пакет v8),
+> затем пересборка. Подробно — раздел 13 в конце файла.
+>
+> **v7 (28.09.2026) — лечит `error C2248: Spell::AddUnitTarget`:**
 > в части 11 брался адрес protected-метода `Spell` через наследника
 > (`&Ex13SpellTargetAccess::AddUnitTarget`). GCC такое принимает, MSVC — нет. Теперь
 > `AddUnitTarget` вызывается из обычного метода наследника. Игровая логика та же.
@@ -286,7 +291,7 @@ SELECT CONCAT('5) Шаблон AT 6006: ', COUNT(*), ' (ждём 1; 0 = КРАШ
 ```cmd
 findstr /C:"MakeSpellArgs" "C:\TrinityCore\src\server\scripts\Spells\spell_paladin.cpp" | find /c /v ""
 ```
-Должно напечатать **20** (ревизия PAL_REV7). Если напечатало **0** — код не вставлен:
+Должно напечатать **20** (ревизия PAL_REV8). Если напечатало **0** — код не вставлен:
 запустите `step1_scripts.bat` (сам вставит или заменит старую версию) и проверьте снова.
 Напечатает **>0, но не 20** — пришлите мне вывод `findstr /C:"MakeSpellArgs" ...` без `| find`.
 
@@ -679,3 +684,72 @@ static_cast<Ex13SpellTargetAccess*>(spell)->AddExtraTarget(enemy, mask);
 - Правки v6 (вложенный designated-инициализатор `SpellValueOverrides = { { … } }` в «Приливе
   Света») и v7 (protected `AddUnitTarget`) игровую логику не меняют вообще — можно ставить
   поверх любой из версий v5/v6.
+
+## 13. Ревизия 28.09.2026 v8 (`PAL_REV8_20260928`) — падение сервера на крите «летящих» спеллов
+
+**Симптом** (лог `logs_analysis/a96d89772a96+_worldserver.exe_[2026_9_28_21_38_7].txt`):
+
+```
+Exception code: C0000420
+Assertion message:
+  SpellScript.cpp:657 in SpellScript::IsHitCrit ASSERTION FAILED:
+    itr != m_spell->m_UniqueTargetInfo.end()
+```
+
+Падало, когда бьёшь манекен в Ретри-Храмовнике (Правосудие / Молот гнева / Эмпирейский молот).
+
+**Причина — в ядре TrinityCore** (есть и в самом свежем master, upstream-фикса нет):
+у «летящих» спеллов (у которых молоток летит до цели, есть travel time) попадание обрабатывается
+в `Spell::handle_delayed()`, и там цели **перемещаются из `m_UniqueTargetInfo` в локальный вектор
+ДО обработки**. Наши скрипты в момент попадания спрашивают «был ли крит»
+(`SpellScript::IsHitCrit()`), ядро ищет цель в `m_UniqueTargetInfo`, не находит и вызывает
+`ASSERT` → падение. В стоковых скриптах ядра таких вызовов на летящих спеллах нет, поэтому баг
+не проявлялся. К ошибке сборки C2248 (v7) это отношения не имеет — код был тот же с v5.
+
+**Что сделано в v8:**
+
+1. **Правка ядра** (`core_patch/0002-core-IsHitCrit-delayed-targets.patch`, маркер
+   `PAL_CORE_CRITFIX_20260928`): в `Spell::handle_delayed()` «долетевшие» цели теперь
+   обрабатываются прямо в `m_UniqueTargetInfo` и удаляются из списка только ПОСЛЕ обработки.
+   Порядок обработки, крит-статус и `next_time` не меняются — цель просто остаётся видимой скриптам.
+   Ставится скриптом **`windows\step0b_core_critfix.bat`** (перед правкой делает резервную копию
+   `Spell.cpp.bak_critfix`).
+2. **Пак v8:** все 6 вызовов `IsHitCrit()` заменены на свой `ExIsHitCrit(this)` (часть 1, рядом с
+   `MakeSpellArgs`): делает ровно то же самое, но вместо `ASSERT` возвращает `false` и пишет строку
+   в лог `scripts` (уровень debug). Без правки ядра пак не падает (крит на летящих спеллах просто
+   не считается), с правкой — считается верно.
+
+**Порядок установки (3 минуты):**
+
+1. `paladin\windows\step0b_core_critfix.bat` (двойной клик) → ждём `>>> Spell.cpp пропатчен`.
+2. `paladin\windows\step1_scripts.bat` → вставит пак v8. Ожидаемый хвост:
+   `[3f]  крит без ASSERT (ExIsHitCrit): 6 вызовов (ожидается 6), struct ExCritTargetAccess: True` и
+   `>>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)`.
+3. Пересобрать: `cmake --build build --config Release -j 8` (пересоберутся `Spell.cpp` и
+   `spell_paladin.cpp` — полная пересборка не нужна).
+4. `paladin\windows\check_all.bat` → все строки `[OK]`, включая новые
+   «Шаг 1.1: крит считается без ASSERT (ExIsHitCrit)» и
+   «Шаг 0b: правка ядра Spell.cpp (крит на «летящих» спеллах) на месте».
+
+SQL выполнять не нужно — база не менялась.
+
+**Вручную (если bat не сработал).** Откройте `<ядро>\src\server\game\Spells\Spell.cpp`,
+найдите функцию `void Spell::handle_delayed(uint64 t_offset)` и её блок
+
+```cpp
+        std::vector<TargetInfo> delayedTargets;
+        m_UniqueTargetInfo.erase(std::remove_if(m_UniqueTargetInfo.begin(), m_UniqueTargetInfo.end(), ...));
+        DoProcessTargetContainer(delayedTargets);
+```
+
+замените на код из `paladin\core_patch\0002-core-IsHitCrit-delayed-targets.patch`
+(новый блок помечен комментарием `PAL_CORE_CRITFIX_20260928`). Или, если рядом есть git:
+`git apply "C:\paladin-fixes\paladin\core_patch\0002-core-IsHitCrit-delayed-targets.patch"`
+(из корня ядра). Правка обязательна только до пересборки ядра — база данных не затрагивается.
+
+**Если обновите ядро** (`git pull`, заново скачали) — правка ядра пропадёт: снова запустите
+`step0b_core_critfix.bat` и пересоберите. `check_all.bat` это покажет строкой
+«Шаг 0b: ЯДРО БЕЗ ПРАВКИ Spell.cpp».
+
+Примечание: стоковые скрипты ядра (`spell_paladin.cpp`: визуалы Шока небес) тоже вызывают
+`IsHitCrit()`, но Шок небес — мгновенный спелл, для него проблема не возникает.

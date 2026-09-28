@@ -26,6 +26,53 @@
 #include <unordered_map>
 #include <unordered_set>
 
+// ---------------------------------------------------------------------------
+// Крит текущего удара БЕЗ падения сервера.
+// SpellScript::IsHitCrit() ищет цель в Spell::m_UniqueTargetInfo и падает с ASSERT
+// (itr != m_UniqueTargetInfo.end()), если цели там нет. Так бывает у «летящих» спеллов
+// (Правосудие, Молот гнева, Эмпирейский молот, ...): Spell::handle_delayed() вынимает
+// их цели из m_UniqueTargetInfo ДО обработки. Здесь тот же поиск, но вместо ASSERT —
+// false и запись в лог scripts (debug). Полное лечение — правка ядра:
+// paladin\windows\step0b_core_critfix.bat (маркер PAL_CORE_CRITFIX_20260928);
+// после неё цель всегда находится в списке и крит считается верно.
+// Spell::m_UniqueTargetInfo и Spell::TargetInfo — protected: читаем из метода наследника
+// (неявный this->, как в Ex13SpellTargetAccess из части 11).
+struct ExCritTargetAccess : Spell
+{
+    static bool FindCrit(Spell const* spell, Unit const* target, bool& found)
+    {
+        found = false;
+        if (!spell || !target)
+            return false;
+
+        ExCritTargetAccess const* self = static_cast<ExCritTargetAccess const*>(spell);
+        for (auto const& info : self->m_UniqueTargetInfo)
+            if (info.TargetGUID == target->GetGUID())
+            {
+                found = true;
+                return info.IsCrit;
+            }
+
+        return false;
+    }
+};
+
+// Замена this->IsHitCrit() во всех скриптах пака.
+bool ExIsHitCrit(SpellScript* script)
+{
+    if (!script)
+        return false;
+
+    Unit* target = script->GetHitUnit();
+    bool found = false;
+    bool const crit = ExCritTargetAccess::FindCrit(script->GetSpell(), target, found);
+    if (!found && target)
+        TC_LOG_DEBUG("scripts", "Paladin fixes: IsHitCrit: цель не найдена в Spell::m_UniqueTargetInfo "
+            "(ядро без правки PAL_CORE_CRITFIX_20260928) — спелл {}", script->GetSpellInfo() ? script->GetSpellInfo()->Id : 0);
+
+    return found && crit;
+}
+
 // MSVC не переваривает вложенные braced-списки в designated-инициализаторе
 // CastSpellExtraArgsInit ( SpellValueOverrides = { {mod,val} } ) — собираем через хелпер.
 // Две перегрузки: SpellValueModFloat (BASE_POINT0.., double) и SpellValueMod (DURATION и пр., int32).
@@ -991,7 +1038,7 @@ class spell_pal_empyrean_legacy_judgment_ex : public SpellScript
     void HandleAfterHit()
     {
         Unit* caster = GetCaster();
-        if (!caster || !caster->HasAura(SPELL_EX_EMPYREAN_LEGACY_JUDGMENT) || !IsHitCrit())
+        if (!caster || !caster->HasAura(SPELL_EX_EMPYREAN_LEGACY_JUDGMENT) || !ExIsHitCrit(this))
             return;
 
         int32 stored = 30;
@@ -2014,7 +2061,7 @@ class spell_pal_t36_prot_4pc_ex : public SpellScript
             return;
 
         float pct = float(tier->GetAmount());
-        if (IsHitCrit())
+        if (ExIsHitCrit(this))
         {
             float critBonus = 100.f;
             if (AuraEffect const* crit = caster->GetAuraEffect(SPELL_EX_T36_PROT_4PC, EFFECT_1))

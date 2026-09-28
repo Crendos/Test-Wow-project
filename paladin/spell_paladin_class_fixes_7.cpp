@@ -557,7 +557,7 @@ class spell_pal_sun_sear_ex : public SpellScript
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
         SpellInfo const* info = GetSpellInfo();
-        if (!caster || !target || !info || !IsHitCrit() || !caster->HasSpell(SPELL_EX7_SUN_SEAR_TALENT))
+        if (!caster || !target || !info || !ExIsHitCrit(this) || !caster->HasSpell(SPELL_EX7_SUN_SEAR_TALENT))
             return;
         if (GetSpell()->IsTriggered())
             return;
