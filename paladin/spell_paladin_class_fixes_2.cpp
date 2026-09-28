@@ -30,7 +30,8 @@ enum PaladinEx2Spells
     SPELL_EX2_GOLDEN_PATH_HEAL          = 339119, // лечилка (для Отрады, bp override)
     SPELL_EX2_SEAL_OF_REPRISAL_DEBUFF   = 1302139,
     SPELL_EX2_EYE_FOR_AN_EYE_DAMAGE     = 469311,
-    SPELL_EX2_LIGHTFORGED_HEAL          = 403460,
+    SPELL_EX2_LIGHTFORGED_HEAL          = 403460, // союзники, кастер исключён
+    SPELL_EX2_LIGHTFORGED_SELF_HEAL     = 407467, // хил кастера, 125% силы атаки
 
     // таланты
     SPELL_EX2_TEMPEST_OF_THE_LIGHTBRINGER = 383396,
@@ -401,31 +402,67 @@ class spell_pal_eye_for_an_eye_ex : public AuraScript
     }
 };
 
-// 403479/406468 - Благословение Света: Буря света лечит вас и союзников рядом (403460).
+// Дар озаренных. 403479: Божественная буря. 406468: Правосудие или Щит праведника.
+// 407467 лечит кастера, 403460 — до 2 союзников в 12 ярдах и кастера исключает.
 class spell_pal_lightforged_blessing_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX2_LIGHTFORGED_BLESSING_RET, SPELL_EX2_LIGHTFORGED_BLESSING_PROT, SPELL_EX2_LIGHTFORGED_HEAL });
+        return ValidateSpellInfo({ SPELL_EX2_LIGHTFORGED_BLESSING_RET, SPELL_EX2_LIGHTFORGED_BLESSING_PROT, SPELL_EX2_LIGHTFORGED_HEAL, SPELL_EX2_LIGHTFORGED_SELF_HEAL });
     }
 
     void HandleAfterCast()
     {
         Unit* caster = GetCaster();
-        if (!caster)
-            return;
-        if (!caster->HasAura(SPELL_EX2_LIGHTFORGED_BLESSING_RET) && !caster->HasAura(SPELL_EX2_LIGHTFORGED_BLESSING_PROT))
+        if (!caster || GetSpell()->IsTriggered())
             return;
 
-        caster->CastSpell(caster, SPELL_EX2_LIGHTFORGED_HEAL, CastSpellExtraArgsInit{
+        uint32 const spellId = GetSpellInfo()->Id;
+        bool const divineStorm = spellId == SPELL_EX2_DIVINE_STORM;
+        bool const judgmentOrShield = spellId == SPELL_EX2_JUDGMENT_RET || spellId == SPELL_EX2_JUDGMENT_PROT
+            || spellId == SPELL_EX2_JUDGMENT_HOLY || spellId == SPELL_EX2_SHIELD_OF_THE_RIGHTEOUS;
+        if (divineStorm && !caster->HasAura(SPELL_EX2_LIGHTFORGED_BLESSING_RET))
+            return;
+        if (judgmentOrShield && !caster->HasAura(SPELL_EX2_LIGHTFORGED_BLESSING_PROT))
+            return;
+        if (!divineStorm && !judgmentOrShield)
+            return;
+
+        CastSpellExtraArgsInit args{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
             .TriggeringSpell = GetSpell()
-        });
+        };
+        caster->CastSpell(caster, SPELL_EX2_LIGHTFORGED_SELF_HEAL, args);
+        caster->CastSpell(caster, SPELL_EX2_LIGHTFORGED_HEAL, args);
     }
 
     void Register() override
     {
         AfterCast += SpellCastFn(spell_pal_lightforged_blessing_ex::HandleAfterCast);
+    }
+};
+
+class spell_pal_lightforged_blessing_cap_ex : public SpellScript
+{
+    void SelectTargets(std::list<WorldObject*>& targets)
+    {
+        uint32 cap = 2;
+        if (Unit* caster = GetCaster())
+        {
+            AuraEffect const* allies = caster->GetAuraEffect(SPELL_EX2_LIGHTFORGED_BLESSING_PROT, EFFECT_1);
+            if (!allies)
+                allies = caster->GetAuraEffect(SPELL_EX2_LIGHTFORGED_BLESSING_RET, EFFECT_1);
+            if (allies && allies->GetAmount() > 0.0)
+                cap = uint32(allies->GetAmount());
+        }
+
+        if (cap && targets.size() > cap)
+            Trinity::Containers::RandomResize(targets, cap);
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_lightforged_blessing_cap_ex::SelectTargets, EFFECT_0, TARGET_UNIT_SRC_AREA_ALLY);
     }
 };
 
@@ -443,4 +480,5 @@ void AddSC_paladin_spell_scripts_ex2()
     RegisterSpellScript(spell_pal_seal_of_reprisal_bh_ex);
     RegisterSpellScript(spell_pal_eye_for_an_eye_ex);
     RegisterSpellScript(spell_pal_lightforged_blessing_ex);
+    RegisterSpellScript(spell_pal_lightforged_blessing_cap_ex);
 }

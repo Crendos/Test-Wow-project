@@ -31,8 +31,25 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (53385,  'spell_pal_light_within_damage_ex'),
 -- Свет внутри (Клинок, 1261159): усиленный Клинок пускает волну 1261160
 (184575, 'spell_pal_light_within_blade_ex'),
--- Неземное наследие (387170): крит Правосудия по цели <35% -> 387178
+-- Неземное наследие: старый бинд оставлен (скрипт глушит прок <35%). Выдача — с Гнева карателя.
 (387170, 'spell_pal_empyrean_legacy_ex'),
+(31884,  'spell_pal_empyrean_legacy_aw_ex'),
+(454351, 'spell_pal_empyrean_legacy_aw_ex'),
+(20271,  'spell_pal_empyrean_legacy_judgment_ex'),
+(275779, 'spell_pal_empyrean_legacy_judgment_ex'),
+(275773, 'spell_pal_empyrean_legacy_judgment_ex'),
+(85673,  'spell_pal_empyrean_legacy_spend_ex'),
+(156322, 'spell_pal_empyrean_legacy_spend_ex'),
+(85256,  'spell_pal_empyrean_legacy_spend_ex'),
+(383328, 'spell_pal_empyrean_legacy_spend_ex'),
+(427453, 'spell_pal_empyrean_legacy_spend_ex'),
+(53385,  'spell_pal_empyrean_legacy_mod_ex'),
+(85222,  'spell_pal_empyrean_legacy_mod_ex'),
+-- Выйти на свет (1263782): Воздаяние, Гнев карателя -> Ан'ше + энергия Света; Молот гнева -> Клинок
+(31884,  'spell_pal_walk_into_light_aw_ex'),
+(454351, 'spell_pal_walk_into_light_aw_ex'),
+(24275,  'spell_pal_walk_into_light_how_ex'),
+(1241413,'spell_pal_walk_into_light_how_ex'),
 -- Крестовый поход (1253598): стак скорости атаки за трату Сила Света
 (1253598, 'spell_pal_crusade_ex'),
 -- Удар храмовника: Темплар Слэш всегда критует
@@ -81,7 +98,9 @@ VALUES (267316,0x00,0,0,0,0,0,0x10,0x0,0x1,0x2,0x3,0x0,0x0,0,0,0,0);
 VALUES (406157,0x00,0,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,0,0,0);
 -- ...и траты Сила Света при активном 1253174 (возврат стоимости)
 VALUES (1253174,0x00,0,0,0,0,0,0x55410,0x0,0x3,0x2,0x403,0x0,0x0,0,0,0,0);
--- Неземное наследие: крит Правосудия (доп. гейт в скрипте: цель <35% HP)
-VALUES (387170,0x00,0,0,0,0,0,0x55410,0x0,0x1,0x2,0x3,0x0,0x0,0,0,0,0);
 -- Крестовый поход: траты Сила Света во время 231895
 VALUES (1253598,0x00,0,0,0,0,0,0x55410,0x0,0x3,0x2,0x403,0x0,0x0,0,0,0,0);
+
+-- 387170 больше не прокает сам: старая строка вешала 387178 на трату Силы Света.
+-- Без удаления повторный прогон части 1 оставлял бы неверный прок в уже залитой базе.
+DELETE FROM `spell_proc` WHERE `SpellId` = 387170;

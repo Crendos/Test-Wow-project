@@ -24,8 +24,13 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (81297,  'spell_pal_consecration_prot_ex'),
 -- Печать возмездия (Благословенный молот)
 (204301, 'spell_pal_seal_of_reprisal_bh_ex'),
--- Благословение Света
+-- Дар озаренных: 403479 — Буря света; 406468 — Правосудие / Щит праведника. Кап союзников — 403460.
 (53385,  'spell_pal_lightforged_blessing_ex'),
+(20271,  'spell_pal_lightforged_blessing_ex'),
+(275779, 'spell_pal_lightforged_blessing_ex'),
+(275773, 'spell_pal_lightforged_blessing_ex'),
+(53600,  'spell_pal_lightforged_blessing_ex'),
+(403460, 'spell_pal_lightforged_blessing_cap_ex'),
 -- Око за око (скрипт fix_2: отражение469311 по атакующим во время щитов;
 -- AУДИТ26.09: биндинг отсутствовал — талант не работал, proc-строка уже была)
 (469309, 'spell_pal_eye_for_an_eye_ex');

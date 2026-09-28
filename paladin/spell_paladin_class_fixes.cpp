@@ -79,8 +79,18 @@ enum PaladinExSpells
     SPELL_EX_LIGHT_WITHIN_DAMAGE              = 1261111,
     SPELL_EX_LIGHT_WITHIN_BLADE               = 1261159,
     SPELL_EX_LIGHT_WITHIN_WAVE                = 1261160,
-    SPELL_EX_EMPIREAN_LEGACY                  = 387170,
+    SPELL_EX_EMPIREAN_LEGACY                  = 387170, // Гнев карателя -> бафф, +25%
+    SPELL_EX_EMPYREAN_LEGACY_JUDGMENT         = 1241358, // крит Правосудия -> Торжество, 30%
     SPELL_EX_EMPIREAN_LEGACY_READY            = 387178,
+    SPELL_EX_LIGHT_OF_DAWN                    = 85222,
+    SPELL_EX_ETERNAL_FLAME                    = 156322,
+    SPELL_EX_HAMMER_OF_LIGHT                  = 427453,
+    SPELL_EX_SPEC_RET                         = 137027,
+    SPELL_EX_SPEC_PROT                        = 137028,
+    SPELL_EX_SPEC_HOLY                        = 137029,
+    SPELL_EX_WALK_INTO_LIGHT                  = 1263782,
+    SPELL_EX_WALK_INTO_LIGHT_HP               = 1263963,
+    SPELL_EX_BLESSING_OF_ANSHE_RET            = 445206,
     SPELL_EX_CRUSADE_TALENT                   = 1253598,
     SPELL_EX_RADIANT_GLORY                    = 458359,
     SPELL_EX_HOLY_FLAMES                      = 406545
@@ -106,6 +116,35 @@ namespace
         if (!spell)
             return std::nullopt;
         return spell->GetPowerTypeCostAmount(POWER_HOLY_POWER);
+    }
+
+    // Множитель передаётся в каст Бури/Света зари. 1.25 = +25%, 0.30 = 30% эффективности.
+    struct EmpyreanLegacyMod
+    {
+        float Multiplier = 1.f;
+    };
+
+    void ApplyEmpyreanLegacyMod(Spell const* spell, float& pctMod)
+    {
+        EmpyreanLegacyMod const* mod = std::any_cast<EmpyreanLegacyMod>(&spell->m_customArg);
+        if (!mod || mod->Multiplier <= 0.f)
+            return;
+
+        pctMod *= mod->Multiplier;
+    }
+
+    // 125 = +25% (талант 387170). 30 = 30% эффективности (талант 1241358). Порог 100 их различает.
+    void GrantEmpyreanLegacy(Unit* caster, Spell const* triggering, int32 storedPct)
+    {
+        caster->CastSpell(caster, SPELL_EX_EMPIREAN_LEGACY_READY, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = triggering
+        });
+        if (AuraEffect* ready = caster->GetAuraEffect(SPELL_EX_EMPIREAN_LEGACY_READY, EFFECT_0))
+        {
+            ready->SetCanBeRecalculated(false);
+            ready->ChangeAmount(storedPct);
+        }
     }
 }
 
@@ -439,39 +478,230 @@ class spell_pal_light_within_blade_ex : public SpellScript
     }
 };
 
-// 387170 - Неземное наследие: крит Правосудия по цели ниже 35% здоровья
-// даёт 2 заряда бесплатной Бури света (387178, +25%).
+// 387170 - старый бинд. Крит Правосудия по цели <35% — механика Dragonflight, в 12.1 её нет.
+// Прок глушим: выдачу баффа делает spell_pal_empyrean_legacy_aw_ex, трату — spend_ex.
+// Строку spell_proc на 387170 SQL удаляет, иначе ядро само повесит 387178 не на то событие.
 class spell_pal_empyrean_legacy_ex : public AuraScript
 {
-    bool Validate(SpellInfo const* /*spellInfo*/) override
+    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/) const
     {
-        return ValidateSpellInfo({ SPELL_EX_EMPIREAN_LEGACY_READY });
-    }
-
-    bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo) const
-    {
-        SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
-        if (!spellInfo || !IsPaladinJudgment(spellInfo->Id))
-            return false;
-        if (!(eventInfo.GetHitMask() & PROC_HIT_CRITICAL))
-            return false;
-
-        Unit* target = eventInfo.GetActionTarget();
-        return target && target->HealthBelowPct(35);
-    }
-
-    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
-    {
-        GetTarget()->CastSpell(GetTarget(), SPELL_EX_EMPIREAN_LEGACY_READY, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = eventInfo.GetProcSpell()
-        });
+        return false;
     }
 
     void Register() override
     {
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_empyrean_legacy_ex::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
-        OnEffectProc += AuraEffectProcFn(spell_pal_empyrean_legacy_ex::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
+// 387170 - Гнев карателя (31884 / 8-сек 454351) вешает 387178.
+// Крестовый поход 231895 тултип не называет, simc тоже не вешает бафф с него.
+class spell_pal_empyrean_legacy_aw_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_EMPIREAN_LEGACY, SPELL_EX_EMPIREAN_LEGACY_READY });
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->HasAura(SPELL_EX_EMPIREAN_LEGACY))
+            return;
+
+        int32 stored = 125;
+        if (AuraEffect const* pct = caster->GetAuraEffect(SPELL_EX_EMPIREAN_LEGACY, EFFECT_1))
+            if (pct->GetAmount() > 0.0)
+                stored = 100 + int32(pct->GetAmount());
+
+        GrantEmpyreanLegacy(caster, GetSpell(), stored);
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_empyrean_legacy_aw_ex::HandleAfterCast);
+    }
+};
+
+// 1241358 - крит Правосудия усиливает следующее Торжество. Триггер в DBC пустой.
+class spell_pal_empyrean_legacy_judgment_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_EMPYREAN_LEGACY_JUDGMENT, SPELL_EX_EMPIREAN_LEGACY_READY });
+    }
+
+    void HandleAfterHit()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->HasAura(SPELL_EX_EMPYREAN_LEGACY_JUDGMENT) || !IsHitCrit())
+            return;
+
+        int32 stored = 30;
+        if (AuraEffect const* pct = caster->GetAuraEffect(SPELL_EX_EMPYREAN_LEGACY_JUDGMENT, EFFECT_1))
+            if (pct->GetAmount() > 0.0 && pct->GetAmount() < 100.0)
+                stored = int32(pct->GetAmount());
+
+        GrantEmpyreanLegacy(caster, GetSpell(), stored);
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_pal_empyrean_legacy_judgment_ex::HandleAfterHit);
+    }
+};
+
+// 387178 - следующий подходящий спендер кастует Бурю света или Свет зари и съедает бафф.
+// 387170: Свет/Защита — Торжество -> Свет зари на +25%. Воздаяние — одиночный урон СС -> Буря на +25%.
+// 1241358: Торжество -> Свет зари на 30% эффективности, не +30%.
+class spell_pal_empyrean_legacy_spend_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_EMPIREAN_LEGACY_READY, SPELL_EX_DIVINE_STORM, SPELL_EX_LIGHT_OF_DAWN });
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        Spell const* spell = GetSpell();
+        if (!caster || !spell || spell->IsTriggered() || !caster->HasAura(SPELL_EX_EMPIREAN_LEGACY_READY))
+            return;
+
+        AuraEffect const* ready = caster->GetAuraEffect(SPELL_EX_EMPIREAN_LEGACY_READY, EFFECT_0);
+        if (!ready)
+            return;
+
+        // Выдача пишет 125 (+25%) или 30 (30% эффективности). Сырые 25 из DBC сюда не доходят.
+        double const stored = ready->GetAmount();
+        bool const judgmentVersion = stored < 100.0;
+        float const multiplier = stored > 0.0 ? float(stored / 100.0) : 1.25f;
+
+        uint32 const spellId = GetSpellInfo()->Id;
+        bool const wordOfGlory = spellId == SPELL_EX_WORD_OF_GLORY || spellId == SPELL_EX_ETERNAL_FLAME;
+        bool const retSpender = spellId == SPELL_EX_TEMPLARS_VERDICT || spellId == SPELL_EX_FINAL_VERDICT || spellId == SPELL_EX_HAMMER_OF_LIGHT;
+
+        uint32 followUp = 0;
+        if (wordOfGlory && judgmentVersion)
+            followUp = SPELL_EX_LIGHT_OF_DAWN;
+        else if (!judgmentVersion && wordOfGlory && (caster->HasAura(SPELL_EX_SPEC_HOLY) || caster->HasAura(SPELL_EX_SPEC_PROT)))
+            followUp = SPELL_EX_LIGHT_OF_DAWN;
+        else if (!judgmentVersion && retSpender && caster->HasAura(SPELL_EX_SPEC_RET))
+            followUp = SPELL_EX_DIVINE_STORM;
+
+        if (!followUp || multiplier <= 0.f)
+            return;
+
+        caster->RemoveAurasDueToSpell(SPELL_EX_EMPIREAN_LEGACY_READY);
+
+        CastSpellExtraArgs args(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR);
+        args.TriggeringSpell = spell;
+        args.CustomArg = EmpyreanLegacyMod{ multiplier };
+        caster->CastSpell(caster, followUp, args);
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_empyrean_legacy_spend_ex::HandleAfterCast);
+    }
+};
+
+// Множитель только у каста, который выписал spend_ex. Обычная Буря/Свет зари не усиливаются.
+class spell_pal_empyrean_legacy_mod_ex : public SpellScript
+{
+    void CalculateDamage(SpellEffectInfo const& /*effectInfo*/, Unit const* /*victim*/, int32& /*damage*/, int32& /*flatMod*/, float& pctMod) const
+    {
+        ApplyEmpyreanLegacyMod(GetSpell(), pctMod);
+    }
+
+    void CalculateHealing(SpellEffectInfo const& /*effectInfo*/, Unit const* /*victim*/, int32& /*healing*/, int32& /*flatMod*/, float& pctMod) const
+    {
+        ApplyEmpyreanLegacyMod(GetSpell(), pctMod);
+    }
+
+    void Register() override
+    {
+        CalcDamage += SpellCalcDamageFn(spell_pal_empyrean_legacy_mod_ex::CalculateDamage);
+        CalcHealing += SpellCalcHealingFn(spell_pal_empyrean_legacy_mod_ex::CalculateHealing);
+    }
+};
+
+// 1263782 - Выйти на свет, ветка Воздаяния: Гнев карателя даёт Благословение Ан'ше и 2 ед. энергии Света.
+// Святая ветка (Прилив Света чаще) здесь не скриптуется: прок 53576 живёт в DBC, множитель шанса не выдумываем.
+class spell_pal_walk_into_light_aw_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_WALK_INTO_LIGHT, SPELL_EX_BLESSING_OF_ANSHE_RET });
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->HasAura(SPELL_EX_WALK_INTO_LIGHT) || !caster->HasAura(SPELL_EX_SPEC_RET))
+            return;
+
+        if (AuraEffect const* chance = caster->GetAuraEffect(SPELL_EX_WALK_INTO_LIGHT, EFFECT_0))
+        {
+            if (!roll_chance(chance->GetAmount()))
+                return;
+        }
+
+        caster->CastSpell(caster, SPELL_EX_BLESSING_OF_ANSHE_RET, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
+
+        int32 holyPower = 2;
+        if (AuraEffect const* hp = caster->GetAuraEffect(SPELL_EX_WALK_INTO_LIGHT, EFFECT_1))
+            holyPower = hp->GetAmount();
+        if (holyPower <= 0)
+            return;
+
+        if (sSpellMgr->GetSpellInfo(SPELL_EX_WALK_INTO_LIGHT_HP, DIFFICULTY_NONE))
+        {
+            for (int32 i = 0; i < holyPower; ++i)
+                caster->CastSpell(caster, SPELL_EX_WALK_INTO_LIGHT_HP, CastSpellExtraArgsInit{
+                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                    .TriggeringSpell = GetSpell()
+                });
+        }
+        else
+            caster->ModifyPower(POWER_HOLY_POWER, holyPower);
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_walk_into_light_aw_ex::HandleAfterCast);
+    }
+};
+
+// Во время Гнева карателя Молот гнева также применяет Клинок справедливости на 100%.
+class spell_pal_walk_into_light_how_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_WALK_INTO_LIGHT, SPELL_EX_BLADE_OF_JUSTICE });
+    }
+
+    void HandleAfterHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target || !caster->HasAura(SPELL_EX_WALK_INTO_LIGHT))
+            return;
+        if (!caster->HasAura(SPELL_EX_AVENGING_WRATH) && !caster->HasAura(SPELL_EX_AVENGING_WRATH_8S))
+            return;
+
+        caster->CastSpell(target, SPELL_EX_BLADE_OF_JUSTICE, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_pal_walk_into_light_how_ex::HandleAfterHit);
     }
 };
 
@@ -598,6 +828,12 @@ void AddSC_paladin_spell_scripts_ex()
     RegisterSpellScript(spell_pal_light_within_damage_ex);
     RegisterSpellScript(spell_pal_light_within_blade_ex);
     RegisterSpellScript(spell_pal_empyrean_legacy_ex);
+    RegisterSpellScript(spell_pal_empyrean_legacy_aw_ex);
+    RegisterSpellScript(spell_pal_empyrean_legacy_judgment_ex);
+    RegisterSpellScript(spell_pal_empyrean_legacy_spend_ex);
+    RegisterSpellScript(spell_pal_empyrean_legacy_mod_ex);
+    RegisterSpellScript(spell_pal_walk_into_light_aw_ex);
+    RegisterSpellScript(spell_pal_walk_into_light_how_ex);
     RegisterSpellScript(spell_pal_crusade_ex);
     RegisterSpellScript(spell_pal_templar_slash_crit_ex);
     RegisterSpellScript(spell_pal_radiant_glory_ex);
