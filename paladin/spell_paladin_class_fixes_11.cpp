@@ -33,7 +33,7 @@
 // ============================================================================
 
 // === CUT HERE ===============================================================
-// PAL_REV5_20260928 (включает PAL_REV4, PAL_REV3, PAL_REV2)
+// PAL_REV6_20260928 (включает PAL_REV5, PAL_REV4, PAL_REV3, PAL_REV2)
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -1637,11 +1637,12 @@ class spell_pal_rush_of_light_ex : public AuraScript
         PreventDefaultAction();
         Unit* target = GetTarget();
         int32 const amount = std::max(1, int32(aurEff->GetAmount()));
-        target->CastSpell(target, SPELL_EX13_RUSH_OF_LIGHT_BUFF, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_FULL_MASK,
-            .TriggeringAura = aurEff,
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, amount } }
-        });
+        // MSVC не компилирует вложенные braced-списки в designated-инициализаторе
+        // (SpellValueOverrides = { {mod,val} }) — собираем аргументы по шагам.
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.SetTriggeringAura(aurEff);
+        args.AddSpellMod(SPELLVALUE_BASE_POINT0, amount);
+        target->CastSpell(target, SPELL_EX13_RUSH_OF_LIGHT_BUFF, args);
     }
 
     void Register() override
