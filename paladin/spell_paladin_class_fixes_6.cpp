@@ -58,6 +58,9 @@ enum PaladinEx6Spells
 
 namespace
 {
+    // Метка доп. ударов Божественного взыскания (1260429): PvP-множитель 0.75.
+    struct DivineExactionMark { };
+
     [[nodiscard]] bool KnowsSpellOrAura(Unit const* unit, uint32 spellId)
     {
         return unit && (unit->HasAura(spellId) || unit->HasSpell(spellId));
@@ -217,11 +220,16 @@ class spell_pal_divine_toll_ex : public SpellScript
                         if (!t || !t->IsAlive() || !caster->IsValidAttackTarget(t))
                             return;
                         uint32 id = baseSpell;
+                        // Молот гнева доступен: цель <20%, Гнев карателя / Крестовый поход,
+                        // 8-с АН (454351) или оверрайд «Молот гнева в АН» (1241410).
                         if (id == SPELL_EX6_JUDGMENT_RET
-                            && (t->HealthBelowPct(20) || caster->HasAura(31884) || caster->HasAura(454351)))
+                            && (t->HealthBelowPct(20) || caster->HasAura(31884) || caster->HasAura(231895)
+                                || caster->HasAura(454351) || caster->HasAura(1241410)))
                             id = 24275; // Молот гнева
-                        caster->CastSpell(t, id, CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS
-                            | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR));
+                        CastSpellExtraArgs exArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS
+                            | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR);
+                        exArgs.SetCustomArg(DivineExactionMark{});
+                        caster->CastSpell(t, id, exArgs);
                     }, Milliseconds(300 * (i + 1)));
                 }
             }
@@ -686,8 +694,26 @@ class spell_pal_divine_resonance_prism_ex : public SpellScript
     void Register() override { }
 };
 
+// 20271 / 24275 / 31935 - доп. удары Божественного взыскания: по игрокам ×0.75 (PvP).
+class spell_pal_divine_exaction_pvp_ex : public SpellScript
+{
+    void HandleCalcDamage(SpellEffectInfo const& /*spellEffectInfo*/, Unit* victim, int32& /*damage*/, int32& /*flatMod*/, float& pctMod)
+    {
+        if (!victim || !victim->IsControlledByPlayer())
+            return;
+        if (std::any_cast<DivineExactionMark>(&GetSpell()->m_customArg))
+            pctMod *= 0.75f;
+    }
+
+    void Register() override
+    {
+        CalcDamage += SpellCalcDamageFn(spell_pal_divine_exaction_pvp_ex::HandleCalcDamage);
+    }
+};
+
 void AddSC_paladin_spell_scripts_ex6()
 {
+    RegisterSpellScript(spell_pal_divine_exaction_pvp_ex);
     RegisterSpellScript(spell_pal_divine_toll_ex);
     RegisterSpellScript(spell_pal_divine_resonance_prism_ex);
     RegisterSpellScript(spell_pal_divine_resonance_ret_ex);

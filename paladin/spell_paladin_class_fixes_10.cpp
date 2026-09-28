@@ -73,6 +73,27 @@ class spell_pal_holy_armaments_ex : public SpellScript
         Unit* target = GetExplTargetUnit() && GetExplTargetUnit()->IsFriendlyTo(caster) ? GetExplTargetUnit() : caster;
         apply(target);
 
+        // Мастерская работа (1271387, E0 = 3): следующие 3 Удара воина Света (Прот: и его
+        // замены) / Шока или Удара (Свет) дают Малый доспех того же вида союзнику рядом.
+        // Счётчик — бафф 1271436 (оружие) / 1271383 (оплот); трату ведёт часть 11.
+        if (AuraEffect const* masterwork = caster->GetAuraEffect(1271387, EFFECT_0))
+        {
+            uint32 const counter = useWeapon ? 1271436u : 1271383u;
+            caster->RemoveAurasDueToSpell(useWeapon ? 1271383u : 1271436u);
+            caster->CastSpell(caster, counter, CastSpellExtraArgs(TRIGGERED_FULL_MASK).SetTriggeringSpell(GetSpell()));
+            if (Aura* aura = caster->GetAura(counter))
+                aura->SetStackAmount(uint8(std::clamp<int32>(int32(masterwork->GetAmount()), 1, 10)));
+        }
+
+        // Раскатистый удар (1271553), Свет: Святые доспехи запускают Молот и наковальню
+        // (Свет — исцеление 433722 до 5 раненых союзников) на 100%.
+        if (caster->HasAura(1271553) && caster->HasAura(433718))
+            if (Player const* player = caster->ToPlayer())
+                if (player->GetPrimarySpecialization() == ChrSpecialization::PaladinHoly)
+                    caster->CastSpell(target, 433722, CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS
+                        | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR)
+                        .SetTriggeringSpell(GetSpell()));
+
         // Солидарность: зеркалим на второго (если качали на себя — на ближайшего союзника)
         if (caster->HasSpell(SPELL_EX10_SOLIDARITY_TAL))
         {
@@ -182,6 +203,9 @@ class spell_pal_divine_guidance_spend_ex : public SpellScript
     {
         Unit* caster = GetCaster();
         if (!caster || !caster->HasAura(SPELL_EX10_DG_TALENT))
+            return;
+        // Вечное пламя от Затяжного сияния — не трата Силы Света.
+        if (std::any_cast<LingeringRadianceFlameMark>(&GetSpell()->m_customArg))
             return;
 
         caster->CastSpell(caster, SPELL_EX10_DG_BUFF, CastSpellExtraArgsInit{

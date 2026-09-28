@@ -161,12 +161,12 @@ class spell_pal_shield_of_the_righteous_ex : public SpellScript
 // 85673 - Слово света (ветки Прота):
 //  * 315921: на себя — +до 300% лечения по недостающему здоровью;
 //  * 315924: союзнику — +до 100% по недостающему здоровью цели;
-//  * 389539 Страж: каждая трата СС откладывает распад стаков (v1: +1с длит.).
+//  (389539 Страж — распад стаков и задержка от трат СС: часть 11, spell_pal_sentinel_decay_ex.)
 class spell_pal_word_of_glory_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX3_WOG_SELF, SPELL_EX3_WOG_ALLY, SPELL_EX3_SENTINEL });
+        return ValidateSpellInfo({ SPELL_EX3_WOG_SELF, SPELL_EX3_WOG_ALLY });
     }
 
     void CalculateHealing(SpellEffectInfo const& /*effectInfo*/, Unit const* victim, int32& /*healing*/, int32& /*flatMod*/, float& pctMod) const
@@ -190,24 +190,9 @@ class spell_pal_word_of_glory_ex : public SpellScript
         }
     }
 
-    void HandleAfterCast()
-    {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        // Страж: откладываем распад (упрощение: +1с длительности ауры)
-        if (Aura* sentinel = caster->GetAura(SPELL_EX3_SENTINEL))
-        {
-            sentinel->SetDuration(sentinel->GetDuration() + 1000);
-            sentinel->SetMaxDuration(sentinel->GetMaxDuration() + 1000);
-        }
-    }
-
     void Register() override
     {
         CalcHealing += SpellCalcHealingFn(spell_pal_word_of_glory_ex::CalculateHealing);
-        AfterCast += SpellCastFn(spell_pal_word_of_glory_ex::HandleAfterCast);
     }
 };
 
@@ -286,8 +271,10 @@ class spell_pal_zealots_paragon_ex : public SpellScript
     }
 };
 
-// 190784 - Священный скакун + 1245979 Доблестный крестовый поход:
-// езда даёт Щит праведника (упрощение: 132403 на 8с = поездка + 4с).
+// 190784 - Священный скакун + 1245979 Доблестный крестовый поход (wowhead 12.x):
+// только ВНЕ боя Скакун даёт Щит праведника (132403) на время поездки + E0 (4000 мс).
+// Длительность поездки берём с ауры скакуна (расовые варианты), которую только что
+// наложил стоковый spell_pal_divine_steed (OnCast — раньше нашего AfterCast).
 class spell_pal_valiant_crusade_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -295,19 +282,41 @@ class spell_pal_valiant_crusade_ex : public SpellScript
         return ValidateSpellInfo({ SPELL_EX3_VALIANT_CRUSADE, SPELL_EX3_SOTR_ARMOR });
     }
 
+    void Snapshot()
+    {
+        Unit* caster = GetCaster();
+        _outOfCombat = caster && !caster->IsInCombat();
+    }
+
     void HandleAfterCast()
     {
         Unit* caster = GetCaster();
-        if (!caster || !caster->HasAura(SPELL_EX3_VALIANT_CRUSADE))
+        if (!caster || !_outOfCombat || caster->IsInCombat())
+            return;
+        AuraEffect const* talent = caster->GetAuraEffect(SPELL_EX3_VALIANT_CRUSADE, EFFECT_0);
+        if (!talent)
             return;
 
-        caster->CastSpell(caster, SPELL_EX3_SOTR_ARMOR, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_DURATION, 8000));
+        int32 const bonusMs = (talent->GetAmount() > 0 && talent->GetAmount() <= 30000) ? int32(talent->GetAmount()) : 4000;
+        int32 rideMs = 0;
+        for (uint32 steed : { 221883u, 276111u, 221887u, 276112u, 221886u, 221885u, 294133u, 363608u, 254471u, 254472u, 254473u, 254474u })
+            if (Aura const* aura = caster->GetAura(steed, caster->GetGUID()))
+                rideMs = std::max(rideMs, aura->GetDuration());
+        if (rideMs <= 0)
+            rideMs = 4000; // Скакун 12.x — 4 с (если стоковый скрипт не наложил ауру)
+
+        caster->CastSpell(caster, SPELL_EX3_SOTR_ARMOR, CastSpellExtraArgs(TRIGGERED_FULL_MASK)
+            .SetTriggeringSpell(GetSpell())
+            .AddSpellMod(SPELLVALUE_DURATION, rideMs + bonusMs));
     }
 
     void Register() override
     {
+        BeforeCast += SpellCastFn(spell_pal_valiant_crusade_ex::Snapshot);
         AfterCast += SpellCastFn(spell_pal_valiant_crusade_ex::HandleAfterCast);
     }
+
+    bool _outOfCombat = false;
 };
 
 // 204019 - Благословенный молот.

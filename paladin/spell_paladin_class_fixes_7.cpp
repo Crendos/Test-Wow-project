@@ -51,6 +51,7 @@ enum PaladinEx7Spells
     // Вестник солнца
     SPELL_EX7_DAWNLIGHT_TALENT          = 431377,
     SPELL_EX7_DAWNLIGHT_DOT             = 431380,
+    SPELL_EX7_DAWNLIGHT_HOT             = 431381, // Свет: Рассвет на союзнике (HoT)
     SPELL_EX7_DAWNLIGHT_CHARGE          = 431522, // заряды «след. спендер вешает Рассвет»
     SPELL_EX7_WAKE                      = 255937,
     SPELL_EX7_DIVINE_TOLL               = 375576,
@@ -72,6 +73,24 @@ enum PaladinEx7Spells
     SPELL_EX7_BOS                       = 6940
 };
 
+namespace
+{
+    // Затяжное сияние (431407), Свет: Рассвет на союзнике истёк/продлён -> Вечное пламя
+    // (156322) только HoT на 6 с. Прямой хил глушит spell_pal_eternal_flame_lr_ex (часть 11)
+    // по этой метке в CustomArg.
+    struct LingeringRadianceFlameMark { };
+
+    void PalLingeringRadianceFlame(Unit* paladin, Unit* ally)
+    {
+        if (!paladin || !ally || !ally->IsAlive())
+            return;
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.SetCustomArg(LingeringRadianceFlameMark{});
+        args.AddSpellMod(SPELLVALUE_DURATION, 6000);
+        paladin->CastSpell(ally, 156322, args);
+    }
+}
+
 // --- ХРАМОВНИК ---------------------------------------------------------------
 
 // 427453 - Молот Света (кнопка «Света наставления»): урон по цели + 2 летящих
@@ -80,6 +99,7 @@ enum PaladinEx7Spells
 class spell_pal_hammer_of_light_ex : public SpellScript
 {
     bool _undisputedEchoDone = false; // Прот: СоП+Освящение один раз на каст
+    bool _hitDone = false;
 
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
@@ -155,6 +175,11 @@ class spell_pal_hammer_of_light_ex : public SpellScript
         Unit* caster = GetCaster();
         if (!caster || !caster->HasAura(SPELL_EX7_LIGHTS_GUIDANCE))
             return;
+        // Всё эхо (429826, Неоспоримое постановление, молотки) — один раз за каст,
+        // даже если в данных у 427453 окажется несколько целей.
+        if (_hitDone)
+            return;
+        _hitDone = true;
 
         // основной урон
         caster->CastSpell(GetHitUnit(), SPELL_EX7_HOL_DAMAGE, CastSpellExtraArgsInit{
@@ -324,20 +349,34 @@ class spell_pal_dawnlight_ex : public SpellScript
         return fallback;
     }
 
+    static bool HasDawnlight(Unit const* unit, ObjectGuid casterGuid)
+    {
+        return unit->HasAura(SPELL_EX7_DAWNLIGHT_DOT, casterGuid) || unit->HasAura(SPELL_EX7_DAWNLIGHT_HOT, casterGuid);
+    }
+
     static void ExtendDot(Unit* target, ObjectGuid casterGuid, int32 ms)
     {
         if (!target || ms <= 0)
             return;
-        if (Aura* dot = target->GetAura(SPELL_EX7_DAWNLIGHT_DOT, casterGuid))
+        Aura* dot = target->GetAura(SPELL_EX7_DAWNLIGHT_DOT, casterGuid);
+        if (!dot)
+            dot = target->GetAura(SPELL_EX7_DAWNLIGHT_HOT, casterGuid);
+        if (dot)
         {
             int32 dur = dot->GetDuration() + ms;
             if (dur > dot->GetMaxDuration())
                 dot->SetMaxDuration(dur);
             dot->SetDuration(dur);
-            // Затяжное сияние (431407): «истекает ИЛИ продлевается» -> Великое правосудие.
+            // Затяжное сияние (431407): «истекает ИЛИ продлевается» -> враг: Великое правосудие,
+            // союзник: Вечное пламя (только HoT, 6 с) — PalLingeringRadianceFlame (часть 11).
             if (Unit* owner = dot->GetCaster())
-                if (owner->HasAura(431407) && owner->IsValidAttackTarget(target))
-                    owner->CastSpell(target, SPELL_EX7_JUDGMENT_DEBUFF, CastSpellExtraArgs(TRIGGERED_FULL_MASK));
+                if (owner->HasAura(431407))
+                {
+                    if (owner->IsValidAttackTarget(target))
+                        owner->CastSpell(target, SPELL_EX7_JUDGMENT_DEBUFF, CastSpellExtraArgs(TRIGGERED_FULL_MASK));
+                    else if (target->IsFriendlyTo(owner))
+                        PalLingeringRadianceFlame(owner, target);
+                }
         }
     }
 
@@ -403,7 +442,7 @@ class spell_pal_dawnlight_ex : public SpellScript
         if (!caster->HasSpell(SPELL_EX7_DAWNLIGHT_TALENT))
             return;
 
-        bool const hadDot = target->HasAura(SPELL_EX7_DAWNLIGHT_DOT, caster->GetGUID());
+        bool const hadDot = HasDawnlight(target, caster->GetGUID());
         if (hadDot && caster->HasSpell(SPELL_EX7_ENDLESS_GLEAM))
         {
             Player* player = caster->ToPlayer();
@@ -449,7 +488,7 @@ class spell_pal_dawnlight_ex : public SpellScript
         for (Unit* unit : nearby)
             if (unit != origin && unit->IsAlive()
                 && (friendly ? unit->IsFriendlyTo(caster) : caster->IsValidAttackTarget(unit))
-                && !unit->HasAura(SPELL_EX7_DAWNLIGHT_DOT, caster->GetGUID()))
+                && !HasDawnlight(unit, caster->GetGUID()))
                 return unit;
         return nullptr;
     }
@@ -489,7 +528,9 @@ class spell_pal_dawnlight_ex : public SpellScript
 
         _chargeUsed = true;
         charges->ModStackAmount(-1);
-        caster->CastSpell(dest, SPELL_EX7_DAWNLIGHT_DOT, CastSpellExtraArgsInit{
+        // Враг — DoT 431380, союзник (Свет: Слово славы / Свет зари) — HoT 431381.
+        uint32 const dawnlightId = dest->IsFriendlyTo(caster) ? SPELL_EX7_DAWNLIGHT_HOT : SPELL_EX7_DAWNLIGHT_DOT;
+        caster->CastSpell(dest, dawnlightId, CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
             .TriggeringSpell = GetSpell()
         });

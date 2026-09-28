@@ -25,6 +25,7 @@ enum PaladinEx4Spells
     SPELL_EX4_AW_8S                     = 454351,
     SPELL_EX4_CONSECRATION              = 26573,
     SPELL_EX4_DIVINE_PURPOSE_BUFF       = 223819, // бафф Пробуждения судьбы ( Holy)
+    SPELL_EX4_DIVINE_PURPOSE_RET        = 408458, // Рет-версия (талант 408459)
 
     // таланты/баффы
     SPELL_EX4_MASTERY_LIGHTBRINGER      = 183997,
@@ -585,7 +586,7 @@ class spell_pal_liberation_ex : public SpellScript
 };
 
 // 414443 - Сияющая праведность: Щит праведника бьёт первую цель (414448)
-// и с шансом 35% даёт Пробуждение судьбы (223819 — обрабатывается скриптом TC).
+// и с шансом 35% даёт Божественную цель (Рет 408458, иначе 223819).
 class spell_pal_shining_righteousness_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -605,8 +606,14 @@ class spell_pal_shining_righteousness_ex : public SpellScript
                 .TriggeringSpell = GetSpell()
             });
 
+        // Божественная цель: у Воздаяния — 408458 (Рет-версия, модифицирует Рет-спендеры),
+        // у остальных спеков — 223819.
+        uint32 purpose = SPELL_EX4_DIVINE_PURPOSE_BUFF;
+        if (Player const* player = caster->ToPlayer())
+            if (player->GetPrimarySpecialization() == ChrSpecialization::PaladinRetribution)
+                purpose = SPELL_EX4_DIVINE_PURPOSE_RET;
         if (roll_chance(35))
-            caster->CastSpell(caster, SPELL_EX4_DIVINE_PURPOSE_BUFF, CastSpellExtraArgsInit{
+            caster->CastSpell(caster, purpose, CastSpellExtraArgsInit{
                 .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
                 .TriggeringSpell = GetSpell()
             });

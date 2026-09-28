@@ -48,3 +48,54 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- Гильотина: строка spell_proc НЕ нужна — 1291728 (Dummy) получает прок из DB2
 -- (ProcFlags + ProcBasePPM ~3 с хастом) автоматически. Не добавляйте строку с PPM = 0.
 -- Родные проки 431551/1261525 гасит spell_pal_hero_proc_disabled_ex (CheckProc = false).
+
+-- ============================================================================
+-- PAL_REV2 (28.09.2026, v2): упрощения -> как на ретейле, известные ошибки,
+-- недостающие таланты. Повторный прогон безопасен.
+-- ============================================================================
+
+-- Спасённый Светом: старый AuraScript на 157047 не мог сработать (прок-аура паладина
+-- не видит урон по союзнику) — теперь UnitScript в основной части, привязки не нужно.
+DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_pal_saved_by_the_light_ex';
+DELETE FROM `spell_proc` WHERE `SpellId` = 157047;
+
+REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+-- Священный скакун: стоковый скрипт TC (выбор расовой ауры). В пустой базе его нет.
+(190784, 'spell_pal_divine_steed'),
+-- Страж: распад стаков + задержка от трат Силы Света
+(389539, 'spell_pal_sentinel_decay_ex'),
+(53600,  'spell_pal_sentinel_spend_ex'),
+(85673,  'spell_pal_sentinel_spend_ex'),
+(427453, 'spell_pal_sentinel_spend_ex'),
+-- Божественное взыскание: PvP ×0.75 доп. ударов
+(20271,  'spell_pal_divine_exaction_pvp_ex'),
+(24275,  'spell_pal_divine_exaction_pvp_ex'),
+(31935,  'spell_pal_divine_exaction_pvp_ex'),
+-- Вестник солнца: Утренняя звезда, Рассвет на союзнике, лучи Аватара солнца,
+-- Вечное пламя от Затяжного сияния (без прямого хила)
+(431482, 'spell_pal_morning_star_ex'),
+(431381, 'spell_pal_dawnlight_hot_ex'),
+(431911, 'spell_pal_suns_avatar_beam_ex'),
+(431939, 'spell_pal_suns_avatar_beam_ex'),
+(156322, 'spell_pal_eternal_flame_lr_ex'),
+-- Кузнец света: Молот и наковальня у Света (крит Правосудия 275773 -> 433722)
+(275773, 'spell_pal_hammer_and_anvil_ex'),
+-- Кузнец света: Божественное вдохновение, Мастерская работа, Общая решимость,
+-- Отражение сияния
+(432964, 'spell_pal_divine_inspiration_ex'),
+(35395,  'spell_pal_masterwork_consume_ex'),
+(53595,  'spell_pal_masterwork_consume_ex'),
+(204019, 'spell_pal_masterwork_consume_ex'),
+(20473,  'spell_pal_masterwork_consume_ex'),
+(465,    'spell_pal_shared_resolve_devotion_ex'),
+(432502, 'spell_pal_shared_resolve_armament_ex'),
+(432496, 'spell_pal_shared_resolve_armament_ex'),
+(432616, 'spell_pal_reflection_sacred_weapon_ex'),
+(441590, 'spell_pal_reflection_sacred_weapon_ex'),
+(432607, 'spell_pal_reflection_holy_bulwark_ex');
+
+-- Божественное вдохновение 432964: в DB2 у таланта нет прок-данных (Dummy, серверный
+-- скрипт). Строка даёт события «свои способности/заклинания» (урон и лечение);
+-- шанс считает скрипт (RPPM 0.55 с хастом), ВКД 1 с — как в тултипе.
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
+VALUES (432964,0x00,0,0,0,0,0,0x15510,0x0,0x3,0x2,0x0,0x0,0x0,0,100,1000,0);

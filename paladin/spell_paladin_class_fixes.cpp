@@ -21,6 +21,8 @@
 #include "GridNotifiersImpl.h"
 #include <algorithm>
 #include <limits>
+#include <mutex>
+#include "GameTime.h"
 #include <unordered_map>
 #include <unordered_set>
 
@@ -145,6 +147,8 @@ enum PaladinExTierSpells
     SPELL_EX_SHIELD_OF_THE_RIGHTEOUS          = 53600,
     SPELL_EX_HOLY_LIGHT                       = 82326,
     SPELL_EX_HOLY_SHOCK_HEAL                  = 25914,
+    SPELL_EX_SAVED_BY_THE_LIGHT               = 157047, // E1 = +300% по недост. здоровью, E2 = 9 с на цель
+    SPELL_EX_SAVED_BY_THE_LIGHT_ABSORB        = 157128,
     SPELL_EX_BEACON_OF_LIGHT                  = 53563,
     SPELL_EX_BEACON_OF_LIGHT_HEAL             = 53652,
     SPELL_EX_LIGHTS_BEACON                    = 53651,  // прок-аура переноса на паладине
@@ -455,6 +459,13 @@ namespace
             return;
 
         pctMod *= mod->Multiplier;
+    }
+
+    // Каст Бури/Света зари, выписанный Наследием Эмпиреев (бесплатный, триггерный):
+    // не тратит и не выпускает Божественного арбитра, не считается тратой Цели.
+    [[nodiscard]] bool IsEmpyreanLegacyCast(Spell const* spell)
+    {
+        return spell && std::any_cast<EmpyreanLegacyMod>(&spell->m_customArg) != nullptr;
     }
 
     // 125 = +25% (талант 387170). 30 = 30% эффективности (талант 1241358). Порог 100 их различает.
@@ -1542,6 +1553,11 @@ class spell_pal_t36_ret_divine_purpose_ex : public SpellScript
             _divinePurpose = caster->GetAura(SPELL_EX_DIVINE_PURPOSE_BUFF);
         }
         _arbiterBuff = 0;
+        if (IsEmpyreanLegacyCast(GetSpell()))
+        {
+            _divinePurpose = nullptr;
+            return;
+        }
         if (!caster->HasAura(SPELL_EX_T36_RET_4PC))
             return;
 
@@ -1634,7 +1650,7 @@ class spell_pal_t36_divine_arbiter_bonus_ex : public SpellScript
     void HandleCalcDamage(SpellEffectInfo const& /*spellEffectInfo*/, Unit* victim, int32& /*damage*/, int32& /*flatMod*/, float& pctMod)
     {
         Unit* caster = GetCaster();
-        if (!caster || !victim || !caster->HasAura(SPELL_EX_T36_RET_4PC))
+        if (!caster || !victim || !caster->HasAura(SPELL_EX_T36_RET_4PC) || IsEmpyreanLegacyCast(GetSpell()))
             return;
 
         float bonus = 0.f;
@@ -2076,6 +2092,81 @@ public:
     }
 };
 
+// 157047 - Спасённый Светом (wowhead 12.x): союзник с ВАШИМ маяком (53563/156910/200025)
+// получает урон -> паладин вешает ему щит 157128 (22.5% SP, PvP 0.67 — из DBC),
+// щит увеличен до +300% (E1) по недостающему здоровью цели. Одна цель — раз в 9 с (E2).
+// Прок-аура на паладине ловит только события самого паладина, поэтому урон по союзнику
+// отслеживается UnitScript'ом. Старый AuraScript spell_pal_saved_by_the_light_ex удалён.
+namespace
+{
+    std::mutex gSavedByTheLightLock;
+    std::unordered_map<ObjectGuid, uint32> gSavedByTheLightNext; // цель -> GameTimeMS разблокировки
+}
+
+class spell_pal_saved_by_the_light_tracker : public UnitScript
+{
+public:
+    spell_pal_saved_by_the_light_tracker() : UnitScript("spell_pal_saved_by_the_light_tracker") { }
+
+    static Unit* FindBeaconOwner(Unit* victim)
+    {
+        for (uint32 beacon : { uint32(SPELL_EX_BEACON_OF_LIGHT), uint32(SPELL_EX_BEACON_OF_FAITH), uint32(SPELL_EX_BEACON_OF_VIRTUE) })
+        {
+            Unit::AuraApplicationMapBounds range = victim->GetAppliedAuras().equal_range(beacon);
+            for (auto itr = range.first; itr != range.second; ++itr)
+            {
+                Aura const* aura = itr->second->GetBase();
+                Unit* owner = ObjectAccessor::GetUnit(*victim, aura->GetCasterGUID());
+                if (owner && owner->IsAlive() && owner->HasAura(SPELL_EX_SAVED_BY_THE_LIGHT))
+                    return owner;
+            }
+        }
+        return nullptr;
+    }
+
+    void OnDamage(Unit* attacker, Unit* victim, uint32& damage) override
+    {
+        if (!victim || !damage || !victim->IsAlive() || attacker == victim)
+            return;
+        if (damage >= victim->GetHealth())
+            return; // смертельный удар — щит уже не поможет
+        if (!victim->HasAura(SPELL_EX_BEACON_OF_LIGHT) && !victim->HasAura(SPELL_EX_BEACON_OF_FAITH)
+            && !victim->HasAura(SPELL_EX_BEACON_OF_VIRTUE))
+            return;
+
+        Unit* paladin = FindBeaconOwner(victim);
+        if (!paladin)
+            return;
+
+        uint32 lockoutMs = 9000;
+        if (AuraEffect const* e = paladin->GetAuraEffect(SPELL_EX_SAVED_BY_THE_LIGHT, EFFECT_2))
+            if (e->GetAmount() > 0 && e->GetAmount() <= 120)
+                lockoutMs = uint32(e->GetAmount()) * IN_MILLISECONDS;
+
+        uint32 const now = GameTime::GetGameTimeMS();
+        {
+            std::lock_guard<std::mutex> guard(gSavedByTheLightLock);
+            if (gSavedByTheLightNext.size() > 2048)
+                std::erase_if(gSavedByTheLightNext, [now](auto const& entry) { return int32(entry.second - now) <= 0; });
+            auto itr = gSavedByTheLightNext.find(victim->GetGUID());
+            if (itr != gSavedByTheLightNext.end() && int32(itr->second - now) > 0)
+                return;
+            gSavedByTheLightNext[victim->GetGUID()] = now + lockoutMs;
+        }
+
+        float bonusPct = 300.f;
+        if (AuraEffect const* e = paladin->GetAuraEffect(SPELL_EX_SAVED_BY_THE_LIGHT, EFFECT_1))
+            if (e->GetAmount() > 0 && e->GetAmount() <= 1000)
+                bonusPct = float(e->GetAmount());
+        float const healthAfter = float(victim->GetHealth() - damage);
+        float const missingFrac = std::clamp(1.f - healthAfter / float(std::max<uint64>(victim->GetMaxHealth(), 1)), 0.f, 1.f);
+
+        paladin->CastSpell(victim, SPELL_EX_SAVED_BY_THE_LIGHT_ABSORB, CastSpellExtraArgs(TRIGGERED_FULL_MASK));
+        if (AuraEffect* shield = victim->GetAuraEffect(SPELL_EX_SAVED_BY_THE_LIGHT_ABSORB, EFFECT_0, paladin->GetGUID()))
+            shield->ChangeAmount(int32(shield->GetAmount() * (1.f + bonusPct / 100.f * missingFrac)));
+    }
+};
+
 class spell_pal_execution_sentence_tracker : public UnitScript
 {
 public:
@@ -2133,6 +2224,7 @@ void AddSC_paladin_spell_scripts_ex()
     new spell_pal_execution_sentence_tracker();
     RegisterSpellScript(spell_pal_infusion_of_light_fol_ex);
     new spell_pal_unworthy_tracker();
+    new spell_pal_saved_by_the_light_tracker();
     RegisterSpellScript(spell_pal_t36_ret_divine_purpose_ex);
     RegisterSpellScript(spell_pal_t36_divine_arbiter_bonus_ex);
     RegisterSpellScript(spell_pal_t36_divine_power_storm_ex);
