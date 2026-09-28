@@ -150,6 +150,8 @@ class spell_pal_art_of_war_ex : public AuraScript
 
 // 402912 - Праведная причина: каждая трата Сила Света с шансом 6% за очко
 // сбрасывает КД Клинка правосудия и усиливает следующий Клинок (402916).
+// 12.1.5.69952: эффект 0 — PROC_TRIGGER_SPELL (триггер 0), не DUMMY.
+// Хук на DUMMY не вызывался, поэтому сброс КД не работал.
 class spell_pal_righteous_cause_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -180,8 +182,8 @@ class spell_pal_righteous_cause_ex : public AuraScript
 
     void Register() override
     {
-        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_righteous_cause_ex::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
-        OnEffectProc += AuraEffectProcFn(spell_pal_righteous_cause_ex::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_righteous_cause_ex::CheckProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
+        OnEffectProc += AuraEffectProcFn(spell_pal_righteous_cause_ex::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL);
     }
 };
 

@@ -11,6 +11,7 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (19750,  'spell_pal_mastery_lightbringer_ex'),
 (82326,  'spell_pal_mastery_lightbringer_ex'),
 (156322, 'spell_pal_mastery_lightbringer_ex'),
+(25914,  'spell_pal_mastery_lightbringer_ex'), -- Шок Света (хил), не каст 20473
 -- Избавление (крит-шанс по HP цели)
 (85673,  'spell_pal_extrication_ex'),
 (85222,  'spell_pal_extrication_ex'),
