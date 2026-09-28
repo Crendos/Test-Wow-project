@@ -157,6 +157,10 @@ grep -c "=== CUT HERE ===" src/server/scripts/Spells/spell_paladin.cpp
 
 ### 1.2. Зарегистрировать скрипты в лоадере
 
+> Скрипты части 1 (`AddSC_paladin_spell_scripts_ex()`) регистрируются автоматически из
+> `AddSC_paladin_spell_scripts_ex2()`, поэтому в лоадер добавляются только ex2…ex10.
+> Если `AddSC_paladin_spell_scripts_ex();` у вас уже есть в лоадере — оставьте, двойной регистрации не будет.
+
 Откройте `C:\TrinityCore\src\server\scripts\Spells\spell_script_loader.cpp`:
 
 **а)** Найдите строку `void AddSC_paladin_spell_scripts();` — **ПОСЛЕ неё** добавьте:

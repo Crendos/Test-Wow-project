@@ -496,7 +496,7 @@ class spell_pal_punishment_ex : public AuraScript
             if (player->GetPrimarySpecialization() == ChrSpecialization::PaladinHoly)
                 followUp = SPELL_EX6_HOLY_SHOCK;
 
-        Unit* victim = eventInfo.GetProcTarget();
+        Unit* victim = eventInfo.GetActionTarget();
         if (!victim)
             victim = caster->GetVictim();
         if (!victim)

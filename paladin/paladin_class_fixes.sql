@@ -12,7 +12,8 @@
 -- Божественный помощник (spell_pal_divine_auxiliary) на 343527 не трогаем.
 DELETE FROM `spell_script_names` WHERE (`spell_id`, `ScriptName`) IN
 ((408385, 'spell_pal_crusading_strikes_hp_ex'),
- (343527, 'spell_pal_execution_sentence'));
+ (343527, 'spell_pal_execution_sentence'),
+ (53651,  'spell_pal_light_s_beacon'));  -- стоковый перенос лечит только 1 маяк; заменён на _ex
 
 REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- Искусство войны (406064): сброс КД Клинка правосудия от автоатак
@@ -178,10 +179,11 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (53595,  'spell_pal_t36_prot_4pc_ex'),
 (88263,  'spell_pal_t36_prot_4pc_ex'),
 (35395,  'spell_pal_t36_prot_4pc_ex'),
+-- Свет маяка: перенос на все маяки (53563 / 156910 / 200025), Маяк веры -30%
+(53651,  'spell_pal_light_s_beacon_ex'),
 -- Стоковые скрипты TC, от которых зависят бонусы. Их строки есть только в базовом дампе TDB,
 -- у пустой базы их нет.
 (223817, 'spell_pal_divine_purpose'),
-(53651,  'spell_pal_light_s_beacon'),
 (383344, 'spell_pal_expurgation'),
 (26573,  'spell_pal_consecration');
 

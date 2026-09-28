@@ -1,7 +1,7 @@
 // ============================================================================
 // Paladin 12.1.0 class fixes — часть 4a: Свет (ядро хила).
 // Вставка: конец spell_paladin.cpp ПОСЛЕ частей 1-3 (использует хелперы
-// IsPaladinJudgment/GetHolyPowerCost из части 1). Регистрация: AddSC_paladin_spell_scripts_ex4().
+// GetHolyPowerCost из части 1). Регистрация: AddSC_paladin_spell_scripts_ex4().
 // Спутник: paladin_class_fixes_4.sql
 // ============================================================================
 
@@ -63,22 +63,14 @@ namespace
     {
         Unit* best = nullptr;
         float bestDist = 0.f;
-        for (Aura* aura : const_cast<Player*>(healer)->GetSingleCastAuras())
+        for (Unit* target : CollectPaladinBeaconsEx(const_cast<Player*>(healer)))
         {
-            if (aura->GetId() != SPELL_EX4_BEACON_OF_LIGHT)
-                continue;
-            std::vector<AuraApplication*> applications;
-            aura->GetApplicationVector(applications);
-            for (AuraApplication const* app : applications)
-                if (Unit* target = app->GetTarget())
-                {
-                    float dist = target->GetDistance2d(nearTo);
-                    if (!best || dist < bestDist)
-                    {
-                        best = target;
-                        bestDist = dist;
-                    }
-                }
+            float dist = target->GetDistance2d(nearTo);
+            if (!best || dist < bestDist)
+            {
+                best = target;
+                bestDist = dist;
+            }
         }
         return best;
     }
@@ -246,7 +238,7 @@ class spell_pal_moment_of_compassion_ex : public SpellScript
         Unit* caster = GetCaster();
         if (!caster || !victim || !caster->HasAura(SPELL_EX4_MOMENT_OF_COMPASSION))
             return;
-        if (!victim->HasAura(SPELL_EX4_BEACON_OF_LIGHT, caster->GetGUID()))
+        if (!IsPaladinBeaconOfEx(victim, caster->GetGUID()))
             return;
 
         AddPct(pctMod, 50);

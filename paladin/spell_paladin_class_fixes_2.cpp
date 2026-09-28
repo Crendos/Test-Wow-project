@@ -448,10 +448,9 @@ class spell_pal_lightforged_blessing_ex : public SpellScript
         if (!divineStorm && !judgmentOrShield)
             return;
 
-        CastSpellExtraArgsInit args{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        };
+        // CastSpellExtraArgsInit принимается только временным объектом — для двух кастов берём CastSpellExtraArgs.
+        CastSpellExtraArgs args(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR);
+        args.SetTriggeringSpell(GetSpell());
         caster->CastSpell(caster, SPELL_EX2_LIGHTFORGED_SELF_HEAL, args);
         caster->CastSpell(caster, SPELL_EX2_LIGHTFORGED_HEAL, args);
     }
@@ -488,6 +487,9 @@ class spell_pal_lightforged_blessing_cap_ex : public SpellScript
 
 void AddSC_paladin_spell_scripts_ex2()
 {
+    // Скрипты основного файла (партия 1) регистрируются отсюда — лоадер вызывает только ex2..ex10.
+    AddSC_paladin_spell_scripts_ex();
+
     RegisterSpellScript(spell_pal_tempest_of_the_lightbringer_ex);
     RegisterSpellScript(spell_pal_tempest_wave_ex);
     RegisterSpellScript(spell_pal_judgment_of_justice_ex);

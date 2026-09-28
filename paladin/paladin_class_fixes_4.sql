@@ -55,8 +55,9 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (53600,  'spell_pal_shining_righteousness_ex');
 
 -- 4b: маяки и триггеры АН -----------------------------------------------------
+-- Маяк веры больше не скриптуется: 156910 сам является маяком (см. spell_pal_light_s_beacon_ex).
+DELETE FROM `spell_script_names` WHERE `spell_id` = 156910 AND `ScriptName` = 'spell_pal_beacon_of_faith_ex';
 REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
-(156910, 'spell_pal_beacon_of_faith_ex'),
 (200025, 'spell_pal_beacon_of_virtue_ex'),
 (31884,  'spell_pal_tyrs_deliverance_trigger_ex'),
 (231895, 'spell_pal_tyrs_deliverance_trigger_ex'),

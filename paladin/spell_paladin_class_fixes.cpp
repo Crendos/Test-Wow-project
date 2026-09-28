@@ -5,9 +5,9 @@
 //   1) Всё содержимое ниже строки-маркера CUT HERE вставить в КОНЕЦ
 //      src/server/scripts/Spells/spell_paladin.cpp ПЕРЕД функцией
 //      AddSC_paladin_spell_scripts() (или после неё — до конца файла).
-//   2) В src/server/scripts/Spells/spell_script_loader.cpp добавить:
-//         void AddSC_paladin_spell_scripts_ex();
-//      ...и вызов AddSC_paladin_spell_scripts_ex(); внутри AddSpellsScripts().
+//   2) Отдельно в лоадер НЕ нужно: AddSC_paladin_spell_scripts_ex() вызывается
+//      из AddSC_paladin_spell_scripts_ex2() (см. INSTALL.md, шаг 1.2). Если вызов
+//      уже добавлен вручную — не страшно, повторная регистрация заблокирована.
 //   3) Прогнать paladin/paladin_class_fixes.sql на world-базу.
 //
 // Все ID проверены по данным клиента 12.1.0 (build 69497/69933).
@@ -15,6 +15,10 @@
 
 // === CUT HERE ===============================================================
 
+// Поиск соседних врагов (Приговор казни) — стоковый spell_paladin.cpp этих заголовков не подключает.
+#include "CellImpl.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include <algorithm>
 #include <limits>
 #include <unordered_map>
@@ -137,11 +141,52 @@ enum PaladinExTierSpells
     SPELL_EX_HOLY_LIGHT                       = 82326,
     SPELL_EX_HOLY_SHOCK_HEAL                  = 25914,
     SPELL_EX_BEACON_OF_LIGHT                  = 53563,
-    SPELL_EX_BEACON_OF_LIGHT_HEAL             = 53652
+    SPELL_EX_BEACON_OF_LIGHT_HEAL             = 53652,
+    SPELL_EX_LIGHTS_BEACON                    = 53651,  // прок-аура переноса на паладине
+    SPELL_EX_BEACON_OF_FAITH                  = 156910, // второй маяк, E3 (Dummy 30) = -30% переноса
+    SPELL_EX_BEACON_OF_VIRTUE                 = 200025  // маяк на 5 целей, 9 с
 };
 
 namespace
 {
+    // Маяки паладина: 53563 (одна цель), 156910 Маяк веры (одна цель), 200025 Маяк добродетели (до 5).
+    [[nodiscard]] bool IsPaladinBeaconOfEx(Unit const* unit, ObjectGuid const& casterGuid)
+    {
+        return unit->HasAura(SPELL_EX_BEACON_OF_LIGHT, casterGuid)
+            || unit->HasAura(SPELL_EX_BEACON_OF_FAITH, casterGuid)
+            || unit->HasAura(SPELL_EX_BEACON_OF_VIRTUE, casterGuid);
+    }
+
+    // Все живые цели с маяками этого паладина (без дублей).
+    [[nodiscard]] std::vector<Unit*> CollectPaladinBeaconsEx(Unit* caster)
+    {
+        std::vector<Unit*> result;
+        auto add = [&](Unit* unit)
+        {
+            if (!unit || !unit->IsAlive() || !unit->IsInMap(caster))
+                return;
+            if (!IsPaladinBeaconOfEx(unit, caster->GetGUID()))
+                return;
+            if (std::find(result.begin(), result.end(), unit) == result.end())
+                result.push_back(unit);
+        };
+
+        for (Aura* aura : caster->GetSingleCastAuras())
+        {
+            std::vector<AuraApplication*> applications;
+            aura->GetApplicationVector(applications);
+            for (AuraApplication const* app : applications)
+                add(app->GetTarget());
+        }
+
+        add(caster);
+        if (Player* player = caster->ToPlayer())
+            if (Group* group = player->GetGroup())
+                for (GroupReference const& ref : group->GetMembers())
+                    add(ref.GetSource());
+        return result;
+    }
+
     // «Сбросить откат» спеллу на зарядах: ResetCooldown в TC заряды не трогает.
     // У Клинка правосудия в данных 1 заряд (2 с Улучшенным Клинком 403745), поэтому
     // без RestoreCharge сброс от Искусства войны / Праведной причины не работал.
@@ -154,19 +199,6 @@ namespace
         if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE))
             if (info->ChargeCategoryId)
                 history->RestoreCharge(info->ChargeCategoryId);
-    }
-
-    [[nodiscard]] bool IsPaladinJudgment(uint32 spellId)
-    {
-        switch (spellId)
-        {
-            case SPELL_EX_JUDGMENT_RET:
-            case SPELL_EX_JUDGMENT_PROT:
-            case SPELL_EX_JUDGMENT_HOLY:
-                return true;
-            default:
-                return false;
-        }
     }
 
     [[nodiscard]] Optional<int32> GetHolyPowerCost(Spell const* spell)
@@ -1610,8 +1642,78 @@ class spell_pal_t35_ret_expurgation_ex : public SpellScript
     }
 };
 
+// 53651 - Свет маяка: перенос прямого исцеления на ВСЕ маяки паладина
+// (53563 / 156910 Маяк веры / 200025 Маяк добродетели), кроме исцелённой цели.
+// Заменяет стоковый spell_pal_light_s_beacon: тот лечит только первый 53563.
+// Маяк веры: «оба маяка, но на 30% слабее» (156910 E3 = 30).
+class spell_pal_light_s_beacon_ex : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_BEACON_OF_LIGHT_HEAL });
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        if (!eventInfo.GetActionTarget() || eventInfo.GetActor() != GetTarget())
+            return false;
+        HealInfo* healInfo = eventInfo.GetHealInfo();
+        if (!healInfo || !healInfo->GetHeal())
+            return false;
+        // сам перенос (и сплэши через тот же носитель 53652) не переносится повторно
+        if (SpellInfo const* spell = healInfo->GetSpellInfo())
+            if (spell->Id == SPELL_EX_BEACON_OF_LIGHT_HEAL)
+                return false;
+        return true;
+    }
+
+    void HandleProc(AuraEffect* aurEff, ProcEventInfo& eventInfo)
+    {
+        PreventDefaultAction();
+
+        Unit* paladin = GetTarget();
+        Unit* healed = eventInfo.GetActionTarget();
+        std::vector<Unit*> beacons = CollectPaladinBeaconsEx(paladin);
+        beacons.erase(std::remove(beacons.begin(), beacons.end(), healed), beacons.end());
+        if (beacons.empty())
+            return;
+
+        float pct = float(aurEff->GetAmount());
+        bool const faith = std::any_of(beacons.begin(), beacons.end(), [paladin](Unit const* u)
+        {
+            return u->HasAura(SPELL_EX_BEACON_OF_FAITH, paladin->GetGUID());
+        }) || healed->HasAura(SPELL_EX_BEACON_OF_FAITH, paladin->GetGUID());
+        if (faith)
+        {
+            float reduction = 30.f;
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(SPELL_EX_BEACON_OF_FAITH, DIFFICULTY_NONE))
+                if (info->GetEffects().size() > EFFECT_3)
+                    if (float value = float(info->GetEffect(EFFECT_3).CalcValue()); value > 0.f)
+                        reduction = value;
+            pct = CalculatePct(pct, 100.f - reduction);
+        }
+
+        int32 const heal = int32(CalculatePct(float(eventInfo.GetHealInfo()->GetHeal()), pct));
+        if (heal <= 0)
+            return;
+
+        for (Unit* beacon : beacons)
+        {
+            CastSpellExtraArgs args(aurEff);
+            args.AddSpellMod(SPELLVALUE_BASE_POINT0, heal);
+            paladin->CastSpell(beacon, SPELL_EX_BEACON_OF_LIGHT_HEAL, args);
+        }
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_light_s_beacon_ex::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_pal_light_s_beacon_ex::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
 // T35 Holy 4pc: Святой шок (хил 25914) переносит в маяк ещё 20% (E0).
-// Базовый перенос делает стоковый spell_pal_light_s_beacon (53651); здесь — только добавка.
+// Базовый перенос делает spell_pal_light_s_beacon_ex (53651); здесь — только добавка.
 class spell_pal_t35_holy_beacon_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -1634,20 +1736,12 @@ class spell_pal_t35_holy_beacon_ex : public SpellScript
         if (bonus <= 0)
             return;
 
-        for (Aura* aura : caster->GetSingleCastAuras())
+        for (Unit* beacon : CollectPaladinBeaconsEx(caster))
         {
-            if (aura->GetId() != SPELL_EX_BEACON_OF_LIGHT)
+            if (beacon == healed)
                 continue;
-            std::vector<AuraApplication*> applications;
-            aura->GetApplicationVector(applications);
-            for (AuraApplication const* app : applications)
-            {
-                Unit* beacon = app->GetTarget();
-                if (!beacon || beacon == healed)
-                    continue;
-                caster->CastSpell(beacon, SPELL_EX_BEACON_OF_LIGHT_HEAL,
-                    MakeSpellArgs(TRIGGERED_FULL_MASK, GetSpell(), SPELLVALUE_BASE_POINT0, bonus));
-            }
+            caster->CastSpell(beacon, SPELL_EX_BEACON_OF_LIGHT_HEAL,
+                MakeSpellArgs(TRIGGERED_FULL_MASK, GetSpell(), SPELLVALUE_BASE_POINT0, bonus));
         }
     }
 
@@ -1923,7 +2017,15 @@ public:
 
 void AddSC_paladin_spell_scripts_ex()
 {
+    // Вызывается из AddSC_paladin_spell_scripts_ex2(); защита от двойной регистрации,
+    // если этот вызов уже добавлен в spell_script_loader.cpp вручную.
+    static bool registered = false;
+    if (registered)
+        return;
+    registered = true;
+
     RegisterSpellScript(spell_pal_art_of_war_ex);
+    RegisterSpellScript(spell_pal_light_s_beacon_ex);
     RegisterSpellScript(spell_pal_righteous_cause_ex);
     RegisterSpellScript(spell_pal_empyrean_power_ex);
     RegisterSpellScript(spell_pal_judgment_greater_ex);
