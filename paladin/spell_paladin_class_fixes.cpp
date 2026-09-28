@@ -135,7 +135,12 @@ enum PaladinExTierSpells
     SPELL_EX_DIVINE_ARBITER_FOR_VERDICT       = 1306162, // «след. Приговор и Молот Света»
     SPELL_EX_DIVINE_ARBITER_FOR_STORM_ALT     = 1310461, // тот же текст, что 1306161
     SPELL_EX_DIVINE_ARBITER_DAMAGE            = 1306923, // 1012.5% AP в цель + 472.5% AP в 8 м
-    SPELL_EX_DIVINE_PURPOSE_BUFF              = 223819,
+    SPELL_EX_DIVINE_PURPOSE_BUFF              = 223819, // Цель Света (15%)
+    SPELL_EX_DIVINE_PURPOSE_BUFF_RET          = 408458, // Цель Воздаяния/Защиты (10%, прок 408459)
+    SPELL_EX_DIVINE_POWER_STORM               = 1306159, // «Божественная сила: Буря» (+200% Бури) — справочно
+    SPELL_EX_DIVINE_STORM_DAMAGE              = 224239,
+    SPELL_EX_DIVINE_STORM_ALT                 = 423593,
+    SPELL_EX_TEMPLARS_VERDICT_DAMAGE          = 224266,
     SPELL_EX_AVENGERS_SHIELD                  = 31935,
     SPELL_EX_SHIELD_OF_THE_RIGHTEOUS          = 53600,
     SPELL_EX_HOLY_LIGHT                       = 82326,
@@ -1527,7 +1532,15 @@ class spell_pal_t36_ret_divine_purpose_ex : public SpellScript
     void Snapshot()
     {
         Unit* caster = GetCaster();
-        _divinePurpose = caster->GetAura(SPELL_EX_DIVINE_PURPOSE_BUFF);
+        // Рет-Цель — 408458 (wowhead 12.1: ей модифицируются Приговор/Буря/Арбитр);
+        // 223819 — Цель Света, оставлена на случай старых баз.
+        _divinePurposeId = SPELL_EX_DIVINE_PURPOSE_BUFF_RET;
+        _divinePurpose = caster->GetAura(SPELL_EX_DIVINE_PURPOSE_BUFF_RET);
+        if (!_divinePurpose)
+        {
+            _divinePurposeId = SPELL_EX_DIVINE_PURPOSE_BUFF;
+            _divinePurpose = caster->GetAura(SPELL_EX_DIVINE_PURPOSE_BUFF);
+        }
         _arbiterBuff = 0;
         if (!caster->HasAura(SPELL_EX_T36_RET_4PC))
             return;
@@ -1548,22 +1561,23 @@ class spell_pal_t36_ret_divine_purpose_ex : public SpellScript
         if (!caster)
             return;
 
-        // Выстрел арбитра.
+        // Выстрел арбитра: сначала снимаем бафф (новый можно получить этим же кастом),
+        // затем 1306923 в основную цель. Урон арбитра — из DBC (10.125 AP + 4.725 AP в 8 м,
+        // PvP 0.5). Бонус +200%/+100% самой Бури/Приговора — spell_pal_t36_divine_arbiter_bonus_ex.
         if (_arbiterBuff)
         {
+            caster->RemoveAurasDueToSpell(_arbiterBuff);
             if (Unit* target = PrimaryEnemyTargetEx(GetSpell(), caster))
-            {
                 caster->CastSpell(target, SPELL_EX_DIVINE_ARBITER_DAMAGE, CastSpellExtraArgsInit{
-                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD
+                        | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR,
                     .TriggeringSpell = GetSpell()
                 });
-                caster->RemoveAurasDueToSpell(_arbiterBuff);
-            }
         }
 
         bool const consumed = _divinePurpose
             && (GetSpell()->m_appliedMods.count(_divinePurpose) != 0
-                || !caster->HasAura(SPELL_EX_DIVINE_PURPOSE_BUFF));
+                || !caster->HasAura(_divinePurposeId));
         if (!consumed)
             return;
 
@@ -1593,7 +1607,72 @@ class spell_pal_t36_ret_divine_purpose_ex : public SpellScript
     }
 
     Aura* _divinePurpose = nullptr;
+    uint32 _divinePurposeId = 0;
     uint32 _arbiterBuff = 0;
+};
+
+// T36 Ret 4pc (1296661), бонусы спендера, выпускающего арбитра (ретейл, поверх БД):
+//   E0 = 200: Божественная буря, выпускающая арбитра, наносит +200% урона —
+//             это и есть «Божественная сила: Буря» (1306159: +200% урона Бури от заклинателя).
+//   E1 = 100: Окончательный приговор / Вердикт тамплиера, выпускающий арбитра, +100%.
+//   PvP-множитель 0.5 для обоих. Молот Света бонуса не получает.
+// Бафф арбитра ещё висит, пока считается урон (снимается в AfterCast основного спендера),
+// поэтому проверяем его прямо в CalcDamage. Ауру 1306159 на цель НЕ вешаем: её 12 с
+// усиливали бы и следующие Бури, а на ретейле бонус — только у выпускающего каста.
+class spell_pal_t36_divine_arbiter_bonus_ex : public SpellScript
+{
+    static constexpr float STORM_BONUS_PCT = 200.f;
+    static constexpr float VERDICT_BONUS_PCT = 100.f;
+    static constexpr float PVP_MULT = 0.5f;
+
+    [[nodiscard]] bool IsStormFamily() const
+    {
+        uint32 const id = GetSpellInfo()->Id;
+        return id == SPELL_EX_DIVINE_STORM || id == SPELL_EX_DIVINE_STORM_DAMAGE || id == SPELL_EX_DIVINE_STORM_ALT;
+    }
+
+    void HandleCalcDamage(SpellEffectInfo const& /*spellEffectInfo*/, Unit* victim, int32& /*damage*/, int32& /*flatMod*/, float& pctMod)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !victim || !caster->HasAura(SPELL_EX_T36_RET_4PC))
+            return;
+
+        float bonus = 0.f;
+        if (IsStormFamily())
+        {
+            if (caster->HasAura(SPELL_EX_DIVINE_ARBITER_FOR_STORM) || caster->HasAura(SPELL_EX_DIVINE_ARBITER_FOR_STORM_ALT))
+                bonus = STORM_BONUS_PCT;
+        }
+        else if (caster->HasAura(SPELL_EX_DIVINE_ARBITER_FOR_VERDICT))
+            bonus = VERDICT_BONUS_PCT;
+
+        if (bonus <= 0.f)
+            return;
+        if (victim->IsControlledByPlayer())
+            bonus *= PVP_MULT;
+        AddPct(pctMod, bonus);
+    }
+
+    void Register() override
+    {
+        CalcDamage += SpellCalcDamageFn(spell_pal_t36_divine_arbiter_bonus_ex::HandleCalcDamage);
+    }
+};
+
+// 1306159 «Божественная сила: Буря»: если что-то из DBC всё же наложит её на цель,
+// эффект обнуляется — бонус считает spell_pal_t36_divine_arbiter_bonus_ex (без двойного учёта
+// и без 12-секундного хвоста на последующие Бури).
+class spell_pal_t36_divine_power_storm_ex : public AuraScript
+{
+    void CalcAmount(AuraEffect const* /*aurEff*/, SpellEffectValue& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = 0;
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pal_t36_divine_power_storm_ex::CalcAmount, EFFECT_ALL, SPELL_AURA_ANY);
+    }
 };
 
 // T35 Ret 4pc: Приговор / Вердикт вешают Поджигание (383346) на 100% (E0),
@@ -2055,6 +2134,8 @@ void AddSC_paladin_spell_scripts_ex()
     RegisterSpellScript(spell_pal_infusion_of_light_fol_ex);
     new spell_pal_unworthy_tracker();
     RegisterSpellScript(spell_pal_t36_ret_divine_purpose_ex);
+    RegisterSpellScript(spell_pal_t36_divine_arbiter_bonus_ex);
+    RegisterSpellScript(spell_pal_t36_divine_power_storm_ex);
     RegisterSpellScript(spell_pal_t35_ret_expurgation_ex);
     RegisterSpellScript(spell_pal_t35_holy_beacon_ex);
     RegisterSpellScript(spell_pal_t36_holy_light_ex);

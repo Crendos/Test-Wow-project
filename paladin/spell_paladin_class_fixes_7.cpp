@@ -36,6 +36,7 @@ enum PaladinEx7Spells
     SPELL_EX7_EMPIREAN_HAMMER           = 431398, // летящий молоток
     SPELL_EX7_SACROSANCT_CRUSADE        = 431730,
     SPELL_EX7_SACROSANCT_CRUSADE_HEAL   = 461885,
+    SPELL_EX7_ZEALOUS_VINDICATION       = 431463,
     SPELL_EX7_HAMMER_OF_LIGHT_BUFF      = 427441, // кнопка «Молот Света» (20с)
 
     // АУДИТ26.09: эхо-эффекты Неоспоримого постановления (432626, wowhead):
@@ -86,33 +87,64 @@ class spell_pal_hammer_of_light_ex : public SpellScript
             SPELL_EX7_UNDISPUTED_TAL, SPELL_EX7_JUDGMENT_DEBUFF, SPELL_EX7_SOTR_BUFF, SPELL_EX7_CONSECRATION });
     }
 
-    void CastEmpyreanHammers(int32 count)
+    // simc trigger_empyrean_hammer: первый молоток — в цель, остальные — в случайных
+    // врагов рядом (randomAfterFirst). Задержка первого — E4 Света наставления,
+    // шаг между молотками — E3 (обе в мс). Ревностное оправдание — 2 молотка в цель сразу.
+    void CastEmpyreanHammers(int32 count, bool randomAfterFirst, bool useDelays)
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit() ? GetHitUnit() : GetExplTargetUnit();
         if (!caster || !target || count <= 0)
             return;
 
-        float const radius = 20.f;
         std::vector<Unit*> enemies;
-        Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(target, caster, radius);
-        Trinity::UnitListSearcher searcher(target, enemies, check);
-        Cell::VisitAllObjects(target, searcher, radius);
-
-        enemies.erase(std::remove_if(enemies.begin(), enemies.end(), [caster, target](Unit* enemy)
+        if (randomAfterFirst)
         {
-            return enemy == target || !caster->IsValidAttackTarget(enemy) || !enemy->IsWithinLOSInMap(caster);
-        }), enemies.end());
+            float const radius = 20.f;
+            Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(target, caster, radius);
+            Trinity::UnitListSearcher searcher(target, enemies, check);
+            Cell::VisitAllObjects(target, searcher, radius);
+            enemies.erase(std::remove_if(enemies.begin(), enemies.end(), [caster](Unit* enemy)
+            {
+                return !caster->IsValidAttackTarget(enemy) || !enemy->IsWithinLOSInMap(caster);
+            }), enemies.end());
+        }
 
-        Trinity::Containers::RandomShuffle(enemies);
+        int32 firstDelay = 0;
+        int32 step = 0;
+        if (useDelays)
+        {
+            if (AuraEffect const* e = caster->GetAuraEffect(SPELL_EX7_LIGHTS_GUIDANCE, EFFECT_3))
+                firstDelay = std::clamp(int32(e->GetAmount()), 0, 3000);
+            if (AuraEffect const* e = caster->GetAuraEffect(SPELL_EX7_LIGHTS_GUIDANCE, EFFECT_2))
+                step = std::clamp(int32(e->GetAmount()), 0, 2000);
+        }
 
         for (int32 i = 0; i < count; ++i)
         {
-            Unit* dest = i < int32(enemies.size()) ? enemies[i] : target;
-            caster->CastSpell(dest, SPELL_EX7_EMPIREAN_HAMMER, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringSpell = GetSpell()
-            });
+            Unit* dest = target;
+            if (i > 0 && randomAfterFirst && !enemies.empty())
+                dest = Trinity::Containers::SelectRandomContainerElement(enemies);
+
+            int32 const delay = firstDelay + step * i;
+            if (delay <= 0)
+            {
+                caster->CastSpell(dest, SPELL_EX7_EMPIREAN_HAMMER, CastSpellExtraArgsInit{
+                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                    .TriggeringSpell = GetSpell()
+                });
+                continue;
+            }
+
+            ObjectGuid const destGuid = dest->GetGUID();
+            caster->m_Events.AddEventAtOffset([caster, destGuid]()
+            {
+                Unit* d = ObjectAccessor::GetUnit(*caster, destGuid);
+                if (!d || !d->IsAlive() || !caster->IsValidAttackTarget(d))
+                    return;
+                caster->CastSpell(d, SPELL_EX7_EMPIREAN_HAMMER, CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS
+                    | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR));
+            }, Milliseconds(delay));
         }
     }
 
@@ -164,16 +196,29 @@ class spell_pal_hammer_of_light_ex : public SpellScript
         if (AuraEffect const* hammerCount = caster->GetAuraEffect(SPELL_EX7_LIGHTS_GUIDANCE, EFFECT_1))
             if (hammerCount->GetAmount() > 0 && hammerCount->GetAmount() <= 10)
                 hammers = hammerCount->GetAmount();
-        CastEmpyreanHammers(hammers);
+        // Ревностное оправдание (431463, E0 = 2): молотки сразу в цель.
+        if (caster->HasAura(SPELL_EX7_ZEALOUS_VINDICATION))
+        {
+            int32 zv = 2;
+            if (AuraEffect const* e = caster->GetAuraEffect(SPELL_EX7_ZEALOUS_VINDICATION, EFFECT_0))
+                if (e->GetAmount() > 0 && e->GetAmount() <= 5)
+                    zv = int32(e->GetAmount());
+            CastEmpyreanHammers(zv, false, false);
+        }
+        CastEmpyreanHammers(hammers, true, true);
 
-        // Сакросанктный крестовый поход: лечение (% макс. HP + за цель, кап 5)
+        // Сакросанктный крестовый поход: лечение (% макс. HP + за цель, кап 5).
+        // simc: Рет — эффекты 5/6 (EFFECT_4/5), Прот — 2/3 (EFFECT_1/2).
         if (caster->HasAura(SPELL_EX7_SACROSANCT_CRUSADE))
         {
-            if (AuraEffect const* healPct = caster->GetAuraEffect(SPELL_EX7_SACROSANCT_CRUSADE, EFFECT_4))
+            bool const prot = caster->ToPlayer() && caster->ToPlayer()->GetPrimarySpecialization() == ChrSpecialization::PaladinProtection;
+            SpellEffIndex const baseIdx = prot ? EFFECT_1 : EFFECT_4;
+            SpellEffIndex const perIdx = prot ? EFFECT_2 : EFFECT_5;
+            if (AuraEffect const* healPct = caster->GetAuraEffect(SPELL_EX7_SACROSANCT_CRUSADE, baseIdx))
             {
                 int32 pct = healPct->GetAmount();
                 int32 targetsHit = std::min<int32>(GetUnitTargetCountForEffect(EFFECT_0), 5);
-                if (AuraEffect const* perTarget = caster->GetAuraEffect(SPELL_EX7_SACROSANCT_CRUSADE, EFFECT_5))
+                if (AuraEffect const* perTarget = caster->GetAuraEffect(SPELL_EX7_SACROSANCT_CRUSADE, perIdx))
                     pct += perTarget->GetAmount() * targetsHit;
 
                 int64 heal = caster->CountPctFromMaxHealth(pct);
@@ -289,6 +334,10 @@ class spell_pal_dawnlight_ex : public SpellScript
             if (dur > dot->GetMaxDuration())
                 dot->SetMaxDuration(dur);
             dot->SetDuration(dur);
+            // Затяжное сияние (431407): «истекает ИЛИ продлевается» -> Великое правосудие.
+            if (Unit* owner = dot->GetCaster())
+                if (owner->HasAura(431407) && owner->IsValidAttackTarget(target))
+                    owner->CastSpell(target, SPELL_EX7_JUDGMENT_DEBUFF, CastSpellExtraArgs(TRIGGERED_FULL_MASK));
         }
     }
 
@@ -534,31 +583,8 @@ class spell_pal_second_sunrise_ex : public AuraScript
 
 // --- ЛАМПОВЩИК ---------------------------------------------------------------
 
-// 432919 - Доблесть (Прот): Слово света снижает КД БЗ/БП/БС/ЩБ на 3с.
-class spell_pal_valiance_ex : public SpellScript
-{
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_EX7_VALIANCE });
-    }
-
-    void HandleAfterCast()
-    {
-        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        if (!player || !player->HasAura(SPELL_EX7_VALIANCE))
-            return;
-        if (player->GetPrimarySpecialization() != ChrSpecialization::PaladinProtection)
-            return;
-
-        for (uint32 spellId : { SPELL_EX7_BOS, SPELL_EX7_BOP, SPELL_EX7_SPELLWARDING, SPELL_EX7_DIVINE_SHIELD })
-            player->GetSpellHistory()->ModifyCooldown(spellId, Seconds(-3));
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_pal_valiance_ex::HandleAfterCast);
-    }
-};
+// 432919 - Доблесть: перенесена в часть 11 (spell_pal_valiance_consume_ex).
+// Старая версия («Слово славы -> КД БЗ/БП/БС/ЩБ -3с») не соответствовала 12.1.
 
 void AddSC_paladin_spell_scripts_ex7()
 {
@@ -567,5 +593,4 @@ void AddSC_paladin_spell_scripts_ex7()
     RegisterSpellScript(spell_pal_dawnlight_ex);
     RegisterSpellScript(spell_pal_sun_sear_ex);
     RegisterSpellScript(spell_pal_second_sunrise_ex);
-    RegisterSpellScript(spell_pal_valiance_ex);
 }

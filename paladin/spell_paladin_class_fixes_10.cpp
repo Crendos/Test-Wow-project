@@ -299,8 +299,11 @@ class spell_pal_divine_guidance_cons_ex : public SpellScript
     }
 };
 
+void AddSC_paladin_spell_scripts_ex11(); // часть 11 (регистрируется отсюда, лоадер не меняется)
+
 void AddSC_paladin_spell_scripts_ex10()
 {
+    AddSC_paladin_spell_scripts_ex11();
     RegisterSpellScript(spell_pal_holy_armaments_ex);
     RegisterSpellScript(spell_pal_sotr_forge_ex);
     RegisterSpellScript(spell_pal_wog_sacred_word_ex);

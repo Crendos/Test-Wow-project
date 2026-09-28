@@ -184,6 +184,49 @@ class spell_pal_divine_toll_ex : public SpellScript
                 .TriggeringSpell = GetSpell()
             });
 
+        // Раскатистый удар (1271553, Прот): Звон запускает Молот и наковальню (433717)
+        // по каждой цели на 100%.
+        if (spellId == SPELL_EX6_AVENGERS_SHIELD && caster->HasAura(1271553) && caster->HasAura(433718))
+            for (Unit* enemy : enemies)
+                caster->CastSpell(enemy, 433717, CastSpellExtraArgsInit{
+                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                    .TriggeringSpell = GetSpell()
+                });
+
+        // Божественное взыскание (1260429, Храмовник): Звон ещё E0 (=2) раза по ВАШЕЙ цели
+        // на 100% (E1) с шагом 300 мс (simc). Рет — Правосудие, либо Молот гнева, если он
+        // доступен (цель <20% или Гнев); Прот — Щит мстителя.
+        if (caster->HasAura(1260429) && (spellId == SPELL_EX6_JUDGMENT_RET || spellId == SPELL_EX6_AVENGERS_SHIELD))
+        {
+            Unit* primary = GetExplTargetUnit();
+            if (!primary || !caster->IsValidAttackTarget(primary))
+                primary = enemies.empty() ? nullptr : enemies.front();
+            if (primary)
+            {
+                int32 extra = 2;
+                if (AuraEffect const* e = caster->GetAuraEffect(1260429, EFFECT_0))
+                    if (e->GetAmount() > 0 && e->GetAmount() <= 5)
+                        extra = int32(e->GetAmount());
+                ObjectGuid const primaryGuid = primary->GetGUID();
+                uint32 const baseSpell = spellId;
+                for (int32 i = 0; i < extra; ++i)
+                {
+                    caster->m_Events.AddEventAtOffset([caster, primaryGuid, baseSpell]()
+                    {
+                        Unit* t = ObjectAccessor::GetUnit(*caster, primaryGuid);
+                        if (!t || !t->IsAlive() || !caster->IsValidAttackTarget(t))
+                            return;
+                        uint32 id = baseSpell;
+                        if (id == SPELL_EX6_JUDGMENT_RET
+                            && (t->HealthBelowPct(20) || caster->HasAura(31884) || caster->HasAura(454351)))
+                            id = 24275; // Молот гнева
+                        caster->CastSpell(t, id, CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS
+                            | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR));
+                    }, Milliseconds(300 * (i + 1)));
+                }
+            }
+        }
+
         // Воздаяние: усиленные Правосудия
         if (spellId == SPELL_EX6_JUDGMENT_RET)
             caster->CastSpell(caster, SPELL_EX6_DIVINE_TOLL_RET_DEBUFF,

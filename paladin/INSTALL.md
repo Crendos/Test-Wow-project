@@ -1,6 +1,6 @@
 # 🛠️ ИНСТРУКЦИЯ ДЛЯ ПК — паладин-фиксы 12.1.0 (TrinityCore master, Windows)
 
-Что делаем: ставим **паладин-фиксы** в ваш сервер: 1 патч ядра + 10 файлов со скриптами + 10 SQL-файлов.
+Что делаем: ставим **паладин-фиксы** в ваш сервер: 1 патч ядра + 11 файлов со скриптами + 11 SQL-файлов.
 Порядок строгий: **Шаг 0 → 1 → 2 → 3 → 4**.
 
 > ⚠️ **ВАЖНО ПРО ТЕРМИНАЛ (частая беда):**
@@ -105,7 +105,7 @@ findstr /n "spellBlockChance" src\server\game\Entities\Unit\Unit.cpp
 
 ---
 
-## ШАГ 1. Скрипты паладина (10 файлов)
+## ШАГ 1. Скрипты паладина (11 файлов)
 
 ### 1.1. Вставить код в spell_paladin.cpp
 
@@ -114,7 +114,7 @@ findstr /n "spellBlockChance" src\server\game\Entities\Unit\Unit.cpp
 Он сам:
 - найдёт папку фиксов (рядом с собой) и корень ядра (типовые места, включая
   `Desktop\new\test\TrinityCore`); если не найдёт — спросит путь (в окно вставляется правым кликом);
-- допишет все 10 файлов, проверит счётчиком (партий: 10), при повторном запуске не задвоит;
+- допишет все 11 файлов, проверит счётчиком (партий: 11), при повторном запуске не задвоит;
 - напомнит про правки лоадера (1.2а/1.2б) и проверит их после.
 
 Из консоли (x64 Native Tools / cmd) то же самое: `"C:\...\windows\step1_scripts.bat"` (аргументы не нужны).
@@ -122,43 +122,44 @@ findstr /n "spellBlockChance" src\server\game\Entities\Unit\Unit.cpp
 > **Если вы уже ставили старую версию партий** (получали ошибки C2440 при сборке) —
 > просто запустите `step1_scripts.bat` ещё раз: он сам увидит старый код, откатит
 > `spell_paladin.cpp` через git и вставит новую MSVC-совместимую версию. В конце
-> должно быть: `маркеров стало: 10` и `MakeSpellArgs в файле: 18`.
+> должно быть: `маркеров стало: 11` и `MakeSpellArgs в файле: 21`.
 
 **Автоматически (вставкой блока, если правый клик-вставка работает).** Правый клик по `C:\TrinityCore` → **Git Bash Here**. Скопируйте блок ЦЕЛИКОМ и вставьте (если папка фиксов не `C:\paladin-fixes\paladin` — поправьте путь во 2-й строке):
 
 ```bash
-echo "=== [1/3] Дописываю 10 файлов в spell_paladin.cpp... ==="
-for i in "" _2 _3 _4 _5 _6 _7 _8 _9 _10; do
+echo "=== [1/3] Дописываю 11 файлов в spell_paladin.cpp... ==="
+for i in "" _2 _3 _4 _5 _6 _7 _8 _9 _10 _11; do
   sed -n '/=== CUT HERE ===/,$p' "C:/paladin-fixes/paladin/spell_paladin_class_fixes${i}.cpp" >> src/server/scripts/Spells/spell_paladin.cpp
   echo "    добавлен: spell_paladin_class_fixes${i}.cpp"
 done
 echo "=== [2/3] Проверяю: сколько партий внутри файла... ==="
-N=$(grep -c "=== CUT HERE ===" src/server/scripts/Spells/spell_paladin.cpp); echo ">>> в файле партий: $N (нужно 10)"
-[ "$N" = "10" ] && echo ">>> ГОТОВО: все 10 партий внутри" || echo ">>> ВНИМАНИЕ: партий не 10 — см. раздел неполадок"
+N=$(grep -c "=== CUT HERE ===" src/server/scripts/Spells/spell_paladin.cpp); echo ">>> в файле партий: $N (нужно 11)"
+[ "$N" = "11" ] && echo ">>> ГОТОВО: все 11 партий внутри" || echo ">>> ВНИМАНИЕ: партий не 11 — см. раздел неполадок"
 echo "=== [3/3] Последние строки файла: ==="
 tail -3 src/server/scripts/Spells/spell_paladin.cpp
 ```
-Ожидаемый вывод: десять строк `добавлен: …`, затем `>>> в файле партий: 10 (нужно 10)` и `>>> ГОТОВО`, а в хвосте — строка `AddSC_paladin_spell_scripts_ex10()`.
-Если повторяете команду второй раз — сначала откатите: `git checkout -- src/server/scripts/Spells/spell_paladin.cpp` (иначе партии лягут вторым слоем и счётчик покажет 20).
+Ожидаемый вывод: одиннадцать строк `добавлен: …`, затем `>>> в файле партий: 11 (нужно 11)` и `>>> ГОТОВО`, а в хвосте — строка `AddSC_paladin_spell_scripts_ex11()`.
+Если повторяете команду второй раз — сначала откатите: `git checkout -- src/server/scripts/Spells/spell_paladin.cpp` (иначе партии лягут вторым слоем и счётчик покажет 22).
 
 **✅ Проверка шага 1.1:**
 ```bash
 grep -c "=== CUT HERE ===" src/server/scripts/Spells/spell_paladin.cpp
 ```
-Должно напечатать **10** (все партии внутри). `0` — вставки не было; 1–9 — повторите цикл (частичный повтор безопасен: помеченные куски допишутся вторым слоем, но чтобы было чисто — лучше восстановить spell_paladin.cpp из git: `git checkout -- src/server/scripts/Spells/spell_paladin.cpp` и выполнить цикл заново).
+Должно напечатать **11** (все партии внутри). `0` — вставки не было; 1–10 — повторите цикл (частичный повтор безопасен: помеченные куски допишутся вторым слоем, но чтобы было чисто — лучше восстановить spell_paladin.cpp из git: `git checkout -- src/server/scripts/Spells/spell_paladin.cpp` и выполнить цикл заново).
 
 **Вручную (если хочется руками):**
 1. Откройте `C:\TrinityCore\src\server\scripts\Spells\spell_paladin.cpp` в Notepad++.
 2. Нажмите **Ctrl+End** (в самый конец файла), поставьте курсор на новую строку.
-3. Для КАЖДОГО из 10 файлов (`spell_paladin_class_fixes.cpp`, `_2.cpp`, `_3.cpp`, `_4.cpp`,
-   `_5.cpp`, `_6.cpp`, `_7.cpp`, `_8.cpp`, `_9.cpp`, `_10.cpp`) из `C:\paladin-fixes\paladin`:
+3. Для КАЖДОГО из 11 файлов (`spell_paladin_class_fixes.cpp`, `_2.cpp`, `_3.cpp`, `_4.cpp`,
+   `_5.cpp`, `_6.cpp`, `_7.cpp`, `_8.cpp`, `_9.cpp`, `_10.cpp`, `_11.cpp`) из `C:\paladin-fixes\paladin`:
    откройте его, найдите строку `=== CUT HERE ===`, выделите **от этой строки до конца файла**,
-   скопируйте и вставьте в конец spell_paladin.cpp. **Порядок 1→10 важен.**
+   скопируйте и вставьте в конец spell_paladin.cpp. **Порядок 1→11 важен.**
 
 ### 1.2. Зарегистрировать скрипты в лоадере
 
 > Скрипты части 1 (`AddSC_paladin_spell_scripts_ex()`) регистрируются автоматически из
-> `AddSC_paladin_spell_scripts_ex2()`, поэтому в лоадер добавляются только ex2…ex10.
+> `AddSC_paladin_spell_scripts_ex2()`, а часть 11 — из `AddSC_paladin_spell_scripts_ex10()`,
+> поэтому в лоадер добавляются только ex2…ex10 (как и раньше, 9 строк).
 > Если `AddSC_paladin_spell_scripts_ex();` у вас уже есть в лоадере — оставьте, двойной регистрации не будет.
 
 Откройте `C:\TrinityCore\src\server\scripts\Spells\spell_script_loader.cpp`:
@@ -201,7 +202,7 @@ echo ">>> объявлений: $A (нужно 9)"; echo ">>> вызовов: $B
 ### ✅ Всё вместе: проверка шагов 0–1 одним блоком
 ```bash
 echo "--- Шаг 0: патч ядра (ждём 3) ---"; grep -c "spellBlockChance" src/server/game/Entities/Unit/Unit.cpp
-echo "--- Шаг 1: партии (ждём 10) ---"; grep -c "=== CUT HERE ===" src/server/scripts/Spells/spell_paladin.cpp
+echo "--- Шаг 1: партии (ждём 11) ---"; grep -c "=== CUT HERE ===" src/server/scripts/Spells/spell_paladin.cpp
 echo "--- Шаг 1: объявления (ждём 9) ---"; grep -c "void AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp
 echo "--- Шаг 1: вызовы (ждём 9) ---"; grep -c "    AddSC_paladin_spell_scripts_ex" src/server/scripts/Spells/spell_script_loader.cpp
 echo "--- Проверки завершены ---"
@@ -227,18 +228,19 @@ echo "--- Проверки завершены ---"
    - `C:\paladin-fixes\paladin\paladin_class_fixes_8.sql`  ← спираль Благословенного молота
    - `C:\paladin-fixes\paladin\paladin_class_fixes_9.sql`
    - `C:\paladin-fixes\paladin\paladin_class_fixes_10.sql`
+   - `C:\paladin-fixes\paladin\paladin_class_fixes_11.sql`  ← герои 12.1, Гильотина, Арбитр
    (каждый — отдельный запуск Run SQL file; повторный прогон безопасен).
 
 **Через консоль (cmd/консоль VS, если `mysql.exe` в PATH) — с подтверждением каждого файла:**
 ```bash
 D=0; F=0
-for i in "" _2 _3 _4 _5 _6 _7 _8 _9 _10; do
+for i in "" _2 _3 _4 _5 _6 _7 _8 _9 _10 _11; do
   echo "--- импортирую paladin_class_fixes${i}.sql... ---"
   if mysql -u root -pВАШ_ПАРОЛЬ ИМЯ_БАЗЫ < "C:/paladin-fixes/paladin/paladin_class_fixes${i}.sql"; then echo ">>> OK: ${i:-1}"; D=$((D+1)); else echo ">>> ОШИБКА на ${i:-1}"; F=$((F+1)); fi
 done
-echo "=== ИТОГ: успешно $D из 10, с ошибками $F ==="
+echo "=== ИТОГ: успешно $D из 11, с ошибками $F ==="
 ```
-Должно напечатать `ИТОГ: успешно 10 из 10, с ошибками 0`.
+Должно напечатать `ИТОГ: успешно 11 из 11, с ошибками 0`.
 
 **✅ Проверка импорта.** В HeidiSQL откройте вкладку **Query**, выполните (вывод прямо говорит, что применилось):
 ```sql
@@ -387,9 +389,9 @@ findstr /m /c:"spell_pal_glory_of_the_vanguard_ex" "C:\TrinityCore\build\bin\Rel
 | повторный `git apply`: `already exists` / `patch failed` | патч уже стоит с прошлого раза | ничего не делайте — переходите к Шагу 1 |
 |---|---|---|
 | `git apply` ругается на строки | исходники отличаются от master, к которому писался патч | применяйте Вариант Б (вручную) — там указано «найди/замени» |
-| Ошибка компиляции: `SPELL_EX…: identifier not found` | вставили файлы не по порядку или не все 10 | повторите Шаг 1.1 (порядок 1→10) |
+| Ошибка компиляции: `SPELL_EX…: identifier not found` | вставили файлы не по порядку или не все 11 | повторите Шаг 1.1 (порядок 1→11) |
 | Ошибка: `AddSC_paladin_spell_scripts_ex9 undefined` | не добавили блок 1.2-б | допишите вызовы в `AddSpellsScripts()` |
-| В игре скрипты молчат, урон голый | не импортирован SQL (Шаг 2) или worldserver не перезапускался | импортируйте все 10 SQL и перезапустите worldserver |
+| В игре скрипты молчат, урон голый | не импортирован SQL (Шаг 2) или worldserver не перезапускался | импортируйте все 11 SQL и перезапустите worldserver |
 | Молот без спирали | не импортирован `_8.sql` | проверьте запрос `areatrigger_create_properties` из Шага 2; работает и без него — будет мгновенный AoE (fallback) |
 
 ---

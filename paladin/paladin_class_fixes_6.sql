@@ -26,8 +26,7 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (53385,  'spell_pal_sun_sear_ex'),
 -- Второй восход (Вестник солнца)
 (431474, 'spell_pal_second_sunrise_ex'),
--- Доблесть (Ламповщик, Прот)
-(85673,  'spell_pal_valiance_ex'),
+-- Доблесть — в paladin_class_fixes_11.sql (spell_pal_valiance_consume_ex)
 -- Свет наставления (Храмовник): Рет — Пробуждение зол (255937) выдает кнопку
 -- Молота Света (427441) на20с; Прот — то же от Звона (часть5, fix_6)
 (255937, 'spell_pal_lights_guidance_wake_ex');
