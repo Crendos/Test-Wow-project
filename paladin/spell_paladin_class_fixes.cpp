@@ -15,6 +15,8 @@
 
 // === CUT HERE ===============================================================
 
+#include <algorithm>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -56,9 +58,11 @@ enum PaladinExSpells
     SPELL_EX_CRUSADING_STRIKE                 = 408385,
     SPELL_EX_CRUSADING_STRIKES_TALENT         = 406833,
     SPELL_EX_CONSECRATED_BLADE                = 404834,
+    SPELL_EX_CONSECRATED_BLADE_ICD            = 407475,
     SPELL_EX_CONSECRATION                     = 26573,
     SPELL_EX_EXECUTION_SENTENCE               = 343527,
     SPELL_EX_EXECUTION_SENTENCE_DAMAGE        = 1260251,
+    SPELL_EX_EXECUTION_SENTENCE_PAYOFF        = 387113,
     SPELL_EX_HIGHLORDS_JUDGMENT_DAMAGE        = 383921,
     SPELL_EX_AVENGING_WRATH                   = 31884,
     SPELL_EX_AVENGING_WRATH_8S                = 454351, // вариант АН от Сияющей славы
@@ -266,14 +270,13 @@ namespace
     };
 
     std::unordered_map<ObjectGuid, ExecutionSentenceState> ExecutionSentenceByCaster;
-    std::unordered_map<ObjectGuid, uint32> CrusadingStrikeHits;
     std::unordered_map<ObjectGuid, uint32> ConsecratedBladeAt;
 
     void NoteExecutionSentenceDamage(Unit* attacker, Unit* victim, uint32 damage, SpellInfo const* spellInfo)
     {
         if (!attacker || !victim || !damage)
             return;
-        if (spellInfo && spellInfo->Id == SPELL_EX_EXECUTION_SENTENCE)
+        if (spellInfo && (spellInfo->Id == SPELL_EX_EXECUTION_SENTENCE || spellInfo->Id == SPELL_EX_EXECUTION_SENTENCE_PAYOFF))
             return;
         if (spellInfo && !(spellInfo->GetSchoolMask() & SPELL_SCHOOL_MASK_HOLY))
             return;
@@ -281,7 +284,9 @@ namespace
         auto it = ExecutionSentenceByCaster.find(attacker->GetGUID());
         if (it == ExecutionSentenceByCaster.end())
             return;
-        if (it->second.Marked.find(victim->GetGUID()) == it->second.Marked.end())
+        // Метка взрыва 1260251 на цели — как в ретейле. Список с OnApply — запасной путь.
+        if (!victim->HasAura(SPELL_EX_EXECUTION_SENTENCE_DAMAGE, attacker->GetGUID())
+            && it->second.Marked.find(victim->GetGUID()) == it->second.Marked.end())
             return;
         it->second.Damage += damage;
     }
@@ -1150,11 +1155,19 @@ class spell_pal_consecrated_blade_ex : public SpellScript
         if (!caster->HasSpell(SPELL_EX_CONSECRATED_BLADE) && !caster->HasAura(SPELL_EX_CONSECRATED_BLADE))
             return;
 
+        // Откат 10 с — скрытый дебафф 407475 на паладине. Карта — запасной путь, если его нет в DB2.
+        if (caster->HasAura(SPELL_EX_CONSECRATED_BLADE_ICD))
+            return;
         uint32 const now = getMSTime();
         uint32& last = ConsecratedBladeAt[caster->GetGUID()];
         if (last && now - last < 10000)
             return;
         last = now;
+        if (sSpellMgr->GetSpellInfo(SPELL_EX_CONSECRATED_BLADE_ICD, DIFFICULTY_NONE))
+            caster->CastSpell(caster, SPELL_EX_CONSECRATED_BLADE_ICD, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_FULL_MASK,
+                .TriggeringSpell = GetSpell()
+            });
 
         caster->CastSpell(hit, SPELL_EX_CONSECRATION, CastSpellExtraArgsInit{
             .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
@@ -1165,29 +1178,6 @@ class spell_pal_consecrated_blade_ex : public SpellScript
     void Register() override
     {
         AfterHit += SpellHitFn(spell_pal_consecrated_blade_ex::HandleAfterHit);
-    }
-};
-
-// 408385 - Крещендо ударов: 1 ед. Силы Света через удар. Урон — сам спелл.
-class spell_pal_crusading_strikes_hp_ex : public SpellScript
-{
-    void HandleAfterHit()
-    {
-        Unit* caster = GetCaster();
-        if (!caster)
-            return;
-
-        uint32& hits = CrusadingStrikeHits[caster->GetGUID()];
-        ++hits;
-        if ((hits % 2) != 0)
-            return;
-
-        caster->ModifyPower(POWER_HOLY_POWER, 1);
-    }
-
-    void Register() override
-    {
-        AfterHit += SpellHitFn(spell_pal_crusading_strikes_hp_ex::HandleAfterHit);
     }
 };
 
@@ -1236,6 +1226,9 @@ class spell_pal_execution_sentence_ex : public AuraScript
 
         uint64 const dealt = it->second.Damage;
         ExecutionSentenceByCaster.erase(it);
+        // Молот падает только по истечении 10 с, не при рассеивании или смерти.
+        if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_EXPIRE)
+            return;
         if (!dealt || !target->IsAlive())
             return;
 
@@ -1248,8 +1241,16 @@ class spell_pal_execution_sentence_ex : public AuraScript
         if (!amount)
             return;
 
-        SpellInfo const* info = sSpellMgr->GetSpellInfo(SPELL_EX_EXECUTION_SENTENCE, DIFFICULTY_NONE);
-        Unit::DealDamage(caster, target, amount, nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_HOLY, info, false);
+        // Через лог урона, иначе удар не видно ни в чате боя, ни в WCL. Id выплаты — 387113,
+        // как в ретейл-логах. Не кастуем его: бонусы урона уже внутри накопленной суммы.
+        // Стоковый spell_pal_execution_sentence снят в SQL, иначе молот бьёт дважды.
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(SPELL_EX_EXECUTION_SENTENCE_PAYOFF, DIFFICULTY_NONE);
+        if (!info)
+            info = GetSpellInfo();
+        SpellNonMeleeDamage log(caster, target, info, { caster->GetCastSpellXSpellVisualId(info), 0 }, SPELL_SCHOOL_MASK_HOLY);
+        caster->CalculateSpellDamageTaken(&log, int32(std::min<uint32>(amount, uint32(std::numeric_limits<int32>::max()))), info);
+        caster->SendSpellNonMeleeDamageLog(&log);
+        caster->DealSpellDamage(&log, false);
     }
 
     void Register() override
@@ -1304,7 +1305,6 @@ void AddSC_paladin_spell_scripts_ex()
     RegisterSpellScript(spell_pal_divine_storm_cap_ex);
     RegisterSpellScript(spell_pal_holy_flames_ex);
     RegisterSpellScript(spell_pal_consecrated_blade_ex);
-    RegisterSpellScript(spell_pal_crusading_strikes_hp_ex);
     RegisterSpellScript(spell_pal_execution_sentence_ex);
     new spell_pal_execution_sentence_tracker();
 }

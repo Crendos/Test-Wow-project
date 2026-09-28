@@ -7,6 +7,13 @@
 -- ----------------------------------------------------------------------------
 -- 1) spell_script_names — привязка новых скриптов
 -- ----------------------------------------------------------------------------
+-- Дубли: наш старый бинд Крещендо (Сила Света шла бы дважды со стоковым 406833)
+-- и стоковая пара Приговора 11.x (молот бил бы дважды вместе с нашим 12.x).
+-- Божественный помощник (spell_pal_divine_auxiliary) на 343527 не трогаем.
+DELETE FROM `spell_script_names` WHERE (`spell_id`, `ScriptName`) IN
+((408385, 'spell_pal_crusading_strikes_hp_ex'),
+ (343527, 'spell_pal_execution_sentence'));
+
 REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- Искусство войны (406064): сброс КД Клинка правосудия от автоатак
 (406064, 'spell_pal_art_of_war_ex'),
@@ -72,9 +79,10 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (53385,  'spell_pal_divine_storm_cap_ex'),
 -- Освящённый клинок (404834): Клинок правосудия ставит Освящение, не чаще 10 с
 (184575, 'spell_pal_consecrated_blade_ex'),
--- Крещендо ударов (408385): 1 Сила Света через удар
-(408385, 'spell_pal_crusading_strikes_hp_ex'),
--- Приговор (343527): 20% накопленного светлого урона через 10 с
+-- Крещендо ударов: Сила Света через удар — стоковый скрипт TrinityCore на таланте 406833
+-- (2 стака -> 406834). Ставим бинд явно на случай пустой базы.
+(406833, 'spell_pal_crusading_strikes'),
+-- Приговор (343527): 20% светлого урона по задетым взрывом 1260251, через 10 с
 (343527, 'spell_pal_execution_sentence_ex'),
 -- Пламя света (406545): +3%/+7% к урону Света по целям с Поджиганием
 (184575,  'spell_pal_holy_flames_ex'),
@@ -102,21 +110,29 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- ----------------------------------------------------------------------------
 -- P0: Крещендо ударов (406833) — в клиентских данных Cflags3=0x10, из-за чего
 -- аура-стак не процает. AttributesMask=0x2 (TRIGGERED_CAN_PROC) — фикс.
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (406833,0x00,0,0,0,0,0,0x14,0x0,0x1,0x2,0x403,0x2,0x0,0,0,0,0);
 -- Искусство войны: автоатаки (вкл. Крещендо ударов 408385 -> 0x4), ICD 1 c
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (406064,0x00,0,0,0,0,0,0x4,0x0,0x1,0x2,0x403,0x2,0x0,0,0,1000,0);
 -- Праведная причина: траты Сила Света (ICD 1 c)
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (402912,0x00,0,0,0,0,0,0x55410,0x0,0x3,0x2,0x403,0x0,0x0,0,0,1000,0);
 -- Сила небес: Удар крестоносца/Удары храмовника/Крещендо
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (326732,0x00,0,0,0,0,0,0x14,0x0,0x1,0x2,0x403,0x0,0x0,0,0,0,0);
 -- Мастерство 267316: пассивный бонус урона из DBC. Удар 383921 — не этот прок
 -- (у спелла нет ауры-прока), а AfterHit Правосудия в spell_pal_judgment_greater_ex.
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (267316,0x00,0,0,0,0,0,0x10,0x0,0x1,0x2,0x3,0x0,0x0,0,0,0,0);
 -- Судья, присяжные и палач: успешный каст Приговора (343527) — фильтр в скрипте
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (406157,0x00,0,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,0,0,0);
 -- ...и траты Сила Света при активном 1253174 (возврат стоимости)
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (1253174,0x00,0,0,0,0,0,0x55410,0x0,0x3,0x2,0x403,0x0,0x0,0,0,0,0);
 -- Крестовый поход: траты Сила Света во время Гнева карателя (31884/454351)
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (1253598,0x00,0,0,0,0,0,0x55410,0x0,0x3,0x2,0x403,0x0,0x0,0,0,0,0);
 
 -- 387170 больше не прокает сам: старая строка вешала 387178 на трату Силы Света.
