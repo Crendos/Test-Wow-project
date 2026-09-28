@@ -39,7 +39,7 @@ $hasAT    = $raw.Contains('RegisterAreaTriggerAI(at_pal_blessed_hammer)')
 $hasGuard = $raw.Contains('procSpell->IsTriggered()')
 $hasMech  = $raw.Contains('PAL_MECH_REV_20260926')
 $hasSafe  = $raw.Contains('PAL_NO_PROTECTED_TARGETINFO')
-$hasRev   = $raw.Contains('PAL_REV3_20260928')
+$hasRev   = $raw.Contains('PAL_REV4_20260928')
 $hasBad   = $raw.Contains('GetSpell()->m_UniqueTargetInfo')
 Write-Host "[1/4] маркеров в spell_paladin.cpp сейчас: $cur (нужно 0 или 11)"
 $needRollback = $false
@@ -47,7 +47,7 @@ if ($cur -eq 11) {
     if ($hasNew -and $hasAT -and $hasGuard -and $hasMech -and $hasSafe -and $hasRev -and -not $hasBad) {
         Write-Host ">>> УЖЕ УСТАНОВЛЕНО (последняя версия) — вставка пропущена"
     } else {
-        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_REV3_20260928 / PAL_NO_PROTECTED_TARGETINFO или ещё есть protected-поле) — заменяю на новую"
+        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_REV4_20260928 / PAL_NO_PROTECTED_TARGETINFO или ещё есть protected-поле) — заменяю на новую"
         $needRollback = $true
     }
 } elseif ($cur -ne 0) {
@@ -93,10 +93,10 @@ if ($cur -eq 0) {
     $mech = $raw2.Contains('PAL_MECH_REV_20260926')
     $safe = $raw2.Contains('PAL_NO_PROTECTED_TARGETINFO') -and -not $raw2.Contains('GetSpell()->m_UniqueTargetInfo')
     Write-Host "[3/4] маркеров стало: $now (нужно 11)"
-    Write-Host "[3b]  MakeSpellArgs в файле: $ms (ожидается 19)"
+    Write-Host "[3b]  MakeSpellArgs в файле: $ms (ожидается 20)"
     Write-Host "[3c]  AT-скрипт молота: $atN (ожидается 1); анти-зацикливание: $gdN (ожидается 2)"
     Write-Host "[3d]  механика 26.09: $mech ; без protected-поля: $safe (ожидается True True)"
-    if ($now -eq 11 -and $ms -eq 19 -and $atN -eq 1 -and $gdN -eq 2 -and $mech -and $safe) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)" -ForegroundColor Green }
+    if ($now -eq 11 -and $ms -eq 20 -and $atN -eq 1 -and $gdN -eq 2 -and $mech -and $safe) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)" -ForegroundColor Green }
     else { Write-Host "[X] НЕ СХОДИТСЯ — пришлите этот вывод целиком" -ForegroundColor Red; Read-Host Enter; exit 1 }
 }
 

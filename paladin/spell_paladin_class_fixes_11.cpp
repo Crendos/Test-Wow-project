@@ -33,7 +33,7 @@
 // ============================================================================
 
 // === CUT HERE ===============================================================
-// PAL_REV3_20260928 (включает PAL_REV2)
+// PAL_REV4_20260928 (включает PAL_REV3, PAL_REV2)
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -1455,6 +1455,368 @@ class spell_pal_authoritative_rebuke_interrupt_ex : public SpellScript
     bool _done = false;
 };
 
+// --- PAL_REV4: сверка с логами WCL (топ М+ 12.1: Рет Вестник/Храмовник, Прот Кузнец/Храмовник, Свет Вестник/Кузнец) ---
+// Логи WCL (logs_analysis/wcl logs/Paladin): у топов есть экипировка/аксессуары, поэтому сравниваются
+// не абсолютные цифры, а структура: кто сколько целей бьёт, какие отдельные спеллы появляются, какие ауры.
+
+enum PaladinEx13Spells
+{
+    SPELL_EX13_JUDGMENT_RET             = 20271,
+    SPELL_EX13_BLESSED_CHAMPION         = 403010,  // E3 = 4 доп. цели Правосудия
+    SPELL_EX13_RUSH_OF_LIGHT            = 407067,  // талант: крит генератора -> 407065
+    SPELL_EX13_RUSH_OF_LIGHT_BUFF       = 407065,  // +5% скорости, 10 с
+    SPELL_EX13_TEMPERED_IN_BATTLE       = 469701,  // талант Кузнеца
+    SPELL_EX13_TEMPERED_REDISTRIBUTE    = 469704,  // E0 урон (кто выше) / E1 лечение (кто ниже)
+    SPELL_EX13_TEMPERED_AURA            = 469814,  // «Перераспределение здоровья» 4 с (визуал)
+    SPELL_EX13_TEMPERED_OVERHEAL        = 469822,  // перенос избыточного лечения
+    SPELL_EX13_TRUTH_PREVAILS_HEAL      = 461546,
+    SPELL_EX13_TRUTH_PREVAILS_TRANSFER  = 461529,  // 50% избытка -> 2 союзника в 40 м
+};
+
+namespace
+{
+    // AddUnitTarget у Spell protected; указатель на член через наследника — легальный доступ.
+    struct Ex13SpellTargetAccess : Spell
+    {
+        using Spell::AddUnitTarget;
+    };
+    void (Spell::* const kEx13AddUnitTarget)(Unit*, uint32, bool, bool, Position const*) = &Ex13SpellTargetAccess::AddUnitTarget;
+
+    thread_local bool gEx13HealBusy = false;
+    std::mutex gEx13TemperedLock;
+    std::unordered_map<ObjectGuid, ObjectGuid> gEx13TemperedUsedCast; // паладин -> CastId Святого оружия
+
+    bool Ex13IsHolyPowerGenerator(SpellInfo const* spellInfo)
+    {
+        if (!spellInfo)
+            return false;
+        for (SpellEffectInfo const& effect : spellInfo->GetEffects())
+            if (effect.IsEffect(SPELL_EFFECT_ENERGIZE) && effect.MiscValue == POWER_HOLY_POWER)
+                return true;
+        switch (spellInfo->Id)
+        {
+            case 35395:   // Удар воина Света
+            case 408385:  // Удары крестоносца
+            case 407480:  // Удар храмовника
+            case 406647:  // Разрез храмовника
+            case 184575:  // Клинок правосудия
+            case 20271:   // Правосудие
+            case 24275:   // Молот гнева
+            case 1241413:
+            case 1279408:
+            case 1291678:
+            case 255937:  // Испепеление
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // Прямое лечение с логом (без проков): для переносов, которые в DB2 «Ignore Caster Healing Modifiers».
+    void Ex13DirectHeal(Unit* healer, Unit* target, uint32 spellId, uint32 amount)
+    {
+        if (!healer || !target || !amount || !target->IsAlive())
+            return;
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE);
+        if (!info)
+            return;
+        gEx13HealBusy = true;
+        HealInfo healInfo(healer, target, amount, info, info->GetSchoolMask());
+        healer->HealBySpell(healInfo, false);
+        gEx13HealBusy = false;
+    }
+
+    // Союзник с оружием паладина (не сам паладин) в радиусе.
+    Unit* Ex13FindArmamentPartner(Unit* paladin, uint32 auraId, float radius)
+    {
+        std::vector<Unit*> nearby;
+        Trinity::AnyFriendlyUnitInObjectRangeCheck check(paladin, paladin, radius);
+        Trinity::UnitListSearcher searcher(paladin, nearby, check);
+        Cell::VisitAllObjects(paladin, searcher, radius);
+        for (Unit* unit : nearby)
+            if (unit != paladin && unit->IsAlive() && unit->HasAura(auraId, paladin->GetGUID()))
+                return unit;
+        return nullptr;
+    }
+
+    // Выравнивание процента здоровья двух юнитов (469704: кто выше — теряет, кто ниже — лечится).
+    void Ex13Redistribute(Unit* paladin, Unit* a, Unit* b)
+    {
+        if (!a->IsAlive() || !b->IsAlive())
+            return;
+        uint64 const maxA = a->GetMaxHealth(), maxB = b->GetMaxHealth();
+        if (!maxA || !maxB)
+            return;
+        double const pct = double(a->GetHealth() + b->GetHealth()) / double(maxA + maxB);
+        auto apply = [paladin](Unit* unit, uint64 max, double pct)
+        {
+            int64 const target = std::max<int64>(1, int64(pct * double(max)));
+            int64 const delta = target - int64(unit->GetHealth());
+            if (delta > 0)
+                Ex13DirectHeal(paladin, unit, SPELL_EX13_TEMPERED_REDISTRIBUTE, uint32(delta));
+            else if (delta < 0)
+                unit->ModifyHealth(delta); // «Cannot Kill Target»: target >= 1
+        };
+        // Сначала снимаем у того, кто выше, потом лечим того, кто ниже.
+        if (a->GetHealthPct() > b->GetHealthPct())
+        {
+            apply(a, maxA, pct);
+            apply(b, maxB, pct);
+        }
+        else
+        {
+            apply(b, maxB, pct);
+            apply(a, maxA, pct);
+        }
+    }
+}
+
+// 20271 - Правосудие (Рет): Благословенный защитник — ещё 4 цели (урон по ним -25%
+// делает spell_pal_blessed_champion_ex). WCL: ~3.1-3.3 попадания Правосудия на каст.
+class spell_pal_blessed_champion_judgment_ex : public SpellScript
+{
+    void HandleOnCast()
+    {
+        Unit* caster = GetCaster();
+        Unit* primary = GetExplTargetUnit();
+        if (!caster || !primary || !caster->HasAura(SPELL_EX13_BLESSED_CHAMPION))
+            return;
+
+        uint32 mask = 0;
+        for (SpellEffectInfo const& effect : GetSpellInfo()->GetEffects())
+            if (effect.IsEffect(SPELL_EFFECT_SCHOOL_DAMAGE))
+                mask |= 1u << effect.EffectIndex;
+        if (!mask)
+            return;
+
+        size_t extra = 4;
+        if (SpellInfo const* talent = sSpellMgr->GetSpellInfo(SPELL_EX13_BLESSED_CHAMPION, DIFFICULTY_NONE))
+            if (talent->GetEffects().size() > EFFECT_3)
+                if (int32 const value = talent->GetEffect(EFFECT_3).CalcValue(); value > 0 && value <= 10)
+                    extra = size_t(value);
+
+        float const radius = 8.f;
+        std::vector<Unit*> enemies;
+        Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(primary, caster, radius);
+        Trinity::UnitListSearcher searcher(primary, enemies, check);
+        Cell::VisitAllObjects(primary, searcher, radius);
+        std::erase_if(enemies, [caster, primary](Unit* unit)
+        {
+            return unit == primary || !caster->IsValidAttackTarget(unit) || !unit->IsWithinLOSInMap(primary);
+        });
+        std::sort(enemies.begin(), enemies.end(), [primary](Unit const* x, Unit const* y)
+        {
+            return primary->GetExactDist2dSq(x) < primary->GetExactDist2dSq(y);
+        });
+        if (enemies.size() > extra)
+            enemies.resize(extra);
+
+        Spell* spell = GetSpell();
+        for (Unit* enemy : enemies)
+            (spell->*kEx13AddUnitTarget)(enemy, mask, true, true, nullptr);
+    }
+
+    void Register() override
+    {
+        OnCast += SpellCastFn(spell_pal_blessed_champion_judgment_ex::HandleOnCast);
+    }
+};
+
+// 407067 - Прилив Света: крит способности-генератора Силы Света -> 407065 (+5% скорости, 10 с), КД 0.5 с.
+class spell_pal_rush_of_light_ex : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        if (!(eventInfo.GetHitMask() & PROC_HIT_CRITICAL))
+            return false;
+        return Ex13IsHolyPowerGenerator(eventInfo.GetSpellInfo());
+    }
+
+    void HandleProc(AuraEffect* aurEff, ProcEventInfo& /*eventInfo*/)
+    {
+        PreventDefaultAction();
+        Unit* target = GetTarget();
+        int32 const amount = std::max(1, int32(aurEff->GetAmount()));
+        target->CastSpell(target, SPELL_EX13_RUSH_OF_LIGHT_BUFF, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_FULL_MASK,
+            .TriggeringAura = aurEff,
+            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, amount } }
+        });
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_rush_of_light_ex::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_pal_rush_of_light_ex::HandleProc, EFFECT_0, SPELL_AURA_PROC_TRIGGER_SPELL_WITH_VALUE);
+    }
+};
+
+// Общая проверка «было избыточное лечение» для Закалённого в бою.
+static uint32 Ex13Overheal(ProcEventInfo& eventInfo)
+{
+    HealInfo* heal = eventInfo.GetHealInfo();
+    if (!heal || gEx13HealBusy)
+        return 0;
+    if (SpellInfo const* info = heal->GetSpellInfo())
+        if (info->Id == SPELL_EX13_TEMPERED_OVERHEAL || info->Id == SPELL_EX13_TEMPERED_REDISTRIBUTE)
+            return 0;
+    return heal->GetHeal() > heal->GetEffectiveHeal() ? heal->GetHeal() - heal->GetEffectiveHeal() : 0;
+}
+
+// 469701 - Закалённый в бою (на паладине): избыточное лечение паладина -> союзнику со Святым оплотом.
+class spell_pal_tempered_in_battle_ex : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        return Ex13Overheal(eventInfo) > 0;
+    }
+
+    void HandleProc(ProcEventInfo& eventInfo)
+    {
+        Unit* paladin = GetTarget();
+        uint32 const overheal = Ex13Overheal(eventInfo);
+        if (Unit* partner = Ex13FindArmamentPartner(paladin, SPELL_EX11_HOLY_BULWARK_BUFF, 40.f))
+            Ex13DirectHeal(paladin, partner, SPELL_EX13_TEMPERED_OVERHEAL, overheal);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_tempered_in_battle_ex::CheckProc);
+        OnProc += AuraProcFn(spell_pal_tempered_in_battle_ex::HandleProc);
+    }
+};
+
+// 432496 - Святой оплот (на союзнике): его избыточное лечение -> паладину с Закалённым в бою.
+class spell_pal_tempered_bulwark_ex : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        Unit* paladin = GetCaster();
+        if (!paladin || paladin == GetTarget() || !paladin->HasAura(SPELL_EX13_TEMPERED_IN_BATTLE))
+            return false;
+        return Ex13Overheal(eventInfo) > 0;
+    }
+
+    void HandleProc(ProcEventInfo& eventInfo)
+    {
+        Unit* paladin = GetCaster();
+        if (!paladin || !paladin->IsInMap(GetTarget()) || !paladin->IsWithinDistInMap(GetTarget(), 40.f))
+            return;
+        Ex13DirectHeal(paladin, paladin, SPELL_EX13_TEMPERED_OVERHEAL, Ex13Overheal(eventInfo));
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_tempered_bulwark_ex::CheckProc);
+        OnProc += AuraProcFn(spell_pal_tempered_bulwark_ex::HandleProc);
+    }
+};
+
+// Закалённый в бою, часть 2: паладин или союзник со Святым оружием падает ниже 40% —
+// здоровье выравнивается сразу и каждую 1 с 4 с (469704/469814). Один раз за каст оружия.
+class spell_pal_tempered_in_battle_link_ex : public UnitScript
+{
+public:
+    spell_pal_tempered_in_battle_link_ex() : UnitScript("spell_pal_tempered_in_battle_link_ex") { }
+
+    void OnDamage(Unit* /*attacker*/, Unit* victim, uint32& damage) override
+    {
+        if (!victim || !damage || victim->GetTypeId() != TYPEID_PLAYER || !victim->IsAlive())
+            return;
+        uint64 const health = victim->GetHealth();
+        uint64 const after = health > damage ? health - damage : 0;
+        if (after * 100 >= victim->GetMaxHealth() * 40 || health * 100 < victim->GetMaxHealth() * 40)
+            return; // срабатывает на пересечении порога 40%
+
+        Unit* paladin = nullptr;
+        Unit* partner = nullptr;
+        Aura* weapon = nullptr;
+        if (victim->HasAura(SPELL_EX13_TEMPERED_IN_BATTLE))
+        {
+            paladin = victim;
+            partner = Ex13FindArmamentPartner(paladin, SPELL_EX11_SACRED_WEAPON_BUFF, 40.f);
+            if (partner)
+                weapon = partner->GetAura(SPELL_EX11_SACRED_WEAPON_BUFF, paladin->GetGUID());
+        }
+        else
+        {
+            for (auto const& [id, app] : Trinity::Containers::MapEqualRange(victim->GetAppliedAuras(), uint32(SPELL_EX11_SACRED_WEAPON_BUFF)))
+            {
+                Unit* caster = app->GetBase()->GetCaster();
+                if (caster && caster != victim && caster->HasAura(SPELL_EX13_TEMPERED_IN_BATTLE)
+                    && caster->IsInMap(victim) && caster->IsWithinDistInMap(victim, 40.f))
+                {
+                    paladin = caster;
+                    partner = caster;
+                    weapon = app->GetBase();
+                    break;
+                }
+            }
+        }
+        if (!paladin || !partner || !weapon)
+            return;
+
+        {
+            std::lock_guard<std::mutex> lock(gEx13TemperedLock);
+            ObjectGuid& used = gEx13TemperedUsedCast[paladin->GetGUID()];
+            if (used == weapon->GetCastId())
+                return;
+            used = weapon->GetCastId();
+        }
+
+        ObjectGuid const a = victim->GetGUID();
+        ObjectGuid const other = ((victim == paladin) ? partner : paladin)->GetGUID();
+        for (Unit* unit : { victim, (victim == paladin) ? partner : paladin })
+            paladin->CastSpell(unit, SPELL_EX13_TEMPERED_AURA, CastSpellExtraArgsInit{ .TriggerFlags = TRIGGERED_FULL_MASK });
+
+        // Сразу (после применения урона) и каждую 1 с, всего 5 раз за 4 с.
+        for (int32 i = 0; i <= 4; ++i)
+        {
+            paladin->m_Events.AddEventAtOffset([paladin, a, other]()
+            {
+                Unit* first = ObjectAccessor::GetUnit(*paladin, a);
+                Unit* second = ObjectAccessor::GetUnit(*paladin, other);
+                if (!first || !second || first == second || !first->IsInMap(second) || !first->IsWithinDistInMap(second, 40.f))
+                    return;
+                Ex13Redistribute(paladin, first, second);
+            }, Milliseconds(1 + i * 1000));
+        }
+    }
+};
+
+// 461546 - Истина превыше всего: 50% избытка лечения делится на 2 союзников в 40 м (461529).
+// OnHit видит расчётное лечение (без крита), AfterHit — фактическое.
+class spell_pal_truth_prevails_transfer_ex : public SpellScript
+{
+    void SnapshotRaw()
+    {
+        _raw = GetHitHeal();
+    }
+
+    void HandleTransfer()
+    {
+        Unit* caster = GetCaster();
+        int32 const effective = GetHitHeal();
+        if (!caster || _raw <= effective)
+            return;
+        uint32 const pool = uint32(CalculatePct(_raw - effective, 50));
+        std::vector<Unit*> allies = Ex12InjuredAllies(caster, caster, 40.f, 2);
+        if (allies.empty() || !pool)
+            return;
+        uint32 const share = std::max<uint32>(1, pool / uint32(allies.size()));
+        for (Unit* ally : allies)
+            Ex13DirectHeal(caster, ally, SPELL_EX13_TRUTH_PREVAILS_TRANSFER, share);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_pal_truth_prevails_transfer_ex::SnapshotRaw);
+        AfterHit += SpellHitFn(spell_pal_truth_prevails_transfer_ex::HandleTransfer);
+    }
+
+    int32 _raw = 0;
+};
+
 void AddSC_paladin_spell_scripts_ex11()
 {
     RegisterSpellScript(spell_pal_sentinel_decay_ex);
@@ -1491,4 +1853,11 @@ void AddSC_paladin_spell_scripts_ex11()
     RegisterSpellScript(spell_pal_authoritative_rebuke_cleanse_ex);
     RegisterSpellScript(spell_pal_authoritative_rebuke_interrupt_ex);
     new spell_pal_lightbearer_tracker_ex();
+    // PAL_REV4: сверка с логами WCL
+    RegisterSpellScript(spell_pal_blessed_champion_judgment_ex);
+    RegisterSpellScript(spell_pal_rush_of_light_ex);
+    RegisterSpellScript(spell_pal_tempered_in_battle_ex);
+    RegisterSpellScript(spell_pal_tempered_bulwark_ex);
+    RegisterSpellScript(spell_pal_truth_prevails_transfer_ex);
+    new spell_pal_tempered_in_battle_link_ex();
 }

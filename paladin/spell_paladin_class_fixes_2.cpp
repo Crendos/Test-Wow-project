@@ -42,6 +42,7 @@ enum PaladinEx2Spells
     SPELL_EX2_BULWARK_OF_ORDER_TALENT     = 209389,
     SPELL_EX2_LIGHT_OF_THE_TITANS         = 378405,
     SPELL_EX2_SOLACE                      = 1245891,
+    SPELL_EX2_SOLACE_HEAL                 = 1245923, // лечение «Утешение» (WCL)
     SPELL_EX2_VISION_OF_SANCTITY          = 1245354,
     SPELL_EX2_SEAL_OF_REPRISAL            = 377053,
     SPELL_EX2_EYE_FOR_AN_EYE              = 469309,
@@ -349,11 +350,20 @@ class spell_pal_consecration_prot_ex : public SpellScript
                 pct = float(bonus->GetAmount());
 
         int64 heal = CalculatePct(static_cast<int64>(GetHitDamage()), pct);
-        // 339119 имеет ap-коэффициент 0.05 — вычитаем его, чтобы не задваивать
-        heal -= int64(0.05f * caster->GetTotalAttackPowerValue(BASE_ATTACK));
         if (heal <= 0)
             return;
 
+        // WCL: лечение идёт отдельным спеллом «Утешение» 1245923 (Heal без коэффициента,
+        // не критует, игнорирует модификаторы лечения заклинателя). 339119 — только запасной вариант.
+        if (sSpellMgr->GetSpellInfo(SPELL_EX2_SOLACE_HEAL, DIFFICULTY_NONE))
+        {
+            caster->CastSpell(caster, SPELL_EX2_SOLACE_HEAL, MakeSpellArgs(TRIGGERED_FULL_MASK, GetSpell(), SPELLVALUE_BASE_POINT0, int32(std::min<int64>(heal, std::numeric_limits<int32>::max()))));
+            return;
+        }
+
+        heal -= int64(0.05f * caster->GetTotalAttackPowerValue(BASE_ATTACK)); // 339119: ap-коэф. 0.05
+        if (heal <= 0)
+            return;
         caster->CastSpell(caster, SPELL_EX2_GOLDEN_PATH_HEAL, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, int32(heal)));
     }
 

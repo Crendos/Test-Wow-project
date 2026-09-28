@@ -143,3 +143,32 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- Властное порицание (Кузнец света): Свет — Очищение, Прот — Порицание
 (4987,    'spell_pal_authoritative_rebuke_cleanse_ex'),
 (96231,   'spell_pal_authoritative_rebuke_interrupt_ex');
+
+-- ============================================================================
+-- PAL_REV4 (28.09.2026, v4): сверка с логами WCL топ-игроков (Рет/Прот/Свет, оба героических древа).
+-- Повторный прогон безопасен.
+-- ============================================================================
+DELETE FROM `spell_script_names` WHERE `ScriptName` IN (
+  'spell_pal_blessed_champion_judgment_ex','spell_pal_rush_of_light_ex',
+  'spell_pal_tempered_in_battle_ex','spell_pal_tempered_bulwark_ex','spell_pal_truth_prevails_transfer_ex');
+DELETE FROM `spell_script_names` WHERE `spell_id` = 20271 AND `ScriptName` = 'spell_pal_blessed_champion_ex';
+
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+-- Благословенный защитник: Правосудие бьёт ещё 4 цели (-25% по ним)
+(20271,   'spell_pal_blessed_champion_judgment_ex'),
+(20271,   'spell_pal_blessed_champion_ex'),
+-- Прилив Света: крит генератора Силы Света -> +5% скорости 10 с
+(407067,  'spell_pal_rush_of_light_ex'),
+-- Закалённый в бою: перенос избыточного лечения паладин <-> союзник со Святым оплотом
+(469701,  'spell_pal_tempered_in_battle_ex'),
+(432496,  'spell_pal_tempered_bulwark_ex'),
+-- Истина превыше всего: 50% избытка самолечения -> 2 союзника (461529)
+(461546,  'spell_pal_truth_prevails_transfer_ex');
+
+-- Прилив Света: только криты (HitMask 0x2), КД 0.5 с, урон способностями/заклинаниями.
+-- Закалённый в бою / Святой оплот: получение лечения (способность, заклинание, периодика).
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
+VALUES
+(407067,0x00,0,0,0,0,0,0x11110,0x0,0x1,0x2,0x2,0x1,0x0,0,100,500,0),
+(469701,0x00,0,0,0,0,0,0x80008800,0x0,0x2,0x2,0x0,0x1,0x0,0,100,0,0),
+(432496,0x00,0,0,0,0,0,0x80008800,0x0,0x2,0x2,0x0,0x1,0x0,0,100,0,0);
