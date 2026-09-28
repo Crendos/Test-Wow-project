@@ -144,3 +144,49 @@ DELETE FROM `spell_proc` WHERE `SpellId` = 387170;
 -- «Недостойный» +150%). Поглощение 414022 — UnitScript, в SQL не нужен.
 REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (19750, 'spell_pal_infusion_of_light_fol_ex');
+
+-- ============================================================================
+-- Комплекты T35 (12.0) и T36 (12.1): серверные части бонусов.
+-- Модификаторы (T35 2pc всех спеков, метки T36 Holy 2pc, +10% Цели T36 Ret 2pc,
+-- крит по 204242 и радиус 81297 T36 Prot 2pc) работают из DBC без SQL.
+-- ============================================================================
+REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+-- T36 Ret 2pc/4pc: Божественная сила и Божественный арбитр при трате Божественной цели
+(383328, 'spell_pal_t36_ret_divine_purpose_ex'),
+(85256,  'spell_pal_t36_ret_divine_purpose_ex'),
+(53385,  'spell_pal_t36_ret_divine_purpose_ex'),
+(427453, 'spell_pal_t36_ret_divine_purpose_ex'),
+(85673,  'spell_pal_t36_ret_divine_purpose_ex'),
+(215661, 'spell_pal_t36_ret_divine_purpose_ex'),
+-- T35 Ret 4pc: Приговор/Вердикт/Буря вешают Поджигание
+(383328, 'spell_pal_t35_ret_expurgation_ex'),
+(85256,  'spell_pal_t35_ret_expurgation_ex'),
+(53385,  'spell_pal_t35_ret_expurgation_ex'),
+-- T35 Holy 4pc: Святой шок +20% в маяк
+(25914,  'spell_pal_t35_holy_beacon_ex'),
+-- T36 Holy 4pc: Свет небес -> Вливание света (Правосудие — в spell_pal_judgment_greater_ex)
+(82326,  'spell_pal_t36_holy_light_ex'),
+-- T35 Prot 4pc: Щит праведника -> 1272298, трата Щитом мстителя
+(1264847, 'spell_pal_t35_prot_4pc_ex'),
+(53600,  'spell_pal_t35_prot_sotr_ex'),
+(31935,  'spell_pal_t35_prot_avengers_shield_ex'),
+-- T36 Prot 2pc: Освящение +30%
+(26573,  'spell_pal_t36_prot_consecration_ex'),
+-- T36 Prot 4pc: +20% Света (x2 при крите)
+(275779, 'spell_pal_t36_prot_4pc_ex'),
+(204301, 'spell_pal_t36_prot_4pc_ex'),
+(53595,  'spell_pal_t36_prot_4pc_ex'),
+(88263,  'spell_pal_t36_prot_4pc_ex'),
+(35395,  'spell_pal_t36_prot_4pc_ex'),
+-- Стоковые скрипты TC, от которых зависят бонусы. Их строки есть только в базовом дампе TDB,
+-- у пустой базы их нет.
+(223817, 'spell_pal_divine_purpose'),
+(53651,  'spell_pal_light_s_beacon'),
+(383344, 'spell_pal_expurgation'),
+(26573,  'spell_pal_consecration');
+
+-- Стоковые spell_proc (как в TC: sql/old/9.x 2022_02_10_00 и updates/master 2026_09_21_03).
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`) VALUES
+(223817,0x00,10,0x00000000,0x00000000,0x00000000,0x00000000,0x0,0x0,0x0,0x1,0x0,0x0,0x0,0,0,0,0), -- Divine Purpose
+(223819,0x00,10,0x00000000,0x00000000,0x00000000,0x00000000,0x0,0x0,0x0,0x1,0x0,0x8,0x0,0,0,0,0), -- Divine Purpose (buff, REQ_SPELLMOD)
+(383344,0x00,10,0x00000000,0x00000000,0x00000000,0x40000000,0x0,0x0,0x1,0x2,0x0,0x0,0x0,0,0,0,0); -- Expurgation

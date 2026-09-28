@@ -109,6 +109,37 @@ enum PaladinExSpells
     SPELL_EX_HOLY_FLAMES                      = 406545
 };
 
+// Комплекты T35 (12.0, «Luminant Verdict's Vestments») и T36 (12.1, «Radiance of the Consecrated Flame»).
+enum PaladinExTierSpells
+{
+    SPELL_EX_T35_HOLY_2PC                     = 1264844, // Св. шок +15% хила — DBC
+    SPELL_EX_T35_HOLY_4PC                     = 1264845, // Св. шок: +20% переноса в маяк (E0)
+    SPELL_EX_T35_PROT_2PC                     = 1264846, // Щит праведника +20% — DBC
+    SPELL_EX_T35_PROT_4PC                     = 1264847, // Щит праведника -> 1272298
+    SPELL_EX_T35_RET_2PC                      = 1264848, // Поджигание +20% — DBC
+    SPELL_EX_T35_RET_4PC                      = 1264849, // Приговор 100% / Буря 50% вешают Поджигание
+    SPELL_EX_T36_HOLY_2PC                     = 1296656, // метки 54149 E0/E3 +100 — DBC
+    SPELL_EX_T36_HOLY_4PC                     = 1296657, // Правосудие 20% / Св. свет 100% -> Вливание
+    SPELL_EX_T36_PROT_2PC                     = 1296658, // E0 30: Освящение +30%; E1 крит по 204242 — DBC
+    SPELL_EX_T36_PROT_4PC                     = 1296659, // Правосудие/Молоты/Удар воина Света: +20% Света, крит x2
+    SPELL_EX_T36_RET_2PC                      = 1296660, // Цель +10% (DBC) + Божественная сила
+    SPELL_EX_T36_RET_4PC                      = 1296661, // Божественный арбитр
+
+    SPELL_EX_LIGHT_BLESSED_SHIELD             = 1272298, // след. Щит мстителя +5%, до 5 стаков
+    SPELL_EX_DIVINE_POWER                     = 1305230, // +10% урона Светом, 12 с
+    SPELL_EX_DIVINE_ARBITER_FOR_STORM         = 1306161, // «след. Буря и Молот Света»
+    SPELL_EX_DIVINE_ARBITER_FOR_VERDICT       = 1306162, // «след. Приговор и Молот Света»
+    SPELL_EX_DIVINE_ARBITER_FOR_STORM_ALT     = 1310461, // тот же текст, что 1306161
+    SPELL_EX_DIVINE_ARBITER_DAMAGE            = 1306923, // 1012.5% AP в цель + 472.5% AP в 8 м
+    SPELL_EX_DIVINE_PURPOSE_BUFF              = 223819,
+    SPELL_EX_AVENGERS_SHIELD                  = 31935,
+    SPELL_EX_SHIELD_OF_THE_RIGHTEOUS          = 53600,
+    SPELL_EX_HOLY_LIGHT                       = 82326,
+    SPELL_EX_HOLY_SHOCK_HEAL                  = 25914,
+    SPELL_EX_BEACON_OF_LIGHT                  = 53563,
+    SPELL_EX_BEACON_OF_LIGHT_HEAL             = 53652
+};
+
 namespace
 {
     // «Сбросить откат» спеллу на зарядах: ResetCooldown в TC заряды не трогает.
@@ -278,9 +309,9 @@ namespace
     }
 
     // 231644 (Свет): «предотвращает следующие (SP * 483%) * (1 + Универсальность) урона цели».
-    // Вливание света (54149, E4 = 250 → +150%) увеличивает поглощение. PvP-множитель 0.3714.
+    // Вливание света (54149, E3 = 250 → x2.5; с T36 2pc 350 → x3.5) увеличивает поглощение. PvP-множитель 0.3714.
     // Наложения суммируются («Multiple applications may overlap»), длительность 18 с (12.1.0).
-    void ApplyUnworthyEx(Unit* caster, Unit* target, bool infused, Spell const* triggering)
+    void ApplyUnworthyEx(Unit* caster, Unit* target, float infusionMult, Spell const* triggering)
     {
         if (!caster || !target)
             return;
@@ -294,8 +325,8 @@ namespace
         if (Player* player = caster->ToPlayer())
             AddPct(amount, player->GetRatingBonusValue(CR_VERSATILITY_DAMAGE_DONE)
                 + player->GetTotalAuraModifier(SPELL_AURA_MOD_VERSATILITY));
-        if (infused)
-            amount *= 2.5f;
+        if (infusionMult > 1.f)
+            amount *= infusionMult;
         if (target->GetAffectingPlayer())
             amount *= 0.3714f;
         if (amount < 1.f)
@@ -580,16 +611,39 @@ class spell_pal_judgment_greater_ex : public SpellScript
     {
         Unit* caster = GetCaster();
         _holy = IsHolyPaladinEx(caster);
-        _infused = _holy && caster->HasAura(SPELL_EX_INFUSION_OF_LIGHT);
+        _infused = false;
+        _infusionMult = 1.f;
+        if (!_holy)
+            return;
+        if (Aura const* infusion = caster->GetAura(SPELL_EX_INFUSION_OF_LIGHT))
+        {
+            _infused = true;
+            _infusionMult = 2.5f;
+            // E3 (#4) = 250; T36 2pc добавляет +100 через метку.
+            if (AuraEffect const* eff = infusion->GetEffect(EFFECT_3))
+                if (eff->GetAmount() > 0)
+                    _infusionMult = float(eff->GetAmount()) / 100.f;
+        }
     }
 
     void ConsumeInfusion()
     {
         Unit* caster = GetCaster();
-        if (!_infused || !caster)
+        if (!caster || !_holy)
             return;
-        caster->EnergizeBySpell(caster, GetSpellInfo(), 1, POWER_HOLY_POWER);
-        caster->RemoveAurasDueToSpell(SPELL_EX_INFUSION_OF_LIGHT);
+        if (_infused)
+        {
+            caster->EnergizeBySpell(caster, GetSpellInfo(), 1, POWER_HOLY_POWER);
+            caster->RemoveAurasDueToSpell(SPELL_EX_INFUSION_OF_LIGHT);
+        }
+
+        // T36 Holy 4pc: Правосудие с шансом 20% (E0) даёт Вливание света — после траты старого.
+        if (AuraEffect const* tier = caster->GetAuraEffect(SPELL_EX_T36_HOLY_4PC, EFFECT_0))
+            if (roll_chance(float(tier->GetAmount())))
+                caster->CastSpell(caster, SPELL_EX_INFUSION_OF_LIGHT, CastSpellExtraArgsInit{
+                    .TriggerFlags = TRIGGERED_FULL_MASK,
+                    .TriggeringSpell = GetSpell()
+                });
     }
 
     void HandleHitTarget()
@@ -605,7 +659,7 @@ class spell_pal_judgment_greater_ex : public SpellScript
             if (caster->HasAura(SPELL_EX_GREATER_JUDGMENT_HOLY) || caster->HasSpell(SPELL_EX_GREATER_JUDGMENT_HOLY)
                 || caster->HasAura(SPELL_EX_GREATER_JUDGMENT) || caster->HasSpell(SPELL_EX_GREATER_JUDGMENT))
                 if (caster->IsValidAttackTarget(hit))
-                    ApplyUnworthyEx(caster, hit, _infused, GetSpell());
+                    ApplyUnworthyEx(caster, hit, _infusionMult, GetSpell());
             return;
         }
 
@@ -651,6 +705,7 @@ class spell_pal_judgment_greater_ex : public SpellScript
 
     bool _holy = false;
     bool _infused = false;
+    float _infusionMult = 1.f;
 };
 
 // 197277 снимается одним наложением за удар способности, которую усиливает эффект 0.
@@ -1380,6 +1435,412 @@ class spell_pal_execution_sentence_ex : public AuraScript
     }
 };
 
+// ============================================================================
+// Комплекты T35 (12.0) и T36 (12.1). Бонусы-модификаторы (2pc Holy/Prot/Ret T35,
+// метки T36 Holy 2pc, +10% шанса Цели T36 Ret 2pc, крит по 204242 T36 Prot 2pc)
+// работают из DBC. Здесь — эффекты с пометкой «Server-side script».
+// ============================================================================
+
+namespace
+{
+    [[nodiscard]] Unit* PrimaryEnemyTargetEx(Spell const* spell, Unit* caster)
+    {
+        if (!caster)
+            return nullptr;
+        Unit* target = spell ? spell->m_targets.GetUnitTarget() : nullptr;
+        if (!target || !caster->IsValidAttackTarget(target))
+        {
+            target = nullptr;
+            if (Player* player = caster->ToPlayer())
+                target = player->GetSelectedUnit();
+            if (!target || !caster->IsValidAttackTarget(target))
+                target = caster->GetVictim();
+        }
+        return target && caster->IsValidAttackTarget(target) ? target : nullptr;
+    }
+}
+
+// T36 Ret 2pc / 4pc — траты Силы Света (Приговор, Вердикт, Буря, Молот Света, Слово славы,
+// Возмездие поборника). Трата Божественной цели (223819) определяется по m_appliedMods:
+// её модификатор стоимости участвовал в касте.
+//  * 2pc: трата Цели -> Божественная сила (1305230).
+//  * 4pc: трата Цели -> Божественный арбитр, если ни одного арбитра нет:
+//    Бурей -> 1306162 (выстрелит следующий Приговор/Молот Света),
+//    иначе -> 1306161 (выстрелит следующая Буря/Молот Света).
+//    Каст «своего» спендера при баффе -> 1306923 в основную цель, бафф снимается.
+class spell_pal_t36_ret_divine_purpose_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_DIVINE_POWER, SPELL_EX_DIVINE_ARBITER_FOR_STORM,
+            SPELL_EX_DIVINE_ARBITER_FOR_VERDICT, SPELL_EX_DIVINE_ARBITER_DAMAGE });
+    }
+
+    [[nodiscard]] bool IsStorm() const
+    {
+        return GetSpellInfo()->Id == SPELL_EX_DIVINE_STORM;
+    }
+
+    [[nodiscard]] bool IsVerdict() const
+    {
+        uint32 const id = GetSpellInfo()->Id;
+        return id == SPELL_EX_FINAL_VERDICT || id == SPELL_EX_TEMPLARS_VERDICT;
+    }
+
+    [[nodiscard]] bool IsHammerOfLight() const
+    {
+        return GetSpellInfo()->Id == SPELL_EX_HAMMER_OF_LIGHT;
+    }
+
+    void Snapshot()
+    {
+        Unit* caster = GetCaster();
+        _divinePurpose = caster->GetAura(SPELL_EX_DIVINE_PURPOSE_BUFF);
+        _arbiterBuff = 0;
+        if (!caster->HasAura(SPELL_EX_T36_RET_4PC))
+            return;
+
+        bool const forStorm = caster->HasAura(SPELL_EX_DIVINE_ARBITER_FOR_STORM)
+            || caster->HasAura(SPELL_EX_DIVINE_ARBITER_FOR_STORM_ALT);
+        bool const forVerdict = caster->HasAura(SPELL_EX_DIVINE_ARBITER_FOR_VERDICT);
+        if ((IsStorm() || IsHammerOfLight()) && forStorm)
+            _arbiterBuff = caster->HasAura(SPELL_EX_DIVINE_ARBITER_FOR_STORM)
+                ? SPELL_EX_DIVINE_ARBITER_FOR_STORM : SPELL_EX_DIVINE_ARBITER_FOR_STORM_ALT;
+        else if ((IsVerdict() || IsHammerOfLight()) && forVerdict)
+            _arbiterBuff = SPELL_EX_DIVINE_ARBITER_FOR_VERDICT;
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        // Выстрел арбитра.
+        if (_arbiterBuff)
+        {
+            if (Unit* target = PrimaryEnemyTargetEx(GetSpell(), caster))
+            {
+                caster->CastSpell(target, SPELL_EX_DIVINE_ARBITER_DAMAGE, CastSpellExtraArgsInit{
+                    .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                    .TriggeringSpell = GetSpell()
+                });
+                caster->RemoveAurasDueToSpell(_arbiterBuff);
+            }
+        }
+
+        bool const consumed = _divinePurpose
+            && (GetSpell()->m_appliedMods.count(_divinePurpose) != 0
+                || !caster->HasAura(SPELL_EX_DIVINE_PURPOSE_BUFF));
+        if (!consumed)
+            return;
+
+        if (caster->HasAura(SPELL_EX_T36_RET_2PC))
+            caster->CastSpell(caster, SPELL_EX_DIVINE_POWER, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_FULL_MASK,
+                .TriggeringSpell = GetSpell()
+            });
+
+        if (caster->HasAura(SPELL_EX_T36_RET_4PC)
+            && !caster->HasAura(SPELL_EX_DIVINE_ARBITER_FOR_STORM)
+            && !caster->HasAura(SPELL_EX_DIVINE_ARBITER_FOR_STORM_ALT)
+            && !caster->HasAura(SPELL_EX_DIVINE_ARBITER_FOR_VERDICT))
+        {
+            uint32 const grant = IsStorm() ? SPELL_EX_DIVINE_ARBITER_FOR_VERDICT : SPELL_EX_DIVINE_ARBITER_FOR_STORM;
+            caster->CastSpell(caster, grant, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_FULL_MASK,
+                .TriggeringSpell = GetSpell()
+            });
+        }
+    }
+
+    void Register() override
+    {
+        BeforeCast += SpellCastFn(spell_pal_t36_ret_divine_purpose_ex::Snapshot);
+        AfterCast += SpellCastFn(spell_pal_t36_ret_divine_purpose_ex::HandleAfterCast);
+    }
+
+    Aura* _divinePurpose = nullptr;
+    uint32 _arbiterBuff = 0;
+};
+
+// T35 Ret 4pc: Приговор / Вердикт вешают Поджигание (383346) на 100% (E0),
+// Божественная буря — на 50% (E1) по каждой цели. Существующий DoT не ослабляется.
+class spell_pal_t35_ret_expurgation_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_EXPURGATION_DOT });
+    }
+
+    void HandleHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target)
+            return;
+
+        bool const storm = GetSpellInfo()->Id == SPELL_EX_DIVINE_STORM;
+        AuraEffect const* tier = caster->GetAuraEffect(SPELL_EX_T35_RET_4PC, storm ? EFFECT_1 : EFFECT_0);
+        if (!tier || tier->GetAmount() <= 0)
+            return;
+
+        bool const existed = target->HasAura(SPELL_EX_EXPURGATION_DOT, caster->GetGUID());
+        caster->CastSpell(target, SPELL_EX_EXPURGATION_DOT, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
+
+        float const pct = float(tier->GetAmount());
+        if (existed || pct >= 100.f)
+            return;
+
+        if (Aura* dot = target->GetAura(SPELL_EX_EXPURGATION_DOT, caster->GetGUID()))
+            for (AuraEffect* eff : dot->GetAuraEffects())
+                if (eff && eff->GetAuraType() == SPELL_AURA_PERIODIC_DAMAGE)
+                {
+                    eff->SetCanBeRecalculated(false);
+                    eff->ChangeAmount(int32(CalculatePct(float(eff->GetAmount()), pct)));
+                }
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_pal_t35_ret_expurgation_ex::HandleHit);
+    }
+};
+
+// T35 Holy 4pc: Святой шок (хил 25914) переносит в маяк ещё 20% (E0).
+// Базовый перенос делает стоковый spell_pal_light_s_beacon (53651); здесь — только добавка.
+class spell_pal_t35_holy_beacon_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_BEACON_OF_LIGHT, SPELL_EX_BEACON_OF_LIGHT_HEAL });
+    }
+
+    void HandleHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* healed = GetHitUnit();
+        if (!caster || !healed || GetHitHeal() <= 0)
+            return;
+
+        AuraEffect const* tier = caster->GetAuraEffect(SPELL_EX_T35_HOLY_4PC, EFFECT_0);
+        if (!tier || tier->GetAmount() <= 0)
+            return;
+
+        int32 const bonus = int32(CalculatePct(float(GetHitHeal()), float(tier->GetAmount())));
+        if (bonus <= 0)
+            return;
+
+        for (Aura* aura : caster->GetSingleCastAuras())
+        {
+            if (aura->GetId() != SPELL_EX_BEACON_OF_LIGHT)
+                continue;
+            std::vector<AuraApplication*> applications;
+            aura->GetApplicationVector(applications);
+            for (AuraApplication const* app : applications)
+            {
+                Unit* beacon = app->GetTarget();
+                if (!beacon || beacon == healed)
+                    continue;
+                caster->CastSpell(beacon, SPELL_EX_BEACON_OF_LIGHT_HEAL,
+                    MakeSpellArgs(TRIGGERED_FULL_MASK, GetSpell(), SPELLVALUE_BASE_POINT0, bonus));
+            }
+        }
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_pal_t35_holy_beacon_ex::HandleHit);
+    }
+};
+
+// T36 Holy 4pc: Свет небес всегда (E1 = 100%) даёт Вливание света.
+// Часть с Правосудием (20%) — в spell_pal_judgment_greater_ex::ConsumeInfusion.
+class spell_pal_t36_holy_light_ex : public SpellScript
+{
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        AuraEffect const* tier = caster ? caster->GetAuraEffect(SPELL_EX_T36_HOLY_4PC, EFFECT_1) : nullptr;
+        if (!tier || !roll_chance(float(tier->GetAmount())))
+            return;
+
+        caster->CastSpell(caster, SPELL_EX_INFUSION_OF_LIGHT, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_FULL_MASK,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_t36_holy_light_ex::HandleAfterCast);
+    }
+};
+
+// T35 Prot 4pc: после Щита праведника следующий Щит мстителя +5% (1272298, до 5 стаков).
+// Аура-сет сама не прокает: без строки spell_proc DBC-флаги вешали бы бафф на что попало.
+class spell_pal_t35_prot_4pc_ex : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& /*eventInfo*/)
+    {
+        return false;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_t35_prot_4pc_ex::CheckProc);
+    }
+};
+
+class spell_pal_t35_prot_sotr_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_LIGHT_BLESSED_SHIELD });
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->HasAura(SPELL_EX_T35_PROT_4PC))
+            return;
+
+        if (Aura* buff = caster->GetAura(SPELL_EX_LIGHT_BLESSED_SHIELD))
+        {
+            uint32 cap = buff->GetSpellInfo()->StackAmount ? buff->GetSpellInfo()->StackAmount : 5;
+            if (buff->GetStackAmount() < cap)
+                buff->ModStackAmount(1);
+            else
+                buff->RefreshDuration();
+            return;
+        }
+
+        caster->CastSpell(caster, SPELL_EX_LIGHT_BLESSED_SHIELD, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_FULL_MASK,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_t35_prot_sotr_ex::HandleAfterCast);
+    }
+};
+
+// Трата 1272298 Щитом мстителя. Щит летит и отскакивает, поэтому бафф снимается
+// через 3 с (после всех попаданий) и только те стаки, что были при касте.
+class spell_pal_t35_prot_avengers_shield_ex : public SpellScript
+{
+    void Snapshot()
+    {
+        _stacks = 0;
+        if (Aura const* buff = GetCaster()->GetAura(SPELL_EX_LIGHT_BLESSED_SHIELD))
+            _stacks = buff->GetStackAmount();
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !_stacks)
+            return;
+
+        uint16 const stacks = uint16(_stacks);
+        caster->m_Events.AddEventAtOffset([caster, stacks]()
+        {
+            caster->RemoveAuraFromStack(SPELL_EX_LIGHT_BLESSED_SHIELD, ObjectGuid::Empty, AURA_REMOVE_BY_DEFAULT, stacks);
+        }, Milliseconds(3000));
+    }
+
+    void Register() override
+    {
+        BeforeCast += SpellCastFn(spell_pal_t35_prot_avengers_shield_ex::Snapshot);
+        AfterCast += SpellCastFn(spell_pal_t35_prot_avengers_shield_ex::HandleAfterCast);
+    }
+
+    uint8 _stacks = 0;
+};
+
+// T36 Prot 2pc: Освящение на 30% больше (E0). Урон 81297 растёт меткой радиуса (E2, DBC),
+// а сам areatrigger — только масштабом: SetExtraScaleCurve умножает радиус поиска целей.
+class spell_pal_t36_prot_consecration_ex : public AuraScript
+{
+    void ScaleAreaTriggers()
+    {
+        if (_scaled)
+            return;
+        Unit* target = GetTarget();
+        AuraEffect const* tier = target->GetAuraEffect(SPELL_EX_T36_PROT_2PC, EFFECT_0);
+        if (!tier || tier->GetAmount() <= 0)
+        {
+            _scaled = true;
+            return;
+        }
+
+        float const scale = 1.f + float(tier->GetAmount()) / 100.f;
+        for (AreaTrigger* at : target->GetAreaTriggers(SPELL_EX_CONSECRATION))
+        {
+            if (!at || at->GetCasterGuid() != target->GetGUID())
+                continue;
+            at->SetExtraScaleCurve(scale);
+            _scaled = true;
+        }
+    }
+
+    void AfterApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        ScaleAreaTriggers();
+    }
+
+    void OnTick(AuraEffect const* /*aurEff*/)
+    {
+        ScaleAreaTriggers();
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_pal_t36_prot_consecration_ex::AfterApply, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_t36_prot_consecration_ex::OnTick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+    }
+
+    bool _scaled = false;
+};
+
+// T36 Prot 4pc: цели Правосудия / Благословенного молота / Молота праведника /
+// Удара воина Света получают +20% (E0) урона Светом; при крите добавка +100% (E1), то есть 40%.
+class spell_pal_t36_prot_4pc_ex : public SpellScript
+{
+    void HandleHit()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || GetHitDamage() <= 0)
+            return;
+
+        AuraEffect const* tier = caster->GetAuraEffect(SPELL_EX_T36_PROT_4PC, EFFECT_0);
+        if (!tier || tier->GetAmount() <= 0)
+            return;
+
+        float pct = float(tier->GetAmount());
+        if (IsHitCrit())
+        {
+            float critBonus = 100.f;
+            if (AuraEffect const* crit = caster->GetAuraEffect(SPELL_EX_T36_PROT_4PC, EFFECT_1))
+                critBonus = float(crit->GetAmount());
+            AddPct(pct, critBonus);
+        }
+
+        int32 const damage = GetHitDamage();
+        SetHitDamage(damage + int32(CalculatePct(float(damage), pct)));
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_pal_t36_prot_4pc_ex::HandleHit);
+    }
+};
+
 // 19750 - Вспышка света: тратит Вливание света (54149), если оно было при касте.
 // Стоковая строка spell_proc / скрипт 54149 лежат только в базовом дампе TDB.
 class spell_pal_infusion_of_light_fol_ex : public SpellScript
@@ -1491,4 +1952,13 @@ void AddSC_paladin_spell_scripts_ex()
     new spell_pal_execution_sentence_tracker();
     RegisterSpellScript(spell_pal_infusion_of_light_fol_ex);
     new spell_pal_unworthy_tracker();
+    RegisterSpellScript(spell_pal_t36_ret_divine_purpose_ex);
+    RegisterSpellScript(spell_pal_t35_ret_expurgation_ex);
+    RegisterSpellScript(spell_pal_t35_holy_beacon_ex);
+    RegisterSpellScript(spell_pal_t36_holy_light_ex);
+    RegisterSpellScript(spell_pal_t35_prot_4pc_ex);
+    RegisterSpellScript(spell_pal_t35_prot_sotr_ex);
+    RegisterSpellScript(spell_pal_t35_prot_avengers_shield_ex);
+    RegisterSpellScript(spell_pal_t36_prot_consecration_ex);
+    RegisterSpellScript(spell_pal_t36_prot_4pc_ex);
 }
