@@ -33,7 +33,7 @@
 // ============================================================================
 
 // === CUT HERE ===============================================================
-// PAL_REV6_20260928 (включает PAL_REV5, PAL_REV4, PAL_REV3, PAL_REV2)
+// PAL_REV7_20260928 (включает PAL_REV6, PAL_REV5, PAL_REV4, PAL_REV3, PAL_REV2)
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -1475,12 +1475,17 @@ enum PaladinEx13Spells
 
 namespace
 {
-    // AddUnitTarget у Spell protected; указатель на член через наследника — легальный доступ.
+    // AddUnitTarget у Spell — protected. Взять адрес защищённого члена через наследника
+    // (&Ex13SpellTargetAccess::AddUnitTarget) GCC пропускает, а MSVC — нет (error C2248:
+    // cannot access protected member). Вызываем AddUnitTarget из обычного метода наследника
+    // (неявный this->AddUnitTarget) — такую форму принимают и MSVC, и GCC.
     struct Ex13SpellTargetAccess : Spell
     {
-        using Spell::AddUnitTarget;
+        void AddExtraTarget(Unit* target, uint32 effectMask)
+        {
+            AddUnitTarget(target, effectMask, true, true, nullptr);
+        }
     };
-    void (Spell::* const kEx13AddUnitTarget)(Unit*, uint32, bool, bool, Position const*) = &Ex13SpellTargetAccess::AddUnitTarget;
 
     thread_local bool gEx13HealBusy = false;
     std::mutex gEx13TemperedLock;
@@ -1613,7 +1618,7 @@ class spell_pal_blessed_champion_judgment_ex : public SpellScript
 
         Spell* spell = GetSpell();
         for (Unit* enemy : enemies)
-            (spell->*kEx13AddUnitTarget)(enemy, mask, true, true, nullptr);
+            static_cast<Ex13SpellTargetAccess*>(spell)->AddExtraTarget(enemy, mask);
     }
 
     void Register() override

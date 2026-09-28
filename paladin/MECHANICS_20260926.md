@@ -263,3 +263,16 @@ Id с Wowhead: T35 — 1264844…1264849, T36 — 1296656…1296661 (Holy 2/4, P
 | Прилив Света 407067 (Рет) | аргументы каста собирались одним designated-инициализатором с вложенным списком `SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, amount } }` — MSVC на таком падает (C2440/C2078), это и ломало сборку | `CastSpellExtraArgs args(TRIGGERED_FULL_MASK); args.SetTriggeringAura(aurEff); args.AddSpellMod(SPELLVALUE_BASE_POINT0, amount);` |
 
 Игровая логика не изменилась: тот же бафф 407065 (+5% скорости, 10 с) с тем же КД 0.5 с.
+
+
+## 28.09.2026 (v7, маркер `PAL_REV7_20260928`) — только сборка
+
+| Что | Было | Стало |
+|---|---|---|
+| Благословенный защитник 403010 (Рет, доп. цели Правосудия 20271) | доступ к protected `Spell::AddUnitTarget` через указатель на член, взятый у наследника (`using Spell::AddUnitTarget` + `&Ex13SpellTargetAccess::AddUnitTarget`) — GCC это компилирует, MSVC падает с `error C2248` на строке `spell_paladin.cpp(10036,116)` | вызов из обычного метода наследника: `struct Ex13SpellTargetAccess : Spell { void AddExtraTarget(Unit*, uint32) { AddUnitTarget(target, effectMask, true, true, nullptr); } }` и в `HandleOnCast` — `static_cast<Ex13SpellTargetAccess*>(spell)->AddExtraTarget(enemy, mask);` |
+
+Игровая логика не изменилась: у Правосудия (20271) с Благословенным защитником по-прежнему
+до 4 дополнительных целей, −25% урона по ним считает `spell_pal_blessed_champion_ex`.
+Причина правки: MSVC (17.14, VS2022) не принимает взятие адреса protected-члена базового класса
+через наследника, хотя GCC принимает; обход `kEx13AddUnitTarget` был единственным
+непереносимым местом во всём паке.

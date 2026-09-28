@@ -122,13 +122,17 @@ findstr /n "spellBlockChance" src\server\game\Entities\Unit\Unit.cpp
 > **Если вы уже ставили старую версию партий** (получали ошибки C2440 при сборке) —
 > просто запустите `step1_scripts.bat` ещё раз: он сам увидит старый код, откатит
 > `spell_paladin.cpp` через git и вставит новую MSVC-совместимую версию. В конце
-> должно быть: `маркеров стало: 11` и `MakeSpellArgs в файле: 20` (ревизия `PAL_REV6_20260928`; версия с 21 — старая, step1 заменит её сам).
+> должно быть: `маркеров стало: 11` и `MakeSpellArgs в файле: 20` (ревизия `PAL_REV7_20260928`; версии v5/v6 — старые, step1 заменит их сам).
 >
-> **v6 (28.09.2026):** лечит ошибку сборки в части 11 (`Прилив Света`): вложенный список
-> `SpellValueOverrides = { { … } }` внутри designated-инициализатора (MSVC: C2440/C2078)
-> заменён на пошаговую сборку аргументов, как в остальном паке. Логика та же.
-> Если у вас уже стоял v5 и сборка падала — просто запустите `step1_scripts.bat` ещё раз:
-> он увидит старую ревизию, откатит `spell_paladin.cpp` и вставит v6.
+> **v6 (28.09.2026):** правка в части 11 (`Прилив Света`): вложенный список
+> `SpellValueOverrides = { { … } }` внутри designated-инициализатора заменён на пошаговую
+> сборку аргументов, как в остальном паке. Логика та же.
+>
+> **v7 (28.09.2026) — лечит `error C2248: Spell::AddUnitTarget` (это ваша текущая ошибка):**
+> в части 11 брался адрес protected-метода `Spell` через наследника
+> (`&Ex13SpellTargetAccess::AddUnitTarget`). GCC такое принимает, MSVC — нет. Теперь
+> `AddUnitTarget` вызывается из обычного метода наследника. Игровая логика та же.
+> Порядок действий и номер строки — раздел 12 в конце файла.
 
 **Автоматически (вставкой блока, если правый клик-вставка работает).** Правый клик по `C:\TrinityCore` → **Git Bash Here**. Скопируйте блок ЦЕЛИКОМ и вставьте (если папка фиксов не `C:\paladin-fixes\paladin` — поправьте путь во 2-й строке):
 
@@ -282,7 +286,7 @@ SELECT CONCAT('5) Шаблон AT 6006: ', COUNT(*), ' (ждём 1; 0 = КРАШ
 ```cmd
 findstr /C:"MakeSpellArgs" "C:\TrinityCore\src\server\scripts\Spells\spell_paladin.cpp" | find /c /v ""
 ```
-Должно напечатать **20** (ревизия PAL_REV6). Если напечатало **0** — код не вставлен:
+Должно напечатать **20** (ревизия PAL_REV7). Если напечатало **0** — код не вставлен:
 запустите `step1_scripts.bat` (сам вставит или заменит старую версию) и проверьте снова.
 Напечатает **>0, но не 20** — пришлите мне вывод `findstr /C:"MakeSpellArgs" ...` без `| find`.
 
@@ -602,3 +606,76 @@ findstr /c:"each Holy Power spent" src\server\scripts\Spells\spell_paladin.cpp
 - Неоспоримое постановление больше не кастует полный Правосудие/Щит праведника (не тратит СС и не плодит чужие проки).
 - Рассветный свет выдаётся Пробуждением зол (рет) или Призмой/Звоном (холи), а тратится спендером СС. Правосудие и Шок его больше не вешают.
 - Солнечный ожог — крит Молота гнева или Бури (только рет).
+
+## 12. Ревизия 28.09.2026 v7 (`PAL_REV7_20260928`) — ошибка сборки C2248
+
+Симптом (ваш лог из `logs_analysis`):
+
+```
+spell_paladin.cpp(10036,116): error C2248: Spell::AddUnitTarget: невозможно обратиться
+к protected член, объявленному в классе "Spell"  [...\scripts\scripts.vcxproj]
+```
+
+Это единственная ошибка сборки. Строка 10036 = 1945 (ваш `spell_paladin.cpp`, master до 23.09)
++ 8091 (позиция строки внутри вставки) — то есть ошибка ровно в партии 11, в обходе protected:
+
+```cpp
+struct Ex13SpellTargetAccess : Spell { using Spell::AddUnitTarget; };
+void (Spell::* const kEx13AddUnitTarget)(Unit*, uint32, bool, bool, Position const*) =
+    &Ex13SpellTargetAccess::AddUnitTarget;   // MSVC: error C2248
+```
+
+GCC такую конструкцию принимает, MSVC — нет (проверка доступа к protected идёт по классу `Spell`).
+
+**Что сделано в v7** (партия 11, `spell_pal_blessed_champion_judgment_ex`): обход убран,
+`AddUnitTarget` вызывается из обычного метода наследника — эту форму принимают и MSVC, и GCC.
+
+```cpp
+struct Ex13SpellTargetAccess : Spell
+{
+    void AddExtraTarget(Unit* target, uint32 effectMask)
+    {
+        AddUnitTarget(target, effectMask, true, true, nullptr);
+    }
+};
+...
+static_cast<Ex13SpellTargetAccess*>(spell)->AddExtraTarget(enemy, mask);
+```
+
+Игровая логика не изменилась: Благословенный защитник (`403010`) по-прежнему добавляет
+Правосудию (`20271`) до 4 дополнительных целей, а −25% урона по ним считает
+`spell_pal_blessed_champion_ex`.
+
+**Как поставить (2 минуты):**
+
+1. Заново скачать папку `paladin/` — **Code → Download ZIP** ветки PR #6
+   (`arena/01a0e8ee-test-wow-project`) и распаковать поверх вашей `F:\Games\server\comp\paladin`.
+   Важно: в `windows\step1_scripts.ps1` добавлена проверка версии — если файлы фиксов старые,
+   скрипт напишет `[X] папка paladin устарела` и НИЧЕГО не вставит (раньше он молча вставлял v5).
+2. Запустить `paladin\windows\step1_scripts.bat` (двойной клик, путь к ядру найдёт сам).
+   Он откатит `spell_paladin.cpp` через git и вставит v7. Ожидаемый хвост вывода:
+   `маркеров стало: 11`, `MakeSpellArgs в файле: 20`,
+   `[3e] ревизия PAL_REV7_20260928: True ; обход protected через указатель на член: False`,
+   `>>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)`.
+3. Пересобрать: `cmake --build build --config Release -j 8` (или `scripts` + `worldserver` в VS).
+   Ошибки C2248 больше быть не должно.
+4. `paladin\windows\check_all.bat` — все строки `[OK]`, в том числе
+   «обход protected через указатель на член убран (MSVC C2248)».
+
+**Если правите `spell_paladin.cpp` руками** (без скрипта): найдите в конце файла (примерно
+строка 10036 у вас, 10073 на свежем master) строку
+`void (Spell::* const kEx13AddUnitTarget)...` и блок `struct Ex13SpellTargetAccess ...` над ней —
+замените их на struct с методом `AddExtraTarget` из примера выше; затем в
+`spell_pal_blessed_champion_judgment_ex::HandleOnCast` замените
+`(spell->*kEx13AddUnitTarget)(enemy, mask, true, true, nullptr);` на
+`static_cast<Ex13SpellTargetAccess*>(spell)->AddExtraTarget(enemy, mask);`.
+Номер строки у вас может отличаться — ищите по тексту `kEx13AddUnitTarget`.
+
+Примечания:
+
+- Ваш `spell_paladin.cpp` в логе — 1945 строк (master до 23.09.2026), поэтому строка ошибки
+  10036, а не 10073. Обновлять ядро до свежего master не обязательно: кроме C2248 других
+  ошибок в логе нет, то есть остальной пак на вашей ревизии собирается.
+- Правки v6 (вложенный designated-инициализатор `SpellValueOverrides = { { … } }` в «Приливе
+  Света») и v7 (protected `AddUnitTarget`) игровую логику не меняют вообще — можно ставить
+  поверх любой из версий v5/v6.

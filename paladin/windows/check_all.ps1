@@ -22,7 +22,8 @@ Chk ($a -match 'HandleNoImmediateEffect,\s*//529') 'Шаг 0: 529 заменён
 $pal = Get-Content -Raw "$core\src\server\scripts\Spells\spell_paladin.cpp"
 $n = ([regex]::Matches($pal, [regex]::Escape('// === CUT HERE'))).Count
 Chk ($n -eq 11) "Шаг 1.1: партий 11" "Шаг 1.1: партий $n (нужно 11)"
-Chk ($pal -match 'PAL_REV6_20260928') 'Шаг 1.1: ревизия 28.09 (v6) на месте' 'Шаг 1.1: старые партии (нет ревизии 28.09 v6) — перезапустите step1_scripts.bat'
+Chk ($pal -match 'PAL_REV7_20260928') 'Шаг 1.1: ревизия 28.09 (v7) на месте' 'Шаг 1.1: старые партии (нет PAL_REV7_20260928) — скачайте свежую папку paladin и перезапустите step1_scripts.bat'
+Chk ($pal -notmatch 'kEx13AddUnitTarget') 'Шаг 1.1: обход protected через указатель на член убран (MSVC C2248)' 'Шаг 1.1: в spell_paladin.cpp остался kEx13AddUnitTarget — MSVC упадёт с C2248, перезапустите step1_scripts.bat'
 Chk ($pal -match 'PAL_MECH_REV_20260926') 'Шаг 1.1: механика 26.09 на месте' 'Шаг 1.1: старые партии — перезапустите step1_scripts.bat'
 Chk (($pal -match 'PAL_NO_PROTECTED_TARGETINFO') -and ($pal -notmatch 'GetSpell\(\)->m_UniqueTargetInfo')) 'Шаг 1.1: нет обращения к protected-полю Spell' 'Шаг 1.1: в spell_paladin.cpp всё ещё старый Рассвет — перезапустите step1_scripts.bat'
 $ld = Get-Content -Raw "$core\src\server\scripts\Spells\spell_script_loader.cpp"

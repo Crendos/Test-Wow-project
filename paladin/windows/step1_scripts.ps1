@@ -32,6 +32,16 @@ Write-Host "[i] ядро:  $core"
 $files = @((Join-Path $fix 'spell_paladin_class_fixes.cpp')) + (2..11 | ForEach-Object { Join-Path $fix ("spell_paladin_class_fixes_{0}.cpp" -f $_) })
 foreach ($f in $files) { if (-not (Test-Path $f)) { Write-Host "[X] нет файла: $f"; Read-Host Enter; exit 1 } }
 
+# --- версия САМИХ файлов фиксов (устаревшая папка paladin = старый код в cpp) ----------
+$srcRev = Get-Content -Raw (Join-Path $fix 'spell_paladin_class_fixes_11.cpp')
+$srcOld = $srcRev.Contains('kEx13AddUnitTarget') -or $srcRev.Contains('using Spell::AddUnitTarget')
+if ((-not $srcRev.Contains('PAL_REV7_20260928')) -or $srcOld) {
+    Write-Host "[X] папка paladin устарела: в spell_paladin_class_fixes_11.cpp нет PAL_REV7_20260928" -ForegroundColor Red
+    Write-Host "    (или остался обход protected: kEx13AddUnitTarget / using Spell::AddUnitTarget = ошибка MSVC C2248)." -ForegroundColor Red
+    Write-Host "    Скачайте свежую папку paladin из репозитория (Code -> Download ZIP ветки PR #6) и запустите скрипт снова." -ForegroundColor Yellow
+    Read-Host "Нажмите Enter для выхода"; exit 1
+}
+
 $raw = Get-Content -Raw $pal
 $cur = ([regex]::Matches($raw, [regex]::Escape($marker))).Count
 $hasNew = $raw.Contains('MakeSpellArgs')
@@ -39,7 +49,7 @@ $hasAT    = $raw.Contains('RegisterAreaTriggerAI(at_pal_blessed_hammer)')
 $hasGuard = $raw.Contains('procSpell->IsTriggered()')
 $hasMech  = $raw.Contains('PAL_MECH_REV_20260926')
 $hasSafe  = $raw.Contains('PAL_NO_PROTECTED_TARGETINFO')
-$hasRev   = $raw.Contains('PAL_REV6_20260928')
+$hasRev   = $raw.Contains('PAL_REV7_20260928')
 $hasBad   = $raw.Contains('GetSpell()->m_UniqueTargetInfo')
 Write-Host "[1/4] маркеров в spell_paladin.cpp сейчас: $cur (нужно 0 или 11)"
 $needRollback = $false
@@ -47,7 +57,7 @@ if ($cur -eq 11) {
     if ($hasNew -and $hasAT -and $hasGuard -and $hasMech -and $hasSafe -and $hasRev -and -not $hasBad) {
         Write-Host ">>> УЖЕ УСТАНОВЛЕНО (последняя версия) — вставка пропущена"
     } else {
-        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_REV6_20260928 / PAL_NO_PROTECTED_TARGETINFO или ещё есть protected-поле) — заменяю на новую"
+        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_REV7_20260928 / PAL_NO_PROTECTED_TARGETINFO или остался обход protected через указатель на член = MSVC C2248) — заменяю на новую"
         $needRollback = $true
     }
 } elseif ($cur -ne 0) {
@@ -91,12 +101,16 @@ if ($cur -eq 0) {
     $atN = ([regex]::Matches($raw2, [regex]::Escape('RegisterAreaTriggerAI(at_pal_blessed_hammer)'))).Count
     $gdN = ([regex]::Matches($raw2, [regex]::Escape('procSpell->IsTriggered()'))).Count
     $mech = $raw2.Contains('PAL_MECH_REV_20260926')
+    $rev7 = $raw2.Contains('PAL_REV7_20260928')
+    $old7 = $raw2.Contains('kEx13AddUnitTarget')
+    $adtN = ([regex]::Matches($raw2, 'AddExtraTarget')).Count
     $safe = $raw2.Contains('PAL_NO_PROTECTED_TARGETINFO') -and -not $raw2.Contains('GetSpell()->m_UniqueTargetInfo')
     Write-Host "[3/4] маркеров стало: $now (нужно 11)"
     Write-Host "[3b]  MakeSpellArgs в файле: $ms (ожидается 20)"
     Write-Host "[3c]  AT-скрипт молота: $atN (ожидается 1); анти-зацикливание: $gdN (ожидается 2)"
     Write-Host "[3d]  механика 26.09: $mech ; без protected-поля: $safe (ожидается True True)"
-    if ($now -eq 11 -and $ms -eq 20 -and $atN -eq 1 -and $gdN -eq 2 -and $mech -and $safe) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)" -ForegroundColor Green }
+    Write-Host "[3e]  ревизия PAL_REV7_20260928: $rev7 ; обход protected через указатель на член: $old7 (ожидается True False); AddExtraTarget: $adtN (ожидается 2)"
+    if ($now -eq 11 -and $ms -eq 20 -and $atN -eq 1 -and $gdN -eq 2 -and $mech -and $safe -and $rev7 -and (-not $old7) -and ($adtN -eq 2)) { Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)" -ForegroundColor Green }
     else { Write-Host "[X] НЕ СХОДИТСЯ — пришлите этот вывод целиком" -ForegroundColor Red; Read-Host Enter; exit 1 }
 }
 
