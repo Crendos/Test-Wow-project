@@ -8,6 +8,9 @@
 //   (427441), если талант Наставления Света (427445) известен. Маску прока
 //   427445 обнулили (PROC_FIX.sql — прок срабатывал с ЛЮБОГО каста, включая
 //   маунт), поэтому выдачу делаем узким путем — строго от каста Звона.
+// 28.09.2026 (v9, PAL_RESONANCE_15S_20260928): Резонанс света Защиты (386730) — 15 с задаются
+//   прямо в касте (каст исполняется на следующем тике мира, после каста ауры ещё нет), три
+//   тика (5/10/15 с) ведёт таймер Звона, своя периодика ауры заглушена. Подробности: INSTALL.md §14.
 // ============================================================================
 
 // === CUT HERE ===============================================================
@@ -96,6 +99,65 @@ namespace
             stacks = static_cast<uint8>(cap);
         while (aura->GetStackAmount() < stacks)
             aura->ModStackAmount(1);
+    }
+
+    // PAL_RESONANCE_15S_20260928: Резонанс света (386730) в данных клиента — 10 с и без
+    // своей периодики, поэтому «15 с = 3 тика» делаем сами: длительность задаём прямо
+    // в касте (SPELLVALUE_DURATION), тики (Щит мстителя / Святая вспышка) — таймером.
+    uint32 Ex6ResonanceTickSpell(Unit* caster)
+    {
+        if (Player* pl = caster ? caster->ToPlayer() : nullptr)
+            if (pl->GetPrimarySpecialization() == ChrSpecialization::PaladinHoly)
+                return SPELL_EX6_HOLY_SHOCK;
+        return SPELL_EX6_AVENGERS_SHIELD;
+    }
+
+    Unit* Ex6NearestEnemy(Unit* from, float radius)
+    {
+        if (!from)
+            return nullptr;
+
+        std::vector<Unit*> enemies;
+        Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(from, from, radius);
+        Trinity::UnitListSearcher searcher(from, enemies, check);
+        Cell::VisitAllObjects(from, searcher, radius);
+
+        Unit* best = nullptr;
+        float bestDist = 0.f;
+        for (Unit* enemy : enemies)
+        {
+            if (!from->IsValidAttackTarget(enemy) || !enemy->IsWithinLOSInMap(from))
+                continue;
+            float dist = enemy->GetDistance2d(from);
+            if (!best || dist < bestDist)
+            {
+                best = enemy;
+                bestDist = dist;
+            }
+        }
+        return best;
+    }
+
+    void ScheduleDivineResonanceTicks(Unit* caster, uint32 tickSpell)
+    {
+        if (!caster || !tickSpell)
+            return;
+
+        for (int32 i = 1; i <= 3; ++i) // 3 тика: 5, 10 и 15 с
+            caster->m_Events.AddEventAtOffset([caster, tickSpell]()
+            {
+                if (!caster->IsAlive() || !caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_PROT_AURA))
+                    return;
+
+                Unit* best = Ex6NearestEnemy(caster, 30.f);
+                if (!best)
+                    return;
+
+                CastSpellExtraArgs args(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR);
+                if (Aura* resonance = caster->GetAura(SPELL_EX6_DIVINE_RESONANCE_PROT_AURA))
+                    args.SetTriggeringAura(resonance->GetEffect(EFFECT_0));
+                caster->CastSpell(best, tickSpell, args);
+            }, Milliseconds(5000 * i));
     }
 
     // Прот: 1246643 (Благовест → Молот). Если спелла нет в данных сервера — 427441
@@ -260,8 +322,15 @@ class spell_pal_divine_toll_ex : public SpellScript
             }
             else
             {
-                caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, resonanceArgs);
+                // PAL_RESONANCE_15S_20260928: 15 с задаём прямо в касте — «достать» ауру
+                // после CastSpell нельзя (каст исполняется на следующем тике мира), из-за
+                // этого бафф жил по данным (10 с) и давал 1 щит вместо 3 за 15 с.
+                CastSpellExtraArgs protResonanceArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR);
+                protResonanceArgs.SetTriggeringSpell(GetSpell());
+                protResonanceArgs.AddSpellMod(SPELLVALUE_DURATION, 15000);
+                caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, protResonanceArgs);
                 ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, 15000);
+                ScheduleDivineResonanceTicks(caster, Ex6ResonanceTickSpell(caster));
             }
         }
 
@@ -334,8 +403,12 @@ class spell_pal_divine_resonance_ret_ex : public AuraScript
     }
 };
 
-// 386730 - Резонанс света (Защита): каждые 5с — бесплатный Щит мстителя
-// (ядро триггерит пустой 386731; перехватываем и кастуем настоящий 31935).
+// 386730 - Резонанс света (Защита/Свет): каждые 5 с бесплатный Щит мстителя (Прот)
+// или Святая вспышка (Свет); 15 с = 3 тика. Тики ведёт таймер из Божественного звона
+// (ScheduleDivineResonanceTicks), а собственную периодику ауры глушим — иначе щиты
+// посчитались бы дважды.
+// PAL_RESONANCE_15S_20260928: хуки вешаем на несколько возможных типов ауры, иначе при
+// несовпадении не работает вообще ничего (ни длительность, ни тики).
 class spell_pal_divine_resonance_prot_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -343,60 +416,39 @@ class spell_pal_divine_resonance_prot_ex : public AuraScript
         return ValidateSpellInfo({ SPELL_EX6_AVENGERS_SHIELD, SPELL_EX6_HOLY_SHOCK });
     }
 
+    // После наложения любого эффекта ауры (AfterEffectApply) — длительность 15 с.
     void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
-        // Клиентский тултип 386730 — 15с (DurationIndex 8). Серверные данные
-        // короче: аура снимается на 4с или на 10-й секунде, а иконка ещё пишет 15.
-        ForceAuraDuration(GetTarget(), SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, 15000);
+        // Обычно длительность уже задана кастом (SPELLVALUE_DURATION), здесь — страховка
+        // для случаев, когда ауру выдал кто-то другой (например, данные ядра).
+        if (Aura* resonance = GetAura())
+        {
+            if (resonance->GetMaxDuration() < 15000)
+            {
+                static bool logged = false;
+                if (!logged)
+                {
+                    TC_LOG_INFO("scripts", "Paladin: Резонанс света — в данных {} мс, ставлю 15 с (3 тика)", resonance->GetMaxDuration());
+                    logged = true;
+                }
+                resonance->SetMaxDuration(15000);
+            }
+            if (resonance->GetDuration() < 15000)
+                resonance->SetDuration(15000);
+        }
     }
 
     void OnPeriodic(AuraEffect const* /*aurEff*/)
     {
-        Unit* target = GetTarget();
-        if (!target)
-            return;
-
-        PreventDefaultAction();
-
-        // АУДИТ26.09: spec-ветка тика — Холи → Святая вспышка (20473, wowhead386732:
-        // «Holy: instantly cast Holy Shock»); Прот → Щит мстителя (31935);
-        // Рет на этом бафе не висит (его Резонанс = отдельный1266308).
-        uint32 tickSpell = SPELL_EX6_AVENGERS_SHIELD;
-        if (Player* pl = target->ToPlayer())
-            if (pl->GetPrimarySpecialization() == ChrSpecialization::PaladinHoly)
-                tickSpell = SPELL_EX6_HOLY_SHOCK;
-
-        float const radius = 30.f;
-        std::vector<Unit*> enemies;
-        Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(target, target, radius);
-        Trinity::UnitListSearcher searcher(target, enemies, check);
-        Cell::VisitAllObjects(target, searcher, radius);
-
-        Unit* best = nullptr;
-        float bestDist = 0.f;
-        for (Unit* enemy : enemies)
-        {
-            if (!target->IsValidAttackTarget(enemy) || !enemy->IsWithinLOSInMap(target))
-                continue;
-            float dist = enemy->GetDistance2d(target);
-            if (!best || dist < bestDist)
-            {
-                best = enemy;
-                bestDist = dist;
-            }
-        }
-
-        if (best)
-            target->CastSpell(best, tickSpell, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringAura = GetEffect(EFFECT_0)
-            });
+        PreventDefaultAction(); // тики ведёт таймер скрипта Звона
     }
 
     void Register() override
     {
-        OnEffectApply += AuraEffectApplyFn(spell_pal_divine_resonance_prot_ex::OnApply, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
-        OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_divine_resonance_prot_ex::OnPeriodic, EFFECT_0, SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+        // Тип эффекта в данных может отличаться (periodic trigger / periodic dummy / dummy) —
+        // поэтому и тип ауры, и индекс эффекта берём «любые»: хуки сработают при любом раскладе.
+        AfterEffectApply += AuraEffectApplyFn(spell_pal_divine_resonance_prot_ex::OnApply, EFFECT_FIRST_FOUND, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_divine_resonance_prot_ex::OnPeriodic, EFFECT_ALL, SPELL_AURA_ANY);
     }
 };
 

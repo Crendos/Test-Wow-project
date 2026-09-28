@@ -197,6 +197,14 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- Оружейная Света: 15% шанс -20% урона (щит: заклинания, без щита: ближний бой)
 (1277443, 'spell_pal_armory_of_light_ex');
 
+-- v9 (28.09): Великий крестоносец — обнуление КД Щита мстителя (31935).
+-- 85416 — баф прока (ловим наложение), 85043 — пассивка таланта (ловим сам прок).
+-- Скрипт не привязан к типу ауры/номеру эффекта, поэтому работает при любых данных.
+DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_pal_grand_crusader_reset_ex';
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+(85043, 'spell_pal_grand_crusader_reset_ex'),
+(85416, 'spell_pal_grand_crusader_reset_ex');
+
 -- Неугасимые угли: периодический урон (тик 469882, фильтр в скрипте).
 -- Воля рассвета: получение любого урона; E1/E2 (периодик и «по здоровью») не прокают.
 REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)

@@ -2,6 +2,9 @@
 // Paladin 12.1.0 class fixes — часть 2: остаток Воздаяния + ядро Защиты.
 // Вставка: конец spell_paladin.cpp (рядом с частью 1), регистрация AddSC_paladin_spell_scripts_ex2().
 // Спутник: paladin/paladin_class_fixes_2.sql
+// 28.09.2026 (v9, PAL_TITANS_FIX_20260928): Свет титанов (378405) — ХоТ 378412 больше не
+//   «пустой»: процент читается из ауры таланта, тик выравнивается по живой ауре, а если в
+//   данных периодики нет — скрипт дотикивает сам (5 лечений по 2 с). Подробности: INSTALL.md §14.
 // ============================================================================
 
 // === CUT HERE ===============================================================
@@ -276,8 +279,49 @@ class spell_pal_bulwark_of_order_ex : public SpellScript
     bool _shieldDone = false;
 };
 
+// PAL_TITANS_FIX_20260928: выравниваем тик ХоТа 378412 по самой ауре (сколько в данных
+// период/длительность — столько тиков), а не «40%/5» вслепую. Возвращает true, если
+// у ауры нашлась периодика (тогда лечит она, руками не нужно).
+bool Ex2FixTitansHotAmount(Unit* caster, Unit* victim, int32 total)
+{
+    if (!caster || !victim)
+        return false;
+
+    Aura* hot = victim->GetAura(378412, caster->GetGUID()); // 378412 — ХоТ Света титанов
+    if (!hot)
+        return false;
+
+    for (AuraEffect* eff : hot->GetAuraEffects())
+    {
+        if (!eff || eff->GetAuraType() != SPELL_AURA_PERIODIC_HEAL)
+            continue;
+
+        int32 const period = eff->GetPeriod() > 0 ? eff->GetPeriod() : 2000;
+        int32 const ticks = hot->GetDuration() > 0 ? std::max(1, hot->GetDuration() / period) : 5;
+        int32 const want = std::max(1, total / ticks);
+        if (eff->GetAmountAsInt() <= 0 || eff->GetAmountAsInt() != want)
+        {
+            static bool logged = false;
+            if (!logged)
+            {
+                TC_LOG_INFO("scripts", "Paladin: Свет титанов — у 378412 в данных тик {}, ставлю {} ({} тик. по {} мс)",
+                    eff->GetAmountAsInt(), want, ticks, period);
+                logged = true;
+            }
+            eff->SetAmount(SpellEffectValue(want));
+            eff->SetPeriodicTimer(period);
+        }
+        return true;
+    }
+    return false;
+}
+
 // 378405 - Свет титанов: Торжество всегда даёт ещё 40% ХОТ-ом (378412, 5 тиков).
 // +200% только если каст по себе и на кастере висит периодический урон.
+// PAL_TITANS_FIX_20260928: сумма тика больше не берётся «на веру» из данных 378412 —
+// через 250 мс смотрим саму ауру (есть ли периодика, период, длительность) и выставляем
+// тик по ней; если периодики в данных нет вовсе — дотикиваем сами тем же спеллом
+// (HealInfo). Из-за пустой/нулевой периодики ХоТ висел и лечил по 0 хп.
 class spell_pal_light_of_the_titans_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -288,7 +332,8 @@ class spell_pal_light_of_the_titans_ex : public SpellScript
     void HandleHitTarget()
     {
         Unit* caster = GetCaster();
-        if (!caster || !caster->HasAura(SPELL_EX2_LIGHT_OF_THE_TITANS))
+        Unit* target = GetHitUnit();
+        if (!caster || !target || !caster->HasAura(SPELL_EX2_LIGHT_OF_THE_TITANS))
             return;
 
         float pct = 40.f;
@@ -297,7 +342,7 @@ class spell_pal_light_of_the_titans_ex : public SpellScript
                 pct = float(hot->GetAmount());
 
         // +200% только если Торжество по себе и на кастере висит периодический урон.
-        if (GetHitUnit() == caster && (caster->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE) || caster->HasAuraType(SPELL_AURA_PERIODIC_LEECH)))
+        if (target == caster && (caster->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE) || caster->HasAuraType(SPELL_AURA_PERIODIC_LEECH)))
         {
             float bonus = 200.f;
             if (AuraEffect const* extra = caster->GetAuraEffect(SPELL_EX2_LIGHT_OF_THE_TITANS, EFFECT_1))
@@ -306,11 +351,49 @@ class spell_pal_light_of_the_titans_ex : public SpellScript
             pct *= 1.f + bonus / 100.f;
         }
 
-        int32 hotBase = int32(CalculatePct(GetHitHeal(), pct) / 5); // 5 тиков по 2с
-        if (hotBase <= 0)
+        int32 const healed = GetHitHeal();
+        int32 const total = healed > 0 ? int32(CalculatePct(healed, pct)) : 0;
+        if (total <= 0)
+        {
+            TC_LOG_DEBUG("scripts", "Paladin: Свет титанов — Торжество вылечило {} (ХоТ не нужен)", healed);
             return;
+        }
 
-        caster->CastSpell(GetHitUnit(), SPELL_EX2_LIGHT_OF_TITANS_HOT, MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, hotBase));
+        int32 const perTick = std::max(1, total / 5); // 5 тиков по 2 с — как в данных клиента
+        caster->CastSpell(target, SPELL_EX2_LIGHT_OF_TITANS_HOT,
+            MakeSpellArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR, GetSpell(), SPELLVALUE_BASE_POINT0, perTick));
+
+        // Каст исполняется на следующем тике мира — ауру смотрим чуть позже.
+        ObjectGuid const targetGuid = target->GetGUID();
+        caster->m_Events.AddEventAtOffset([caster, targetGuid, total]()
+        {
+            Unit* victim = ObjectAccessor::GetUnit(*caster, targetGuid);
+            if (!victim)
+                return;
+
+            if (!Ex2FixTitansHotAmount(caster, victim, total))
+                TC_LOG_INFO("scripts", "Paladin: Свет титанов — периодики в 378412 нет, дотикиваю сам");
+        }, Milliseconds(250));
+
+        // Страховка: если периодики у 378412 в данных нет — дотикиваем сами, 5 раз по 2 с.
+        for (int32 i = 1; i <= 5; ++i)
+            caster->m_Events.AddEventAtOffset([caster, targetGuid, perTick]()
+            {
+                Unit* victim = ObjectAccessor::GetUnit(*caster, targetGuid);
+                if (!victim || !victim->IsAlive())
+                    return;
+
+                if (Aura* hot = victim->GetAura(SPELL_EX2_LIGHT_OF_TITANS_HOT, caster->GetGUID()))
+                    for (AuraEffect* eff : hot->GetAuraEffects())
+                        if (eff && eff->GetAuraType() == SPELL_AURA_PERIODIC_HEAL)
+                            return; // аура тикает сама — руками не лечим
+
+                SpellInfo const* info = sSpellMgr->GetSpellInfo(SPELL_EX2_LIGHT_OF_TITANS_HOT, DIFFICULTY_NONE);
+                if (!info)
+                    return;
+                HealInfo healInfo(caster, victim, uint32(std::max(1, perTick)), info, info->GetSchoolMask());
+                caster->HealBySpell(healInfo, false);
+            }, Milliseconds(2000 * i));
     }
 
     void Register() override

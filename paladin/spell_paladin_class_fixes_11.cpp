@@ -33,7 +33,10 @@
 // ============================================================================
 
 // === CUT HERE ===============================================================
-// PAL_REV8_20260928 (включает PAL_REV7, PAL_REV6, PAL_REV5, PAL_REV4, PAL_REV3, PAL_REV2)
+// PAL_REV9_20260928 (включает PAL_REV8, PAL_REV7, PAL_REV6, PAL_REV5, PAL_REV4, PAL_REV3, PAL_REV2)
+// 28.09.2026 (v9, PAL_CRUSADER_RESET_20260928): Великий крестоносец — свой скрипт
+//   spell_pal_grand_crusader_reset_ex (привязки 85043 и 85416 в paladin_class_fixes_11.sql)
+//   ловит и наложение бафа прока, и сам прок без привязки к типу ауры → ResetCooldown(31935).
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -1960,6 +1963,60 @@ class spell_pal_armory_of_light_ex : public AuraScript
     }
 };
 
+// 85043 / 85416 — Великий крестоносец (Защита): прок обязан ОБНУЛИТЬ КД Щита мстителя (31935).
+// В ядре сброс уже описан (spell_pal_grand_crusader), но хук там жёстко привязан к паре
+// "эффект 0 + аура SPELL_AURA_PROC_TRIGGER_SPELL": если в данных вашей сборки тип ауры
+// другой, хук молчит и КД не обнуляется. Здесь ловим оба места без привязки к типам:
+//   * наложение бафа прока 85416 (AfterEffectApply, EFFECT_FIRST_FOUND + SPELL_AURA_ANY);
+//   * сам прок пассивки 85043 (OnProc — тип ауры и номер эффекта не важны).
+// PAL_CRUSADER_RESET_20260928
+class spell_pal_grand_crusader_reset_ex : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX11_AVENGERS_SHIELD });
+    }
+
+    void ResetAvengersShield()
+    {
+        Player* paladin = GetTarget() ? GetTarget()->ToPlayer() : nullptr;
+        if (!paladin || !paladin->IsAlive())
+            return;
+
+        SpellHistory* history = paladin->GetSpellHistory();
+        history->ResetCooldown(SPELL_EX11_AVENGERS_SHIELD, true);
+        if (SpellInfo const* avengersShield = sSpellMgr->GetSpellInfo(SPELL_EX11_AVENGERS_SHIELD, DIFFICULTY_NONE))
+            if (avengersShield->ChargeCategoryId)
+                history->RestoreCharge(avengersShield->ChargeCategoryId);
+
+        static bool loggedReset = false;
+        if (!loggedReset)
+        {
+            TC_LOG_INFO("scripts", "Paladin: Великий крестоносец — прок обнулил КД Щита мстителя (сообщение один раз за запуск сервера)");
+            loggedReset = true;
+        }
+    }
+
+    // 85416 — баф прока: приходит ровно в момент сброса КД (в т.ч. при обновлении)
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        ResetAvengersShield();
+    }
+
+    // 85043 — пассивка таланта: работаем от самого прока
+    void HandleProc(ProcEventInfo& /*eventInfo*/)
+    {
+        ResetAvengersShield();
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_pal_grand_crusader_reset_ex::HandleApply, EFFECT_FIRST_FOUND, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        OnProc += AuraProcFn(spell_pal_grand_crusader_reset_ex::HandleProc);
+    }
+};
+
+
 void AddSC_paladin_spell_scripts_ex11()
 {
     RegisterSpellScript(spell_pal_sentinel_decay_ex);
@@ -2008,4 +2065,6 @@ void AddSC_paladin_spell_scripts_ex11()
     RegisterSpellScript(spell_pal_undying_embers_ex);
     RegisterSpellScript(spell_pal_will_of_the_dawn_ex);
     RegisterSpellScript(spell_pal_armory_of_light_ex);
+    // PAL_REV9: Великий крестоносец — обнуление КД Щита мстителя
+    RegisterSpellScript(spell_pal_grand_crusader_reset_ex);
 }
