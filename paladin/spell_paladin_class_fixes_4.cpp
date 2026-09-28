@@ -258,7 +258,7 @@ class spell_pal_moment_of_compassion_ex : public SpellScript
     }
 };
 
-// 392902 - Лучезарный свет: Св. свет лечит до 5 союзников рядом с целью на 8%.
+// 392902 - Лучезарный свет: Свет небес лечит ещё до 5 союзников в 12 м на 8%.
 class spell_pal_resplendent_light_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -273,11 +273,21 @@ class spell_pal_resplendent_light_ex : public SpellScript
         if (!caster || !target || !caster->HasAura(SPELL_EX4_RESPLENDENT_LIGHT))
             return;
 
-        int32 heal = int32(CalculatePct(static_cast<int64>(GetHitHeal()), 8));
+        float pct = 8.f;
+        int32 cap = 5;
+        if (AuraEffect const* bonus = caster->GetAuraEffect(SPELL_EX4_RESPLENDENT_LIGHT, EFFECT_0))
+            if (bonus->GetAmount() > 0.0)
+                pct = float(bonus->GetAmount());
+        if (AuraEffect const* targets = caster->GetAuraEffect(SPELL_EX4_RESPLENDENT_LIGHT, EFFECT_1))
+            if (targets->GetAmount() > 0.0)
+                cap = int32(targets->GetAmount());
+        _targets = cap;
+
+        int32 heal = int32(CalculatePct(static_cast<int64>(GetHitHeal()), pct));
         if (heal <= 0)
             return;
 
-        float const radius = 8.f;
+        float const radius = 12.f;
         std::vector<Unit*> allies;
         Trinity::AnyFriendlyUnitInObjectRangeCheck check(target, caster, radius, true);
         Trinity::UnitListSearcher searcher(target, allies, check);

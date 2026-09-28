@@ -191,7 +191,7 @@ class spell_pal_shining_light_ex : public AuraScript
 
         if (Aura* stacks = target->GetAura(SPELL_EX2_SHINING_LIGHT_STACKS))
         {
-            if (stacks->GetStackAmount() < 4)
+            if (stacks->GetStackAmount() < 2)
                 stacks->ModStackAmount(1, AURA_REMOVE_BY_ENEMY_SPELL);
         }
         else
@@ -199,7 +199,10 @@ class spell_pal_shining_light_ex : public AuraScript
 
         if (Aura* freeWoG = target->GetAura(SPELL_EX2_SHINING_LIGHT_FREE))
         {
-            if (freeWoG->GetStackAmount() < freeWoG->GetSpellInfo()->StackAmount)
+            uint32 cap = 2;
+            if (uint32 const spellCap = freeWoG->GetSpellInfo()->StackAmount)
+                cap = std::min(cap, spellCap);
+            if (freeWoG->GetStackAmount() < cap)
                 freeWoG->ModStackAmount(1, AURA_REMOVE_BY_ENEMY_SPELL);
         }
         else
@@ -221,7 +224,8 @@ class spell_pal_shining_light_consume_ex : public SpellScript
     void HandleAfterCast()
     {
         Unit* caster = GetCaster();
-        if (!caster)
+        Spell const* spell = GetSpell();
+        if (!caster || !spell || spell->IsTriggered())
             return;
 
         if (Aura* freeWoG = caster->GetAura(SPELL_EX2_SHINING_LIGHT_FREE))
@@ -271,8 +275,8 @@ class spell_pal_bulwark_of_order_ex : public SpellScript
     bool _shieldDone = false;
 };
 
-// 378405 - Свет титанов: Слово света лечит ещё 40% ХОТ-ом (378412, 5 тиков);
-// на себя — втрое больше.
+// 378405 - Свет титанов: Торжество всегда даёт ещё 40% ХОТ-ом (378412, 5 тиков).
+// +200% только если каст по себе и на кастере висит периодический урон.
 class spell_pal_light_of_the_titans_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -286,11 +290,22 @@ class spell_pal_light_of_the_titans_ex : public SpellScript
         if (!caster || !caster->HasAura(SPELL_EX2_LIGHT_OF_THE_TITANS))
             return;
 
-        float mult = 1.f;
-        if (GetHitUnit() == caster)
-            mult = 3.f; // +200% (E1)
+        float pct = 40.f;
+        if (AuraEffect const* hot = caster->GetAuraEffect(SPELL_EX2_LIGHT_OF_THE_TITANS, EFFECT_0))
+            if (hot->GetAmount() > 0.0)
+                pct = float(hot->GetAmount());
 
-        int32 hotBase = int32(CalculatePct(GetHitHeal(), 40 * mult) / 5); // 5 тиков по 2с
+        // +200% только если Торжество по себе и на кастере висит периодический урон.
+        if (GetHitUnit() == caster && (caster->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE) || caster->HasAuraType(SPELL_AURA_PERIODIC_LEECH)))
+        {
+            float bonus = 200.f;
+            if (AuraEffect const* extra = caster->GetAuraEffect(SPELL_EX2_LIGHT_OF_THE_TITANS, EFFECT_1))
+                if (extra->GetAmount() > 0.0)
+                    bonus = float(extra->GetAmount());
+            pct *= 1.f + bonus / 100.f;
+        }
+
+        int32 hotBase = int32(CalculatePct(GetHitHeal(), pct) / 5); // 5 тиков по 2с
         if (hotBase <= 0)
             return;
 
@@ -303,7 +318,7 @@ class spell_pal_light_of_the_titans_ex : public SpellScript
     }
 };
 
-// 1245891 Отрада (Отвага): Освящение лечит на 3.75% урона.
+// 1245891 Утешение: Освящение лечит на 375% нанесённого урона.
 // 1245354 Зрение святости: при одной цели урон Освящения x2.
 class spell_pal_consecration_prot_ex : public SpellScript
 {
@@ -328,7 +343,12 @@ class spell_pal_consecration_prot_ex : public SpellScript
         if (!caster || !caster->HasAura(SPELL_EX2_SOLACE))
             return;
 
-        int64 heal = CalculatePct(static_cast<int64>(GetHitDamage()), 3.75f);
+        float pct = 375.f;
+        if (AuraEffect const* bonus = caster->GetAuraEffect(SPELL_EX2_SOLACE, EFFECT_0))
+            if (bonus->GetAmount() > 0.0)
+                pct = float(bonus->GetAmount());
+
+        int64 heal = CalculatePct(static_cast<int64>(GetHitDamage()), pct);
         // 339119 имеет ap-коэффициент 0.05 — вычитаем его, чтобы не задваивать
         heal -= int64(0.05f * caster->GetTotalAttackPowerValue(BASE_ATTACK));
         if (heal <= 0)

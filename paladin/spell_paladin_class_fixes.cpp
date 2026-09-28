@@ -790,8 +790,7 @@ class spell_pal_divine_storm_cap_ex : public SpellScript
     }
 };
 
-// 406545 - Пламя света: +3% (ранг 1) / +7% (ранг 2) урона Света по целям
-// с тикающим Поджиганием (383346).
+// 406545 - Пламя света: +5% урона Света по целям с тикающим Поджиганием (383346).
 class spell_pal_holy_flames_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -805,9 +804,8 @@ class spell_pal_holy_flames_ex : public SpellScript
         if (!caster || !victim || !victim->HasAura(SPELL_EX_EXPURGATION_DOT, caster->GetGUID()))
             return;
 
-        AddPct(pctMod, 3);
-        if (caster->GetAuraEffect(SPELL_EX_HOLY_FLAMES, EFFECT_1))
-            AddPct(pctMod, 4);
+        // Тултип 12.0: +5%. Эффекты 3 и 4 — старый ранговый сплит, их сумма 7% больше не совпадает с описанием.
+        AddPct(pctMod, 5);
     }
 
     void Register() override

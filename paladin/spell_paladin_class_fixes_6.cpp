@@ -372,7 +372,7 @@ class spell_pal_golden_path_ex : public SpellScript
             .TriggeringSpell = GetSpell()
         });
 
-        // v1: ещё 4 самых раненых союзника рядом (в версии с АТ — по зоне Освящения)
+        // Тултип: вы и ещё максимум 5 союзников. Кастера лечим отдельно выше.
         float const radius = 10.f;
         std::vector<Unit*> allies;
         Trinity::AnyFriendlyUnitInObjectRangeCheck check(caster, caster, radius, true);
@@ -388,9 +388,15 @@ class spell_pal_golden_path_ex : public SpellScript
             return a->GetHealthPct() < b->GetHealthPct();
         });
 
-        int32 count = 4;
+        int32 count = 5;
+        if (AuraEffect const* cap = caster->GetAuraEffect(SPELL_EX6_GOLDEN_PATH, EFFECT_1))
+            if (cap->GetAmount() > 0.0)
+                count = int32(cap->GetAmount());
+
         for (Unit* ally : allies)
         {
+            if (ally == caster)
+                continue;
             caster->CastSpell(ally, SPELL_EX6_GOLDEN_PATH_HEAL, CastSpellExtraArgsInit{
                 .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
                 .TriggeringSpell = GetSpell()
@@ -421,7 +427,17 @@ class spell_pal_selfless_healer_ex : public SpellScript
         if (!caster || !victim || victim == caster || !caster->HasAura(SPELL_EX6_SELFLESS_HEALER))
             return;
 
-        AddPct(pctMod, 30);
+        // Свет небес — только у Света. Защита и Воздаяние усиливают только Вспышку Света.
+        if (GetSpellInfo()->Id == 82326)
+            if (Player const* player = caster->ToPlayer())
+                if (player->GetPrimarySpecialization() != ChrSpecialization::PaladinHoly)
+                    return;
+
+        float bonus = 30.f;
+        if (AuraEffect const* pct = caster->GetAuraEffect(SPELL_EX6_SELFLESS_HEALER, EFFECT_0))
+            if (pct->GetAmount() > 0.0)
+                bonus = float(pct->GetAmount());
+        AddPct(pctMod, bonus);
     }
 
     void HandleHitTarget()
@@ -431,7 +447,17 @@ class spell_pal_selfless_healer_ex : public SpellScript
         if (!caster || !target || target == caster || !caster->HasAura(SPELL_EX6_SELFLESS_HEALER))
             return;
 
-        int64 shared = CalculatePct(static_cast<int64>(GetHitHeal()), 40);
+        if (GetSpellInfo()->Id == 82326)
+            if (Player const* player = caster->ToPlayer())
+                if (player->GetPrimarySpecialization() != ChrSpecialization::PaladinHoly)
+                    return;
+
+        float sharedPct = 40.f;
+        if (AuraEffect const* pct = caster->GetAuraEffect(SPELL_EX6_SELFLESS_HEALER, EFFECT_1))
+            if (pct->GetAmount() > 0.0)
+                sharedPct = float(pct->GetAmount());
+
+        int64 shared = CalculatePct(static_cast<int64>(GetHitHeal()), sharedPct);
         if (shared <= 0)
             return;
 
@@ -445,46 +471,45 @@ class spell_pal_selfless_healer_ex : public SpellScript
     }
 };
 
-// 403530 - Наказание: успешный интеррапт (Реприманд/Щит мстителя) —
-// бесплатный финишер спека (Удар крестоносца / Благословенный молот / Св. сияние).
+// 403530 - Наказание: успешный интеррапт Укора.
+// Воздаяние и Защита — Удар воина Света. Свет — Шок небес.
 class spell_pal_punishment_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX6_CRUSADER_STRIKE, SPELL_EX6_BLESSED_HAMMER, SPELL_EX6_HOLY_SHOCK });
+        return ValidateSpellInfo({ SPELL_EX6_CRUSADER_STRIKE, SPELL_EX6_HOLY_SHOCK, SPELL_EX6_REBUKE });
     }
 
     bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo)
     {
         SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
-        return spellInfo && (spellInfo->Id == SPELL_EX6_REBUKE || spellInfo->Id == SPELL_EX6_AVENGERS_SHIELD);
+        if (!spellInfo || spellInfo->Id != SPELL_EX6_REBUKE)
+            return false;
+
+        return (eventInfo.GetHitMask() & PROC_HIT_INTERRUPT) != 0;
     }
 
-    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
     {
-        Unit* target = GetTarget();
-        if (!target)
+        Unit* caster = GetTarget();
+        if (!caster)
             return;
 
-        uint32 filler = SPELL_EX6_CRUSADER_STRIKE;
-        if (Player* player = target->ToPlayer())
-            switch (player->GetPrimarySpecialization())
-            {
-                case ChrSpecialization::PaladinProtection:
-                    filler = SPELL_EX6_BLESSED_HAMMER;
-                    break;
-                case ChrSpecialization::PaladinHoly:
-                    filler = SPELL_EX6_HOLY_SHOCK;
-                    break;
-                default:
-                    break;
-            }
+        uint32 followUp = SPELL_EX6_CRUSADER_STRIKE;
+        if (Player* player = caster->ToPlayer())
+            if (player->GetPrimarySpecialization() == ChrSpecialization::PaladinHoly)
+                followUp = SPELL_EX6_HOLY_SHOCK;
 
-        if (Unit* victim = target->GetVictim())
-            target->CastSpell(victim, filler, CastSpellExtraArgsInit{
-                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_GCD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-                .TriggeringAura = GetEffect(EFFECT_0)
-            });
+        Unit* victim = eventInfo.GetProcTarget();
+        if (!victim)
+            victim = caster->GetVictim();
+        if (!victim)
+            return;
+
+        caster->CastSpell(victim, followUp, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_GCD | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringAura = GetEffect(EFFECT_0)
+        });
     }
 
     void Register() override
@@ -494,8 +519,13 @@ class spell_pal_punishment_ex : public AuraScript
     }
 };
 
+struct GuidedPrayerMod
+{
+    float Multiplier = 0.6f;
+};
+
 // 326734 - Исцеляющие длани: КД ЛаО снижается до 60% по недостающему
-// здоровью цели; Слово света на себя +до 30%.
+// здоровью цели; Торжество на себя усиливается максимум на 100%.
 class spell_pal_healing_hands_loh_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -530,12 +560,17 @@ class spell_pal_healing_hands_wog_ex : public SpellScript
 {
     void CalculateHealing(SpellEffectInfo const& /*effectInfo*/, Unit const* victim, int32& /*healing*/, int32& /*flatMod*/, float& pctMod) const
     {
+        if (GetSpell())
+            if (auto const* mod = std::any_cast<GuidedPrayerMod>(&GetSpell()->m_customArg))
+                pctMod *= mod->Multiplier;
+
         Unit* caster = GetCaster();
         if (!caster || !victim || victim != caster || !caster->HasAura(SPELL_EX6_HEALING_HANDS))
             return;
 
         float missingFrac = 1.f - caster->GetHealthPct() / 100.f;
-        if (AuraEffect const* bonus = caster->GetAuraEffect(SPELL_EX6_HEALING_HANDS, EFFECT_1))
+        // Эффект 1 = 30 (старое значение). Тултип и эффект 2 = до 100%.
+        if (AuraEffect const* bonus = caster->GetAuraEffect(SPELL_EX6_HEALING_HANDS, EFFECT_2))
             AddPct(pctMod, bonus->GetAmount() * missingFrac);
     }
 
@@ -545,8 +580,8 @@ class spell_pal_healing_hands_wog_ex : public SpellScript
     }
 };
 
-// 404357 - Наставляемая молитва: падение ниже 25% здоровья -> бесплатное
-// Слово света (v1: полной силы; ICD 60с в spell_proc).
+// 404357 - Наставляемая молитва: ниже 25% здоровья — бесплатное Торжество
+// с эффективностью 60% (эффект 1). ICD 60с в spell_proc.
 class spell_pal_guided_prayer_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -561,9 +596,15 @@ class spell_pal_guided_prayer_ex : public AuraScript
 
     void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
     {
-        GetTarget()->CastSpell(GetTarget(), SPELL_EX6_WORD_OF_GLORY,
-            CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR)
-                .SetTriggeringSpell(eventInfo.GetProcSpell()));
+        float mult = 0.6f;
+        if (AuraEffect const* pct = GetEffect(EFFECT_1))
+            if (pct->GetAmount() > 0.0)
+                mult = float(pct->GetAmount() / 100.0);
+
+        CastSpellExtraArgs args(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_IGNORE_POWER_COST | TRIGGERED_DONT_REPORT_CAST_ERROR);
+        args.SetTriggeringSpell(eventInfo.GetProcSpell());
+        args.CustomArg = GuidedPrayerMod{ mult };
+        GetTarget()->CastSpell(GetTarget(), SPELL_EX6_WORD_OF_GLORY, args);
     }
 
     void Register() override
