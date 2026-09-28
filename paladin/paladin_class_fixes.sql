@@ -70,6 +70,12 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (255937, 'spell_pal_radiant_glory_ex'),
 -- Буря света: кап 5 целей
 (53385,  'spell_pal_divine_storm_cap_ex'),
+-- Освящённый клинок (404834): Клинок правосудия ставит Освящение, не чаще 10 с
+(184575, 'spell_pal_consecrated_blade_ex'),
+-- Крещендо ударов (408385): 1 Сила Света через удар
+(408385, 'spell_pal_crusading_strikes_hp_ex'),
+-- Приговор (343527): 20% накопленного светлого урона через 10 с
+(343527, 'spell_pal_execution_sentence_ex'),
 -- Пламя света (406545): +3%/+7% к урону Света по целям с Поджиганием
 (184575,  'spell_pal_holy_flames_ex'),
 (20271,   'spell_pal_holy_flames_ex'),

@@ -32,9 +32,7 @@ enum PaladinEx6Spells
     SPELL_EX6_DIVINE_RESONANCE_RET_BUFF = 1266308,
     SPELL_EX6_DIVINE_RESONANCE_PROT     = 386738,
     SPELL_EX6_DIVINE_RESONANCE_PROT_AURA = 386730,
-    // Холи-токен Резонанса:379391 Quickened Invocation (wowhead:386731 «После
-    // Призмы/Вооружения/Звона — Святая вспышка каждые5с»; Related = только он)
-    SPELL_EX6_DIVINE_RESONANCE_HOLY     = 379391,
+    // 379391 — это Ускоренное воззвание, не Резонанс. Холи-ветка читается со спека.
     SPELL_EX6_HOLY_PRISM                = 114165,
     SPELL_EX6_GOLDEN_PATH               = 377128,
     SPELL_EX6_GOLDEN_PATH_HEAL          = 339119,
@@ -132,8 +130,8 @@ class spell_pal_divine_toll_ex : public SpellScript
         return ValidateSpellInfo({ SPELL_EX6_HOLY_SHOCK, SPELL_EX6_AVENGERS_SHIELD,
             SPELL_EX6_JUDGMENT_RET, SPELL_EX6_DIVINE_TOLL_RET_DEBUFF,
             SPELL_EX6_LIGHTS_GUIDANCE, SPELL_EX6_HAMMER_OF_LIGHT_BUFF,
-            SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA,
-            SPELL_EX6_DIVINE_RESONANCE_HOLY });
+            SPELL_EX6_DIVINE_RESONANCE_RET, SPELL_EX6_DIVINE_RESONANCE_PROT,
+            SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA });
     }
 
     void HandleAfterCast()
@@ -192,30 +190,28 @@ class spell_pal_divine_toll_ex : public SpellScript
                 CastSpellExtraArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR)
                     .SetTriggeringSpell(GetSpell()));
 
-        // Резонанс света. Длительность не берём из данных как есть: клиент пишет
-        // 15с, а серверная длительность 386730 бывает 4с или 10с — иконка гаснет
-        // раньше (лог: ~4–5с; в игре отмена на 10-й секунде при таймере 15).
-        CastSpellExtraArgs resonanceArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR);
-        resonanceArgs.SetTriggeringSpell(GetSpell());
-        if (KnowsSpellOrAura(caster, SPELL_EX6_DIVINE_RESONANCE_RET))
+        // Резонанс света — талант 384027 / 386738. 379391 это Ускоренное воззвание,
+        // им больше не гейтим. Ветка по спеку: wowhead 384027.
+        // Рет: следующие 3 Правосудия (1266308, 30с). Прот/Свет: тик 386730, 15с.
+        if (KnowsSpellOrAura(caster, SPELL_EX6_DIVINE_RESONANCE_RET) || KnowsSpellOrAura(caster, SPELL_EX6_DIVINE_RESONANCE_PROT))
         {
-            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, resonanceArgs);
-            // 12.0: следующие 3 Правосудия, 30с (не 2 и не 15).
-            ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, 30000);
-            EnsureStacks(caster->GetAura(SPELL_EX6_DIVINE_RESONANCE_RET_BUFF), 3);
-        }
-        if (KnowsSpellOrAura(caster, SPELL_EX6_DIVINE_RESONANCE_PROT))
-        {
-            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, resonanceArgs);
-            ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, 15000);
-        }
-        // АУДИТ26.09: Холи-Резонанс не выдавался (нет своей талант-ауры в цепочке)
-        // — гейт по379391 оставлен как был; тик386730 для Холи → Святая вспышка
-        // (spec-ветка в spell_pal_divine_resonance_prot_ex). 379391 не расширяем.
-        if (KnowsSpellOrAura(caster, SPELL_EX6_DIVINE_RESONANCE_HOLY))
-        {
-            caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, resonanceArgs);
-            ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, 15000);
+            CastSpellExtraArgs resonanceArgs(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR);
+            resonanceArgs.SetTriggeringSpell(GetSpell());
+            ChrSpecialization spec = ChrSpecialization::PaladinRetribution;
+            if (Player* player = caster->ToPlayer())
+                spec = player->GetPrimarySpecialization();
+
+            if (spec == ChrSpecialization::PaladinRetribution)
+            {
+                caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, resonanceArgs);
+                ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_RET_BUFF, 30000);
+                EnsureStacks(caster->GetAura(SPELL_EX6_DIVINE_RESONANCE_RET_BUFF), 3);
+            }
+            else
+            {
+                caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, resonanceArgs);
+                ForceAuraDuration(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, 15000);
+            }
         }
 
         // Свет наставления (427445): ПРОТ — Благовест заменяется на Молот Света
@@ -639,33 +635,12 @@ class spell_pal_auras_of_the_resolute_ex : public AuraScript
     }
 };
 
-// 114165 Святая призма (Холи): wowhead 386732 — Резонанс также от Призмы, не только от Звона.
+// 114165 больше не запускает Резонанс. Актуальный тултип 384027: у Света
+// тики только после Звона. Старый текст 386732 про Призму и Вооружение не используем.
+// Скрипт оставлен, чтобы уже залитая привязка SQL не искала отсутствующее имя.
 class spell_pal_divine_resonance_prism_ex : public SpellScript
 {
-    bool Validate(SpellInfo const* /*spellInfo*/) override
-    {
-        return ValidateSpellInfo({ SPELL_EX6_DIVINE_RESONANCE_HOLY, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA });
-    }
-
-    void HandleAfterCast()
-    {
-        Unit* caster = GetCaster();
-        if (!caster || !caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_HOLY))
-            return;
-        if (Player* player = caster->ToPlayer())
-            if (player->GetPrimarySpecialization() != ChrSpecialization::PaladinHoly)
-                return;
-
-        caster->CastSpell(caster, SPELL_EX6_DIVINE_RESONANCE_PROT_AURA, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-    }
-
-    void Register() override
-    {
-        AfterCast += SpellCastFn(spell_pal_divine_resonance_prism_ex::HandleAfterCast);
-    }
+    void Register() override { }
 };
 
 void AddSC_paladin_spell_scripts_ex6()

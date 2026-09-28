@@ -54,6 +54,9 @@ enum PaladinExSpells
     SPELL_EX_TEMPLAR_STRIKE                   = 407480,
     SPELL_EX_TEMPLAR_SLASH                    = 406647,
     SPELL_EX_CRUSADING_STRIKE                 = 408385,
+    SPELL_EX_CRUSADING_STRIKES_TALENT         = 406833,
+    SPELL_EX_CONSECRATED_BLADE                = 404834,
+    SPELL_EX_CONSECRATION                     = 26573,
     SPELL_EX_EXECUTION_SENTENCE               = 343527,
     SPELL_EX_EXECUTION_SENTENCE_DAMAGE        = 1260251,
     SPELL_EX_HIGHLORDS_JUDGMENT_DAMAGE        = 383921,
@@ -231,15 +234,56 @@ namespace
         CrusadeByCaster.erase(unit->GetGUID());
     }
 
+    [[nodiscard]] bool IsProtectionPaladinEx(Unit* unit)
+    {
+        if (!unit)
+            return false;
+        if (unit->HasAura(SPELL_EX_SPEC_PROT))
+            return true;
+        if (Player* player = unit->ToPlayer())
+            return player->GetPrimarySpecialization() == ChrSpecialization::PaladinProtection;
+        return false;
+    }
+
+    // Тултип 231663: Свет/Воздаяние 20%, Защита 50%. В эффекте таланта лежит только 20.
     [[nodiscard]] int32 GreaterJudgmentBonus(Unit* caster)
     {
+        if (IsProtectionPaladinEx(caster))
+            return 50;
         int32 bonus = 20;
-        if (!caster)
-            return bonus;
-        if (AuraEffect const* talent = caster->GetAuraEffect(SPELL_EX_GREATER_JUDGMENT, EFFECT_0))
-            if (talent->GetAmount() > 0.0)
-                bonus = int32(talent->GetAmount());
+        if (caster)
+            if (AuraEffect const* talent = caster->GetAuraEffect(SPELL_EX_GREATER_JUDGMENT, EFFECT_0))
+                if (talent->GetAmount() > 0.0)
+                    bonus = int32(talent->GetAmount());
         return bonus > 0 ? bonus : 20;
+    }
+
+    struct ExecutionSentenceState
+    {
+        ObjectGuid Target;
+        std::unordered_set<ObjectGuid> Marked;
+        uint64 Damage = 0;
+    };
+
+    std::unordered_map<ObjectGuid, ExecutionSentenceState> ExecutionSentenceByCaster;
+    std::unordered_map<ObjectGuid, uint32> CrusadingStrikeHits;
+    std::unordered_map<ObjectGuid, uint32> ConsecratedBladeAt;
+
+    void NoteExecutionSentenceDamage(Unit* attacker, Unit* victim, uint32 damage, SpellInfo const* spellInfo)
+    {
+        if (!attacker || !victim || !damage)
+            return;
+        if (spellInfo && spellInfo->Id == SPELL_EX_EXECUTION_SENTENCE)
+            return;
+        if (spellInfo && !(spellInfo->GetSchoolMask() & SPELL_SCHOOL_MASK_HOLY))
+            return;
+
+        auto it = ExecutionSentenceByCaster.find(attacker->GetGUID());
+        if (it == ExecutionSentenceByCaster.end())
+            return;
+        if (it->second.Marked.find(victim->GetGUID()) == it->second.Marked.end())
+            return;
+        it->second.Damage += damage;
     }
 
     // Множитель передаётся в каст Бури/Света зари. 1.25 = +25%, 0.30 = 30% эффективности.
@@ -1088,6 +1132,151 @@ class spell_pal_holy_flames_ex : public SpellScript
     }
 };
 
+// 404834 - Освящённый клинок: Клинок правосудия ставит Освящение в точку цели.
+// Не чаще раза в 10 с. Эффект таланта — серверный dummy, сам ничего не кастует.
+class spell_pal_consecrated_blade_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_CONSECRATED_BLADE, SPELL_EX_CONSECRATION });
+    }
+
+    void HandleAfterHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* hit = GetHitUnit();
+        if (!caster || !hit)
+            return;
+        if (!caster->HasSpell(SPELL_EX_CONSECRATED_BLADE) && !caster->HasAura(SPELL_EX_CONSECRATED_BLADE))
+            return;
+
+        uint32 const now = getMSTime();
+        uint32& last = ConsecratedBladeAt[caster->GetGUID()];
+        if (last && now - last < 10000)
+            return;
+        last = now;
+
+        caster->CastSpell(hit, SPELL_EX_CONSECRATION, CastSpellExtraArgsInit{
+            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR,
+            .TriggeringSpell = GetSpell()
+        });
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_pal_consecrated_blade_ex::HandleAfterHit);
+    }
+};
+
+// 408385 - Крещендо ударов: 1 ед. Силы Света через удар. Урон — сам спелл.
+class spell_pal_crusading_strikes_hp_ex : public SpellScript
+{
+    void HandleAfterHit()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+
+        uint32& hits = CrusadingStrikeHits[caster->GetGUID()];
+        ++hits;
+        if ((hits % 2) != 0)
+            return;
+
+        caster->ModifyPower(POWER_HOLY_POWER, 1);
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_pal_crusading_strikes_hp_ex::HandleAfterHit);
+    }
+};
+
+// 343527 - Приговор: через 10 с цель получает 20% светлого урона,
+// нанесённого поражённым взрывом (10 м, включая радиус цели).
+class spell_pal_execution_sentence_ex : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_EXECUTION_SENTENCE });
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        if (!caster || !target)
+            return;
+
+        ExecutionSentenceState& state = ExecutionSentenceByCaster[caster->GetGUID()];
+        state.Target = target->GetGUID();
+        state.Damage = 0;
+        state.Marked.clear();
+        state.Marked.insert(target->GetGUID());
+
+        float const radius = 10.f + target->GetCombatReach();
+        std::vector<Unit*> enemies;
+        Trinity::AnyUnfriendlyUnitInObjectRangeCheck check(target, caster, radius);
+        Trinity::UnitListSearcher searcher(target, enemies, check);
+        Cell::VisitAllObjects(target, searcher, radius);
+        for (Unit* enemy : enemies)
+            if (enemy && caster->IsValidAttackTarget(enemy))
+                state.Marked.insert(enemy->GetGUID());
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetTarget();
+        if (!caster || !target)
+            return;
+
+        auto it = ExecutionSentenceByCaster.find(caster->GetGUID());
+        if (it == ExecutionSentenceByCaster.end())
+            return;
+
+        uint64 const dealt = it->second.Damage;
+        ExecutionSentenceByCaster.erase(it);
+        if (!dealt || !target->IsAlive())
+            return;
+
+        int32 pct = 20;
+        if (AuraEffect const* eff = GetEffect(EFFECT_1))
+            if (eff->GetAmount() > 0.0)
+                pct = int32(eff->GetAmount());
+
+        uint32 const amount = uint32(dealt * uint64(pct) / 100);
+        if (!amount)
+            return;
+
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(SPELL_EX_EXECUTION_SENTENCE, DIFFICULTY_NONE);
+        Unit::DealDamage(caster, target, amount, nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_HOLY, info, false);
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_pal_execution_sentence_ex::OnApply, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_pal_execution_sentence_ex::OnRemove, EFFECT_0, SPELL_AURA_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+class spell_pal_execution_sentence_tracker : public UnitScript
+{
+public:
+    spell_pal_execution_sentence_tracker() : UnitScript("spell_pal_execution_sentence_tracker") { }
+
+    void ModifySpellDamageTaken(Unit* target, Unit* attacker, int32& damage, SpellInfo const* spellInfo) override
+    {
+        if (damage <= 0)
+            return;
+        NoteExecutionSentenceDamage(attacker, target, uint32(damage), spellInfo);
+    }
+
+    void ModifyPeriodicDamageAurasTick(Unit* target, Unit* attacker, uint32& damage) override
+    {
+        NoteExecutionSentenceDamage(attacker, target, damage, nullptr);
+    }
+};
+
 void AddSC_paladin_spell_scripts_ex()
 {
     RegisterSpellScript(spell_pal_art_of_war_ex);
@@ -1114,4 +1303,8 @@ void AddSC_paladin_spell_scripts_ex()
     RegisterSpellScript(spell_pal_radiant_glory_ex);
     RegisterSpellScript(spell_pal_divine_storm_cap_ex);
     RegisterSpellScript(spell_pal_holy_flames_ex);
+    RegisterSpellScript(spell_pal_consecrated_blade_ex);
+    RegisterSpellScript(spell_pal_crusading_strikes_hp_ex);
+    RegisterSpellScript(spell_pal_execution_sentence_ex);
+    new spell_pal_execution_sentence_tracker();
 }
