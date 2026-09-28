@@ -143,7 +143,11 @@ namespace
         if (!caster || !tickSpell)
             return;
 
-        for (int32 i = 1; i <= 3; ++i) // 3 тика: 5, 10 и 15 с
+        // 3 тика: 5, 10 и 14,75 с. Последний — чуть раньше края ауры: событие и истечение
+        // ауры обрабатываются в одном тике мира, и «ровно 15,00 с» может прийти уже после
+        // снятия ауры (тогда третий щит пропадал бы). На глаз это те же 15 с.
+        int32 const offsets[3] = { 5000, 10000, 14750 };
+        for (int32 offset : offsets)
             caster->m_Events.AddEventAtOffset([caster, tickSpell]()
             {
                 if (!caster->IsAlive() || !caster->HasAura(SPELL_EX6_DIVINE_RESONANCE_PROT_AURA))
@@ -157,7 +161,7 @@ namespace
                 if (Aura* resonance = caster->GetAura(SPELL_EX6_DIVINE_RESONANCE_PROT_AURA))
                     args.SetTriggeringAura(resonance->GetEffect(EFFECT_0));
                 caster->CastSpell(best, tickSpell, args);
-            }, Milliseconds(5000 * i));
+            }, Milliseconds(offset));
     }
 
     // Прот: 1246643 (Благовест → Молот). Если спелла нет в данных сервера — 427441
