@@ -1,118 +1,40 @@
-Это с world:
-mysql> SELECT table_name FROM information_schema.tables
-WHERE table_schema = 'world' AND table_name LIKE '%spell%' ORDER BY table_name;
+F:\Games\server\comp\Trinitycore>cmake --build build --config Release -j 8
+Версия MSBuild 17.14.51+25f168cee для .NET Framework
 
-SHOW COLUMNS FROM spell_script_names;
-+-------------------------------+
-| TABLE_NAME                    |
-+-------------------------------+
-| creature_template_spell       |
-| npc_spellclick_spells         |
-| player_factionchange_spells   |
-| playerbots_combat_spells      |
-| playercreateinfo_cast_spell   |
-| playercreateinfo_spell_custom |
-| quest_reward_display_spell    |
-| serverside_spell              |
-| serverside_spell_effect       |
-| spell_area                    |
-| spell_custom_attr             |
-| spell_enchant_proc_data       |
-| spell_group                   |
-| spell_group_stack_rules       |
-| spell_learn_spell             |
-| spell_linked_spell            |
-| spell_loot_template           |
-| spell_pet_auras               |
-| spell_proc                    |
-| spell_required                |
-| spell_script_names            |
-| spell_target_position         |
-| spell_threat                  |
-| spell_totem_model             |
-| trainer_spell                 |
-+-------------------------------+
-25 rows in set (0.09 sec)
+  Recast.vcxproj -> F:\Games\server\comp\Trinitycore\build\dep\recastnavigation\Recast\Release\Recast.lib
+  Detour.vcxproj -> F:\Games\server\comp\Trinitycore\build\dep\recastnavigation\Detour\Release\Detour.lib
+  fmt.vcxproj -> F:\Games\server\comp\Trinitycore\build\dep\fmt\Release\fmt.lib
+  zlib.vcxproj -> F:\Games\server\comp\Trinitycore\build\dep\zlib\Release\zlib.lib
+  gsoap.vcxproj -> F:\Games\server\comp\Trinitycore\build\dep\gsoap\Release\gsoap.lib
+  g3dlib.vcxproj -> F:\Games\server\comp\Trinitycore\build\dep\g3dlite\Release\g3dlib.lib
+  argon2.vcxproj -> F:\Games\server\comp\Trinitycore\build\dep\argon2\Release\argon2.lib
+  openssl_ed25519.vcxproj -> F:\Games\server\comp\Trinitycore\build\bin\Release\openssl_ed25519.dll
+  sfmt.vcxproj -> F:\Games\server\comp\Trinitycore\build\dep\SFMT\Release\sfmt.lib
+  casc.vcxproj -> F:\Games\server\comp\Trinitycore\build\dep\CascLib\Release\casc.lib
+  protobuf.vcxproj -> F:\Games\server\comp\Trinitycore\build\dep\protobuf\Release\protobuf.lib
+  common.vcxproj -> F:\Games\server\comp\Trinitycore\build\src\common\Release\common.lib
+  database.vcxproj -> F:\Games\server\comp\Trinitycore\build\src\server\database\Release\database.lib
+  vmap4assembler.vcxproj -> F:\Games\server\comp\Trinitycore\build\bin\Release\vmap4assembler.exe
+  network.vcxproj -> F:\Games\server\comp\Trinitycore\build\src\common\network\Release\trinity_network.lib
+  mmaps_common.vcxproj -> F:\Games\server\comp\Trinitycore\build\src\common\mmaps_common\Release\mmaps_common.lib
+  extractor_common.vcxproj -> F:\Games\server\comp\Trinitycore\build\src\tools\extractor_common\Release\extractor_commo
+  n.lib
+  vmap4extractor.vcxproj -> F:\Games\server\comp\Trinitycore\build\bin\Release\vmap4extractor.exe
+  mmaps_generator.vcxproj -> F:\Games\server\comp\Trinitycore\build\bin\Release\mmaps_generator.exe
+  mapextractor.vcxproj -> F:\Games\server\comp\Trinitycore\build\bin\Release\mapextractor.exe
+  proto.vcxproj -> F:\Games\server\comp\Trinitycore\build\src\server\proto\Release\proto.lib
+  shared.vcxproj -> F:\Games\server\comp\Trinitycore\build\src\server\shared\Release\shared.lib
+  bnetserver.vcxproj -> F:\Games\server\comp\Trinitycore\build\bin\Release\bnetserver.exe
+  game.vcxproj -> F:\Games\server\comp\Trinitycore\build\src\server\game\Release\game.lib
+  spell_paladin.cpp
+F:\Games\server\comp\Trinitycore\src\server\scripts\Spells\spell_paladin.cpp(10036,116): error C2248: Spell::AddUnitTar
+get: невозможно обратиться к protected член, объявленному в классе "Spell" [F:\Games\server\comp\Trinitycore\build\src\
+server\scripts\scripts.vcxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Spells/spell_paladin.cpp")
+      F:\Games\server\comp\Trinitycore\src\server\game\Spells\Spell.h(914,14):
+       см. объявление "Spell::AddUnitTarget"
+      F:\Games\server\comp\Trinitycore\src\server\game\Spells\Spell.h(276,19):
+       см. объявление "Spell"
 
-+------------+-------------+------+-----+---------+-------+
-| Field      | Type        | Null | Key | Default | Extra |
-+------------+-------------+------+-----+---------+-------+
-| spell_id   | int         | NO   | PRI | NULL    |       |
-| ScriptName | varchar(64) | NO   | PRI | NULL    |       |
-+------------+-------------+------+-----+---------+-------+
-2 rows in set (0.02 sec)
-Это с hotfixes:
-mysql> SELECT table_name FROM information_schema.tables
-WHERE table_schema = 'hotfixes'
-  AND (table_name LIKE '%spell%' OR table_name LIKE '%proc%' OR table_name LIKE '%effect%')
-ORDER BY table_name;
-+----------------------------------+
-| TABLE_NAME                       |
-+----------------------------------+
-| barrage_effect                   |
-| battle_pet_ability_effect        |
-| battle_pet_effect_properties     |
-| beam_effect                      |
-| camera_effect                    |
-| camera_effect_entry              |
-| chr_upgrade_bucket_spell         |
-| corruption_effects               |
-| glyph_bindable_spell             |
-| guild_perk_spells                |
-| item_effect                      |
-| item_set_spell                   |
-| item_x_item_effect               |
-| override_spell_data              |
-| specialization_spells            |
-| specialization_spells_locale     |
-| spell_aura_options               |
-| spell_aura_restrictions          |
-| spell_cast_times                 |
-| spell_casting_requirements       |
-| spell_categories                 |
-| spell_category                   |
-| spell_category_locale            |
-| spell_class_options              |
-| spell_cooldowns                  |
-| spell_duration                   |
-| spell_effect                     |
-| spell_empower                    |
-| spell_empower_stage              |
-| spell_equipped_items             |
-| spell_focus_object               |
-| spell_focus_object_locale        |
-| spell_interrupts                 |
-| spell_item_enchantment           |
-| spell_item_enchantment_condition |
-| spell_item_enchantment_locale    |
-| spell_keybound_override          |
-| spell_label                      |
-| spell_learn_spell                |
-| spell_levels                     |
-| spell_misc                       |
-| spell_name                       |
-| spell_name_locale                |
-| spell_power                      |
-| spell_power_difficulty           |
-| spell_procs_per_minute           |
-| spell_procs_per_minute_mod       |
-| spell_radius                     |
-| spell_range                      |
-| spell_range_locale               |
-| spell_reagents                   |
-| spell_reagents_currency          |
-| spell_scaling                    |
-| spell_shapeshift                 |
-| spell_shapeshift_form            |
-| spell_shapeshift_form_locale     |
-| spell_target_restrictions        |
-| spell_totems                     |
-| spell_visual                     |
-| spell_visual_effect_name         |
-| spell_visual_kit                 |
-| spell_visual_missile             |
-| spell_x_spell_visual             |
-| trait_definition_effect_points   |
-| world_effect                     |
-+----------------------------------+
-65 rows in set (0.07 sec)
+
+F:\Games\server\comp\Trinitycore>
