@@ -15,6 +15,9 @@
 
 // === CUT HERE ===============================================================
 
+#include <unordered_map>
+#include <unordered_set>
+
 // MSVC не переваривает вложенные braced-списки в designated-инициализаторе
 // CastSpellExtraArgsInit ( SpellValueOverrides = { {mod,val} } ) — собираем через хелпер.
 // Две перегрузки: SpellValueModFloat (BASE_POINT0.., double) и SpellValueMod (DURATION и пр., int32).
@@ -116,6 +119,127 @@ namespace
         if (!spell)
             return std::nullopt;
         return spell->GetPowerTypeCostAmount(POWER_HOLY_POWER);
+    }
+
+    // 1253598: скорость = стаки * эффект 0 (2%), потолок — эффект 1 (20%). Стак 1 при входе в Гнев.
+    struct CrusadeState
+    {
+        int32 Stacks = 0;
+        int32 Fallback = 0;
+    };
+
+    std::unordered_map<ObjectGuid, CrusadeState> CrusadeByCaster;
+
+    [[nodiscard]] bool HasCrusadeTalent(Unit* unit)
+    {
+        return unit && (unit->HasAura(SPELL_EX_CRUSADE_TALENT) || unit->HasSpell(SPELL_EX_CRUSADE_TALENT));
+    }
+
+    [[nodiscard]] bool HasAvengingWrathAura(Unit* unit)
+    {
+        return unit && (unit->HasAura(SPELL_EX_AVENGING_WRATH) || unit->HasAura(SPELL_EX_AVENGING_WRATH_8S));
+    }
+
+    void CrusadeRates(Unit* unit, int32& perPoint, int32& cap)
+    {
+        perPoint = 2;
+        cap = 20;
+        if (!unit)
+            return;
+        if (AuraEffect const* per = unit->GetAuraEffect(SPELL_EX_CRUSADE_TALENT, EFFECT_0))
+            if (per->GetAmount() > 0.0)
+                perPoint = int32(per->GetAmount());
+        if (AuraEffect const* capEff = unit->GetAuraEffect(SPELL_EX_CRUSADE_TALENT, EFFECT_1))
+            if (capEff->GetAmount() > 0.0)
+                cap = int32(capEff->GetAmount());
+        if (perPoint <= 0)
+            perPoint = 2;
+        if (cap < perPoint)
+            cap = perPoint;
+    }
+
+    [[nodiscard]] int32 CrusadeHastePercent(Unit* unit, int32 stacks)
+    {
+        int32 perPoint = 2;
+        int32 cap = 20;
+        CrusadeRates(unit, perPoint, cap);
+        int32 const maxStacks = std::max(1, cap / perPoint);
+        stacks = std::clamp(stacks, 0, maxStacks);
+        return std::min(cap, stacks * perPoint);
+    }
+
+    void ApplyFallbackHaste(Unit* unit, int32 percent)
+    {
+        if (!unit)
+            return;
+        CrusadeState& state = CrusadeByCaster[unit->GetGUID()];
+        if (state.Fallback == percent)
+            return;
+
+        auto apply = [&](int32 value, bool on)
+        {
+            if (!value)
+                return;
+            unit->ApplyCastTimePercentMod(float(value), on);
+            for (uint8 att = BASE_ATTACK; att < MAX_ATTACK; ++att)
+                unit->ApplyAttackTimePercentMod(WeaponAttackType(att), float(value), on);
+        };
+
+        apply(state.Fallback, false);
+        state.Fallback = percent;
+        apply(percent, true);
+    }
+
+    // Эффект 10 Гнева (аура 193, в DBC 3%) — слот Крестового похода. Без таланта его гасим.
+    bool SetCrusadeAuraHaste(Unit* unit, uint32 spellId, int32 percent)
+    {
+        if (!unit)
+            return false;
+        Aura* aura = unit->GetAura(spellId);
+        if (!aura)
+            return false;
+        AuraEffect* haste = aura->GetEffect(EFFECT_10);
+        if (!haste || haste->GetAuraType() != SPELL_AURA_MELEE_SLOW)
+            return false;
+        haste->SetCanBeRecalculated(false);
+        if (int32(haste->GetAmount()) != percent)
+            haste->ChangeAmount(percent);
+        return true;
+    }
+
+    void UpdateCrusadeHaste(Unit* unit)
+    {
+        if (!unit)
+            return;
+        CrusadeState& state = CrusadeByCaster[unit->GetGUID()];
+        int32 const percent = HasCrusadeTalent(unit) ? CrusadeHastePercent(unit, state.Stacks) : 0;
+        bool onAura = SetCrusadeAuraHaste(unit, SPELL_EX_AVENGING_WRATH, percent);
+        onAura = SetCrusadeAuraHaste(unit, SPELL_EX_AVENGING_WRATH_8S, percent) || onAura;
+        if (onAura)
+            ApplyFallbackHaste(unit, 0);
+        else if (HasCrusadeTalent(unit) && HasAvengingWrathAura(unit))
+            ApplyFallbackHaste(unit, percent);
+        else
+            ApplyFallbackHaste(unit, 0);
+    }
+
+    void ClearCrusadeState(Unit* unit)
+    {
+        if (!unit)
+            return;
+        ApplyFallbackHaste(unit, 0);
+        CrusadeByCaster.erase(unit->GetGUID());
+    }
+
+    [[nodiscard]] int32 GreaterJudgmentBonus(Unit* caster)
+    {
+        int32 bonus = 20;
+        if (!caster)
+            return bonus;
+        if (AuraEffect const* talent = caster->GetAuraEffect(SPELL_EX_GREATER_JUDGMENT, EFFECT_0))
+            if (talent->GetAmount() > 0.0)
+                bonus = int32(talent->GetAmount());
+        return bonus > 0 ? bonus : 20;
     }
 
     // Множитель передаётся в каст Бури/Света зари. 1.25 = +25%, 0.30 = 30% эффективности.
@@ -271,8 +395,9 @@ class spell_pal_empyrean_power_ex : public AuraScript
     }
 };
 
-// 231663 - Великое правосудие: Правосудие вешает на цель стак 197277
-// (+20% урона от способностей на Сила Света за стак, до 20 стаков).
+// 231663 - Великое правосудие: Правосудие вешает 197277.
+// Каждое наложение добавляет эффект 0 таланта (20%) и обновляет 18 с.
+// Трата — spell_pal_greater_judgment_consume_ex, одно наложение за удар.
 class spell_pal_judgment_greater_ex : public SpellScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
@@ -324,19 +449,32 @@ class spell_pal_judgment_greater_ex : public SpellScript
         if (!caster || !hit || (!caster->HasAura(SPELL_EX_GREATER_JUDGMENT) && !caster->HasSpell(SPELL_EX_GREATER_JUDGMENT)))
             return;
 
-        caster->CastSpell(hit, SPELL_EX_GREATER_JUDGMENT_DEBUFF, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
-            .TriggeringSpell = GetSpell()
-        });
-        // 197277 — 18с. Короткая серверная длительность снимает иконку раньше тултипа.
-        if (Aura* debuff = hit->GetAura(SPELL_EX_GREATER_JUDGMENT_DEBUFF, caster->GetGUID()))
+        int32 const bonus = GreaterJudgmentBonus(caster);
+        Aura* debuff = hit->GetAura(SPELL_EX_GREATER_JUDGMENT_DEBUFF, caster->GetGUID());
+        bool const fresh = debuff == nullptr;
+        if (!debuff)
         {
-            constexpr int32 dur = 18000;
-            if (debuff->GetMaxDuration() < dur)
-                debuff->SetMaxDuration(dur);
-            if (debuff->GetDuration() < dur)
-                debuff->SetDuration(dur);
+            caster->CastSpell(hit, SPELL_EX_GREATER_JUDGMENT_DEBUFF, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_DONT_REPORT_CAST_ERROR,
+                .TriggeringSpell = GetSpell()
+            });
+            debuff = hit->GetAura(SPELL_EX_GREATER_JUDGMENT_DEBUFF, caster->GetGUID());
         }
+
+        if (!debuff)
+            return;
+
+        if (AuraEffect* bonusEff = debuff->GetEffect(EFFECT_0))
+        {
+            bonusEff->SetCanBeRecalculated(false);
+            int32 const amount = fresh ? bonus : int32(bonusEff->GetAmount()) + bonus;
+            bonusEff->ChangeAmount(amount);
+        }
+
+        constexpr int32 dur = 18000;
+        if (debuff->GetMaxDuration() < dur)
+            debuff->SetMaxDuration(dur);
+        debuff->SetDuration(dur);
     }
 
     void Register() override
@@ -344,6 +482,51 @@ class spell_pal_judgment_greater_ex : public SpellScript
         AfterHit += SpellHitFn(spell_pal_judgment_greater_ex::HandleMasteryBlast);
         AfterHit += SpellHitFn(spell_pal_judgment_greater_ex::HandleHitTarget);
     }
+};
+
+// 197277 снимается одним наложением за удар способности, которую усиливает эффект 0.
+// Не вешать на само Правосудие: оно только накладывает дебафф.
+class spell_pal_greater_judgment_consume_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_GREATER_JUDGMENT_DEBUFF });
+    }
+
+    void HandleAfterHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* hit = GetHitUnit();
+        if (!caster || !hit || (!caster->HasAura(SPELL_EX_GREATER_JUDGMENT) && !caster->HasSpell(SPELL_EX_GREATER_JUDGMENT)))
+            return;
+        if (!_consumed.insert(hit->GetGUID()).second)
+            return;
+
+        Aura* debuff = hit->GetAura(SPELL_EX_GREATER_JUDGMENT_DEBUFF, caster->GetGUID());
+        if (!debuff)
+            return;
+
+        int32 const bonus = GreaterJudgmentBonus(caster);
+        AuraEffect* bonusEff = debuff->GetEffect(EFFECT_0);
+        if (!bonusEff)
+        {
+            debuff->Remove();
+            return;
+        }
+
+        double const next = bonusEff->GetAmount() - bonus;
+        if (next < bonus * 0.5)
+            debuff->Remove();
+        else
+            bonusEff->ChangeAmount(next);
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_pal_greater_judgment_consume_ex::HandleAfterHit);
+    }
+
+    std::unordered_set<ObjectGuid> _consumed;
 };
 
 // 267316 - Мастерство: Правосудие Верховного лорда.
@@ -705,36 +888,127 @@ class spell_pal_walk_into_light_how_ex : public SpellScript
     }
 };
 
-// 1253598 - Крестовый поход: каждая трата Сила Света в ауре Крестового похода (231895)
-// добавляет стак (+3% скорости атаки за стак, максимум из E1).
+// 1253598 - Крестовый поход: во время Гнева карателя (31884 / 454351) скорость
+// равна стакам * эффект 0 таланта (2%), потолок — эффект 1 (20%, 10 стаков).
+// Стак 1 при входе в Гнев, плюс стак за каждое очко Силы Света.
+// Не стакаем 231895 и не стакаем сам 31884: у Гнева есть слот скорости (эффект 10).
 class spell_pal_crusade_ex : public AuraScript
 {
     bool Validate(SpellInfo const* /*spellInfo*/) override
     {
-        return ValidateSpellInfo({ SPELL_EX_CRUSADE });
+        return ValidateSpellInfo({ SPELL_EX_CRUSADE_TALENT, SPELL_EX_AVENGING_WRATH, SPELL_EX_AVENGING_WRATH_8S });
     }
 
     bool CheckProc(AuraEffect const* /*aurEff*/, ProcEventInfo& eventInfo) const
     {
-        if (!GetTarget()->HasAura(SPELL_EX_CRUSADE))
+        if (!HasAvengingWrathAura(GetTarget()))
             return false;
 
         Optional<int32> holyPowerSpent = GetHolyPowerCost(eventInfo.GetProcSpell());
         return holyPowerSpent && *holyPowerSpent > 0;
     }
 
-    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
+    void HandleProc(AuraEffect* /*aurEff*/, ProcEventInfo& eventInfo)
     {
-        if (Aura* crusade = GetTarget()->GetAura(SPELL_EX_CRUSADE))
-            if (AuraEffect const* capEffect = GetEffect(EFFECT_1))
-                if (crusade->GetStackAmount() < capEffect->GetAmount())
-                    crusade->ModStackAmount(1, AURA_REMOVE_BY_ENEMY_SPELL);
+        Unit* unit = GetTarget();
+        if (!unit)
+            return;
+
+        int32 const spent = *GetHolyPowerCost(eventInfo.GetProcSpell());
+        CrusadeState& state = CrusadeByCaster[unit->GetGUID()];
+        if (state.Stacks < 1)
+            state.Stacks = 1;
+        state.Stacks += spent;
+
+        int32 perPoint = 2;
+        int32 cap = 20;
+        CrusadeRates(unit, perPoint, cap);
+        state.Stacks = std::min(state.Stacks, std::max(1, cap / perPoint));
+        UpdateCrusadeHaste(unit);
     }
 
     void Register() override
     {
         DoCheckEffectProc += AuraCheckEffectProcFn(spell_pal_crusade_ex::CheckProc, EFFECT_0, SPELL_AURA_DUMMY);
         OnEffectProc += AuraEffectProcFn(spell_pal_crusade_ex::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+    }
+};
+
+// Гнев карателя: стартовый стак Крестового похода и снятие запасной скорости.
+// Эффект 10 (аура 193) — слот скорости. Эффект 0 нужен, чтобы снять запасную скорость,
+// если в DBC этого слота нет.
+class spell_pal_crusade_aw_ex : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX_AVENGING_WRATH, SPELL_EX_AVENGING_WRATH_8S });
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* unit = GetTarget();
+        if (!unit)
+            return;
+        if (!HasCrusadeTalent(unit))
+        {
+            SetCrusadeAuraHaste(unit, GetId(), 0);
+            return;
+        }
+
+        CrusadeState& state = CrusadeByCaster[unit->GetGUID()];
+        if (state.Stacks < 1)
+            state.Stacks = 1;
+        UpdateCrusadeHaste(unit);
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* unit = GetTarget();
+        if (!unit)
+            return;
+
+        uint32 const other = GetId() == SPELL_EX_AVENGING_WRATH ? SPELL_EX_AVENGING_WRATH_8S : SPELL_EX_AVENGING_WRATH;
+        if (unit->HasAura(other))
+        {
+            int32 const percent = HasCrusadeTalent(unit)
+                ? CrusadeHastePercent(unit, CrusadeByCaster[unit->GetGUID()].Stacks)
+                : 0;
+            SetCrusadeAuraHaste(unit, other, percent);
+            return;
+        }
+        ClearCrusadeState(unit);
+    }
+
+    void Register() override
+    {
+        OnEffectApply += AuraEffectApplyFn(spell_pal_crusade_aw_ex::OnApply, EFFECT_10, SPELL_AURA_MELEE_SLOW, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_pal_crusade_aw_ex::OnRemove, EFFECT_10, SPELL_AURA_MELEE_SLOW, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_pal_crusade_aw_ex::OnRemove, EFFECT_0, SPELL_AURA_ADD_PCT_MODIFIER, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+class spell_pal_crusade_aw_cast_ex : public SpellScript
+{
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster)
+            return;
+        if (!HasCrusadeTalent(caster))
+        {
+            SetCrusadeAuraHaste(caster, GetSpellInfo()->Id, 0);
+            return;
+        }
+
+        CrusadeState& state = CrusadeByCaster[caster->GetGUID()];
+        if (state.Stacks < 1)
+            state.Stacks = 1;
+        UpdateCrusadeHaste(caster);
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_crusade_aw_cast_ex::HandleAfterCast);
     }
 };
 
@@ -820,6 +1094,7 @@ void AddSC_paladin_spell_scripts_ex()
     RegisterSpellScript(spell_pal_righteous_cause_ex);
     RegisterSpellScript(spell_pal_empyrean_power_ex);
     RegisterSpellScript(spell_pal_judgment_greater_ex);
+    RegisterSpellScript(spell_pal_greater_judgment_consume_ex);
     RegisterSpellScript(spell_pal_highlords_judgment_ex);
     RegisterSpellScript(spell_pal_judge_jury_executioner_ex);
     RegisterSpellScript(spell_pal_judge_jury_executioner_refund_ex);
@@ -833,6 +1108,8 @@ void AddSC_paladin_spell_scripts_ex()
     RegisterSpellScript(spell_pal_walk_into_light_aw_ex);
     RegisterSpellScript(spell_pal_walk_into_light_how_ex);
     RegisterSpellScript(spell_pal_crusade_ex);
+    RegisterSpellScript(spell_pal_crusade_aw_ex);
+    RegisterSpellScript(spell_pal_crusade_aw_cast_ex);
     RegisterSpellScript(spell_pal_templar_slash_crit_ex);
     RegisterSpellScript(spell_pal_radiant_glory_ex);
     RegisterSpellScript(spell_pal_divine_storm_cap_ex);

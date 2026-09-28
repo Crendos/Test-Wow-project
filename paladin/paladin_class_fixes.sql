@@ -18,6 +18,14 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (20271,  'spell_pal_judgment_greater_ex'),
 (275779, 'spell_pal_judgment_greater_ex'),
 (275773, 'spell_pal_judgment_greater_ex'),
+-- Великое правосудие: одно наложение 197277 за удар траты Силы Света
+(85256,  'spell_pal_greater_judgment_consume_ex'),
+(383328, 'spell_pal_greater_judgment_consume_ex'),
+(53385,  'spell_pal_greater_judgment_consume_ex'),
+(53600,  'spell_pal_greater_judgment_consume_ex'),
+(427453, 'spell_pal_greater_judgment_consume_ex'),
+(215661, 'spell_pal_greater_judgment_consume_ex'),
+(415091, 'spell_pal_greater_judgment_consume_ex'),
 -- Мастерство: удар 383921 кастует скрипт Правосудия (20271/275779/275773).
 -- Строка на 267316 оставлена, чтобы старый бинд не сыпал «script not found».
 (267316, 'spell_pal_highlords_judgment_ex'),
@@ -50,8 +58,12 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (454351, 'spell_pal_walk_into_light_aw_ex'),
 (24275,  'spell_pal_walk_into_light_how_ex'),
 (1241413,'spell_pal_walk_into_light_how_ex'),
--- Крестовый поход (1253598): стак скорости атаки за трату Сила Света
+-- Крестовый поход (1253598): скорость на Гневе карателя, не на 231895
 (1253598, 'spell_pal_crusade_ex'),
+(31884,  'spell_pal_crusade_aw_ex'),
+(454351, 'spell_pal_crusade_aw_ex'),
+(31884,  'spell_pal_crusade_aw_cast_ex'),
+(454351, 'spell_pal_crusade_aw_cast_ex'),
 -- Удар храмовника: Темплар Слэш всегда критует
 (406647, 'spell_pal_templar_slash_crit_ex'),
 -- Сияющая слава (458359): Всплеск пепла активирует АН (454351) на 8 с
@@ -98,7 +110,7 @@ VALUES (267316,0x00,0,0,0,0,0,0x10,0x0,0x1,0x2,0x3,0x0,0x0,0,0,0,0);
 VALUES (406157,0x00,0,0,0,0,0,0x0,0x4,0x0,0x0,0x0,0x0,0x0,0,0,0,0);
 -- ...и траты Сила Света при активном 1253174 (возврат стоимости)
 VALUES (1253174,0x00,0,0,0,0,0,0x55410,0x0,0x3,0x2,0x403,0x0,0x0,0,0,0,0);
--- Крестовый поход: траты Сила Света во время 231895
+-- Крестовый поход: траты Сила Света во время Гнева карателя (31884/454351)
 VALUES (1253598,0x00,0,0,0,0,0,0x55410,0x0,0x3,0x2,0x403,0x0,0x0,0,0,0,0);
 
 -- 387170 больше не прокает сам: старая строка вешала 387178 на трату Силы Света.

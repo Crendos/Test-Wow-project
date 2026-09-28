@@ -23,6 +23,8 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (20271,  'spell_pal_awakening_consume_ex'),
 (275779, 'spell_pal_awakening_consume_ex'),
 (275773, 'spell_pal_awakening_consume_ex'),
+(24275,  'spell_pal_awakening_consume_ex'),
+(1241413,'spell_pal_awakening_consume_ex'),
 -- Праведное правосудие (Свет): Правосудие -> Освящение
 (275773, 'spell_pal_righteous_judgment_holy_ex'),
 (20271,  'spell_pal_righteous_judgment_holy_ex'),
