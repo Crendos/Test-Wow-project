@@ -33,7 +33,7 @@
 // ============================================================================
 
 // === CUT HERE ===============================================================
-// PAL_REV4_20260928 (включает PAL_REV3, PAL_REV2)
+// PAL_REV5_20260928 (включает PAL_REV4, PAL_REV3, PAL_REV2)
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -1817,6 +1817,143 @@ class spell_pal_truth_prevails_transfer_ex : public SpellScript
     int32 _raw = 0;
 };
 
+// --- PAL_REV5: второй проход по логам WCL (ауры/лечение, которых не было в v4) ---------------
+
+enum PaladinEx14Spells
+{
+    SPELL_EX14_BORN_IN_SUNLIGHT         = 1263920, // талант Вестника
+    SPELL_EX14_BORN_IN_SUNLIGHT_BUFF    = 1264050, // +15% крит Рассветного света (431380/431381)
+    SPELL_EX14_UNDYING_EMBERS           = 1244019, // E0 125%, E1 300%
+    SPELL_EX14_UNDYING_EMBERS_HEAL      = 1244022,
+    SPELL_EX14_REFINING_FIRE_DOT        = 469882,
+    SPELL_EX14_WILL_OF_THE_DAWN_LOCK    = 456779,  // «не может сработать» 1 мин
+    SPELL_EX14_ARMORY_OF_LIGHT          = 1277443,
+};
+
+// 31884/454351/216331/231895 - Гнев карателя: Рождённый в солнечном свете — пока он активен,
+// 1264050 (+15% крит Рассветного света). WCL: число/аптайм баффа = числу/аптайму Гнева карателя.
+class spell_pal_born_in_sunlight_aw_ex : public AuraScript
+{
+    void AfterApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* target = GetTarget();
+        if (target->HasAura(SPELL_EX14_BORN_IN_SUNLIGHT))
+            target->CastSpell(target, SPELL_EX14_BORN_IN_SUNLIGHT_BUFF, CastSpellExtraArgsInit{ .TriggerFlags = TRIGGERED_FULL_MASK });
+    }
+
+    void AfterRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Unit* target = GetTarget();
+        for (uint32 id : { 31884u, 454351u, 216331u, 231895u })
+            if (id != GetId() && target->HasAura(id))
+                return;
+        target->RemoveAurasDueToSpell(SPELL_EX14_BORN_IN_SUNLIGHT_BUFF);
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_pal_born_in_sunlight_aw_ex::AfterApply, EFFECT_FIRST_FOUND, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_pal_born_in_sunlight_aw_ex::AfterRemove, EFFECT_FIRST_FOUND, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
+// 1244019 - Неугасимые угли (Прот): тик Очищающего огня 469882 лечит на 125%..300% урона
+// (чем меньше здоровья, тем больше). WCL: число лечений = числу тиков Очищающего огня.
+class spell_pal_undying_embers_ex : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        DamageInfo* damage = eventInfo.GetDamageInfo();
+        return damage && damage->GetDamage() && eventInfo.GetSpellInfo()
+            && eventInfo.GetSpellInfo()->Id == SPELL_EX14_REFINING_FIRE_DOT;
+    }
+
+    void HandleProc(ProcEventInfo& eventInfo)
+    {
+        Unit* target = GetTarget();
+        float minPct = 125.f, maxPct = 300.f;
+        if (AuraEffect const* e0 = GetEffect(EFFECT_0))
+            if (e0->GetAmount() > 0.0)
+                minPct = float(e0->GetAmount());
+        if (AuraEffect const* e1 = GetEffect(EFFECT_1))
+            if (e1->GetAmount() > 0.0)
+                maxPct = float(e1->GetAmount());
+        float const missing = std::clamp(1.f - target->GetHealthPct() / 100.f, 0.f, 1.f);
+        float const pct = minPct + (maxPct - minPct) * missing;
+        uint32 const heal = uint32(CalculatePct(float(eventInfo.GetDamageInfo()->GetDamage()), pct));
+        Ex13DirectHeal(target, target, SPELL_EX14_UNDYING_EMBERS_HEAL, heal);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_undying_embers_ex::CheckProc);
+        OnProc += AuraProcFn(spell_pal_undying_embers_ex::HandleProc);
+    }
+};
+
+// 431406 - Воля рассвета: E2/E3 (431752 +40% скорости 5 с и 456779 блок 1 мин) — только когда
+// урон опускает здоровье ниже 35% и блокировки нет. E1 (выше 80%) работает из DB2.
+class spell_pal_will_of_the_dawn_ex : public AuraScript
+{
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        Unit* target = GetTarget();
+        DamageInfo* damage = eventInfo.GetDamageInfo();
+        if (!damage || !damage->GetDamage() || target->HasAura(SPELL_EX14_WILL_OF_THE_DAWN_LOCK))
+            return false;
+        uint64 const health = target->GetHealth();
+        uint64 const after = health > damage->GetDamage() ? health - damage->GetDamage() : 0;
+        return after > 0 && after * 100 < target->GetMaxHealth() * 35;
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_pal_will_of_the_dawn_ex::CheckProc);
+    }
+};
+
+// 1277443 - Оружейная Света: со щитом — 15% шанс «заблокировать» заклинание (-20% урона),
+// без щита — 15% шанс «парировать» атаку ближнего боя (-20%). E1 — бесконечный поглощающий щит.
+class spell_pal_armory_of_light_ex : public AuraScript
+{
+    void CalcAmount(AuraEffect const* /*aurEff*/, SpellEffectValue& amount, bool& /*canBeRecalculated*/)
+    {
+        amount = -1;
+    }
+
+    int32 Value(SpellEffIndex index, int32 fallback) const
+    {
+        if (AuraEffect const* eff = GetEffect(index))
+            if (int32 const value = int32(eff->GetAmount()); value > 0 && value <= 100)
+                return value;
+        return fallback;
+    }
+
+    void Absorb(AuraEffect* /*aurEff*/, DamageInfo& dmgInfo, uint32& absorbAmount)
+    {
+        absorbAmount = 0;
+        Player* player = GetTarget()->ToPlayer();
+        bool const shield = player && player->GetShield(true);
+        SpellInfo const* spell = dmgInfo.GetSpellInfo();
+        bool const isSpell = spell && spell->DmgClass == SPELL_DAMAGE_CLASS_MAGIC;
+        bool const isMelee = (!spell || spell->DmgClass == SPELL_DAMAGE_CLASS_MELEE)
+            && (dmgInfo.GetAttackType() == BASE_ATTACK || dmgInfo.GetAttackType() == OFF_ATTACK);
+        if (shield ? !isSpell : !isMelee)
+            return;
+        int32 const chance = shield ? Value(EFFECT_1, 15) : Value(EFFECT_3, 15);
+        int32 const pct = shield ? Value(EFFECT_2, 20) : Value(EFFECT_4, 20);
+        if (!roll_chance(float(chance)))
+            return;
+        absorbAmount = CalculatePct(dmgInfo.GetDamage(), pct);
+    }
+
+    void Register() override
+    {
+        DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pal_armory_of_light_ex::CalcAmount, EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        OnEffectAbsorb += AuraEffectAbsorbFn(spell_pal_armory_of_light_ex::Absorb, EFFECT_0);
+    }
+};
+
 void AddSC_paladin_spell_scripts_ex11()
 {
     RegisterSpellScript(spell_pal_sentinel_decay_ex);
@@ -1860,4 +1997,9 @@ void AddSC_paladin_spell_scripts_ex11()
     RegisterSpellScript(spell_pal_tempered_bulwark_ex);
     RegisterSpellScript(spell_pal_truth_prevails_transfer_ex);
     new spell_pal_tempered_in_battle_link_ex();
+    // PAL_REV5: второй проход по WCL
+    RegisterSpellScript(spell_pal_born_in_sunlight_aw_ex);
+    RegisterSpellScript(spell_pal_undying_embers_ex);
+    RegisterSpellScript(spell_pal_will_of_the_dawn_ex);
+    RegisterSpellScript(spell_pal_armory_of_light_ex);
 }

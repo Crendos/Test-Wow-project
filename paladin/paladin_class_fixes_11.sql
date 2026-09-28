@@ -172,3 +172,32 @@ VALUES
 (407067,0x00,0,0,0,0,0,0x11110,0x0,0x1,0x2,0x2,0x1,0x0,0,100,500,0),
 (469701,0x00,0,0,0,0,0,0x80008800,0x0,0x2,0x2,0x0,0x1,0x0,0,100,0,0),
 (432496,0x00,0,0,0,0,0,0x80008800,0x0,0x2,0x2,0x0,0x1,0x0,0,100,0,0);
+
+-- ============================================================================
+-- PAL_REV5 (28.09.2026, v5): второй проход по логам WCL. Повторный прогон безопасен.
+-- ============================================================================
+DELETE FROM `spell_script_names` WHERE `ScriptName` IN (
+  'spell_pal_born_in_sunlight_aw_ex','spell_pal_undying_embers_ex',
+  'spell_pal_will_of_the_dawn_ex','spell_pal_armory_of_light_ex');
+DELETE FROM `spell_script_names` WHERE `spell_id` = 1263920 AND `ScriptName` = 'spell_pal_hero_proc_disabled_ex';
+
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+-- Рождённый в солнечном свете: 1264050 на время Гнева карателя; родной прок таланта выключен
+(31884,   'spell_pal_born_in_sunlight_aw_ex'),
+(454351,  'spell_pal_born_in_sunlight_aw_ex'),
+(216331,  'spell_pal_born_in_sunlight_aw_ex'),
+(231895,  'spell_pal_born_in_sunlight_aw_ex'),
+(1263920, 'spell_pal_hero_proc_disabled_ex'),
+-- Неугасимые угли: тики Очищающего огня лечат 125..300%
+(1244019, 'spell_pal_undying_embers_ex'),
+-- Воля рассвета: +40% скорости при падении ниже 35% (раз в минуту)
+(431406,  'spell_pal_will_of_the_dawn_ex'),
+-- Оружейная Света: 15% шанс -20% урона (щит: заклинания, без щита: ближний бой)
+(1277443, 'spell_pal_armory_of_light_ex');
+
+-- Неугасимые угли: периодический урон (тик 469882, фильтр в скрипте).
+-- Воля рассвета: получение любого урона; E1/E2 (периодик и «по здоровью») не прокают.
+REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
+VALUES
+(1244019,0x00,0,0,0,0,0,0x40000,0x0,0x1,0x2,0x0,0x1,0x0,0,100,0,0),
+(431406, 0x00,0,0,0,0,0,0x100000,0x0,0x0,0x0,0x0,0x0,0x3,0,100,0,0);
