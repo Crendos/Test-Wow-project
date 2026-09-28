@@ -32,40 +32,40 @@ WORLD: MMap data directory is: ./mmaps
 VMap support included. LineOfSight: true, getHeight: true, indoorCheck: true
 VMap data directory is: ./vmaps
 Loading Trinity strings...
->> Loaded 1051 trinity strings in 5 ms
+>> Loaded 1051 trinity strings in 15 ms
 Loading GameObject models...
->> Loaded 18078 GameObject models in 16 ms
+>> Loaded 18078 GameObject models in 30 ms
 Initialize data stores...
->> Initialized 369 DB2 data stores in 34875 ms
+>> Initialized 369 DB2 data stores in 36069 ms
 Loading hotfix blobs...
->> Loaded 7364 hotfix blob records in 120 ms
+>> Loaded 7364 hotfix blob records in 136 ms
 Loading hotfix info...
->> Loaded 21985 hotfix records in 55 ms
+>> Loaded 21985 hotfix records in 57 ms
 Loading hotfix optional data...
 >> Loaded 17752 hotfix optional data records in 311 ms
 Indexing loaded data stores...
->> Indexed DB2 data stores in 444 ms
+>> Indexed DB2 data stores in 624 ms
 >> Loading Cinematic Camera files
->> Loaded 34 cinematic waypoint sets in 238 ms
->> Initialized 14 GameTables in 134 ms
+>> Loaded 34 cinematic waypoint sets in 351 ms
+>> Initialized 14 GameTables in 229 ms
 Loading IP Location Database...
 Initializing PlayerDump tables...
->> Initialized tables for PlayerDump in 105 ms.
+>> Initialized tables for PlayerDump in 96 ms.
 Loading SpellInfo store...
->> Loaded SpellInfo store in 1533 ms
+>> Loaded SpellInfo store in 1558 ms
 Loading serverside spells...
->> Loaded 4390 serverside spells 152 ms
+>> Loaded 4390 serverside spells 103 ms
 Loading SpellInfo corrections...
->> Loaded SpellInfo corrections in 119 ms
+>> Loaded SpellInfo corrections in 146 ms
 Loading SkillLineAbilityMultiMap Data...
 >> Loaded 17952 SkillLineAbility MultiMap Data in 3 ms
 Loading SpellInfo custom attributes...
->> Loaded 141 spell custom attributes from DB in 3 ms
->> Loaded SpellInfo custom attributes in 563 ms
+>> Loaded 141 spell custom attributes from DB in 6 ms
+>> Loaded SpellInfo custom attributes in 599 ms
 Loading SpellInfo diminishing infos...
->> Loaded SpellInfo diminishing infos in 93 ms
+>> Loaded SpellInfo diminishing infos in 81 ms
 Loading SpellInfo immunity infos...
->> Loaded SpellInfo immunity infos in 165 ms
+>> Loaded SpellInfo immunity infos in 160 ms
 Loading SpellInfo target caps...
 Spell info correction specified for non-existing spell 1265579
 Spell info correction specified for non-existing spell 1265580
@@ -79,174 +79,174 @@ Loading Traits...
 Loading languages...
 >> Loaded 50 languages in 0 ms
 Loading languages words...
->> Loaded 344 word groups from 2625 words in 1 ms
+>> Loaded 344 word groups from 2625 words in 0 ms
 Loading Instance Template...
 >> Loaded 124 instance templates in 4 ms
 Loading instances...
 Loading Localization strings...
->> Loaded 222875 creature locale strings in 3362 ms
->> Loaded 34654 gameobject_template_locale strings in 279 ms
->> Loaded 49176 Quest Template locale strings in 1616 ms
->> Loaded 19185 Quest Offer Reward locale strings in 143 ms
->> Loaded 11209 Quest Request Items locale strings in 77 ms
->> Loaded 44082 Quest Objectives locale strings in 429 ms
->> Loaded 2877 PageText locale strings in 34 ms
+>> Loaded 222875 creature locale strings in 3261 ms
+>> Loaded 34654 gameobject_template_locale strings in 268 ms
+>> Loaded 49176 Quest Template locale strings in 1726 ms
+>> Loaded 19185 Quest Offer Reward locale strings in 138 ms
+>> Loaded 11209 Quest Request Items locale strings in 85 ms
+>> Loaded 44082 Quest Objectives locale strings in 465 ms
+>> Loaded 2877 PageText locale strings in 37 ms
 >> Loaded 1 gossip_menu_option locale strings in 2 ms
 >> Loaded 512 points_of_interest locale strings in 13 ms
->> Localization strings loaded in 5960 ms
+>> Localization strings loaded in 6002 ms
 Loading Account Roles and Permissions...
->> Loaded 696 permission definitions, 680 linked permissions and 4 default permissions in 7 ms
+>> Loaded 696 permission definitions, 680 linked permissions and 4 default permissions in 11 ms
 Loading Page Texts...
->> Loaded 2902 page texts in 20 ms
+>> Loaded 2902 page texts in 21 ms
 Loading Game Object Templates...
 >> Loaded 40 destructible_hitpoint records in 3 ms
->> Loaded 118864 game object templates in 730 ms
+>> Loaded 118864 game object templates in 804 ms
 Loading Game Object template addons...
->> Loaded 44149 game object template addons in 80 ms
+>> Loaded 44149 game object template addons in 87 ms
 Loading Transport templates...
->> Loaded 116 transport templates in 43 ms
+>> Loaded 116 transport templates in 82 ms
 Loading Transport animations and rotations...
 Loading Transport spawns...
->> Spawned 0 continent transports in 2 ms
+>> Spawned 0 continent transports in 1 ms
 Loading Spell Rank Data...
 >> Loaded 1778 spell rank records in 2 ms
 Loading Spell Required Data...
->> Loaded 21 spell required records in 3 ms
+>> Loaded 21 spell required records in 2 ms
 Loading Spell Group types...
->> Loaded 284 spell group definitions in 7 ms
+>> Loaded 284 spell group definitions in 10 ms
 Loading Spell Learn Skills...
->> Loaded 423 Spell Learn Skills from DBC in 77 ms
+>> Loaded 423 Spell Learn Skills from DBC in 81 ms
 Loading SpellInfo SpellSpecific and AuraState...
->> Loaded SpellInfo SpellSpecific and AuraState in 103 ms
+>> Loaded SpellInfo SpellSpecific and AuraState in 101 ms
 Loading Spell Learn Spells...
->> Loaded 5 spell learn spells, 1704 found in Spell.dbc in 78 ms
+>> Loaded 5 spell learn spells, 1704 found in Spell.dbc in 127 ms
 Loading Spell Proc conditions and data...
->> Loaded 1288 spell proc conditions and data in 79 ms
+>> Loaded 1292 spell proc conditions and data in 94 ms
 Generating spell proc data from SpellMap...
->> Generated spell proc data for 11511 spells in 802 ms
+>> Generated spell proc data for 11501 spells in 739 ms
 Loading Aggro Spells Definitions...
->> Loaded 21 SpellThreatEntries in 6 ms
+>> Loaded 21 SpellThreatEntries in 9 ms
 Loading Spell Group Stack Rules...
->> Loaded 13 spell group stack rules in 1 ms
+>> Loaded 13 spell group stack rules in 6 ms
 >> Parsing SPELL_GROUP_STACK_RULE_EXCLUSIVE_SAME_EFFECT stack rules...
->> Parsed 0 SPELL_GROUP_STACK_RULE_EXCLUSIVE_SAME_EFFECT stack rules in 0 ms
+>> Parsed 0 SPELL_GROUP_STACK_RULE_EXCLUSIVE_SAME_EFFECT stack rules in 2 ms
 Loading NPC Texts...
->> Loaded 15448 npc texts in 79 ms
+>> Loaded 15448 npc texts in 113 ms
 Loading Enchant Spells Proc datas...
->> Loaded 16 enchant proc data definitions in 1 ms
+>> Loaded 16 enchant proc data definitions in 2 ms
 Loading item bonus data...
 Loading Random item bonus list definitions...
 >> Loaded 0 Random item bonus list definitions. DB table `item_random_bonus_list_template` is empty.
 Loading Disables
->> Loaded 5320 disables in 13 ms
+>> Loaded 5320 disables in 14 ms
 Loading Items...
->> Loaded 175108 item templates in 372 ms
+>> Loaded 175108 item templates in 398 ms
 Loading Item set names...
->> Loaded 625 item addon templates in 7 ms
->> Loaded 10 item script names in 1 ms
+>> Loaded 625 item addon templates in 8 ms
+>> Loaded 10 item script names in 2 ms
 Loading Creature Model Based Info Data...
->> Loaded 97813 creature model based info in 160 ms
+>> Loaded 97813 creature model based info in 159 ms
 Loading Creature templates...
->> Loaded 1606 creature template resistances in 10 ms
->> Loaded 9586 creature template spells in 12 ms
->> Loaded 379276 creature template models in 3905 ms
->> Loaded 231149 creature definitions in 11856 ms
+>> Loaded 1606 creature template resistances in 11 ms
+>> Loaded 9586 creature template spells in 11 ms
+>> Loaded 379276 creature template models in 4154 ms
+>> Loaded 231149 creature definitions in 12851 ms
 Loading Equipment templates...
->> Loaded 42179 equipment templates in 100 ms
+>> Loaded 42179 equipment templates in 123 ms
 Loading Creature template addons...
->> Loaded 28525 creature template addons in 76 ms
+>> Loaded 28525 creature template addons in 90 ms
 Loading Creature template difficulty...
->> Loaded 335558 creature template difficulty data in 1130 ms
+>> Loaded 335558 creature template difficulty data in 1161 ms
 Loading Creature template sparring...
->> Loaded 63 creature template sparring rows in 3 ms
+>> Loaded 63 creature template sparring rows in 4 ms
 Loading Reputation Reward Rates...
->> Loaded 16 reputation_reward_rate in 3 ms
+>> Loaded 16 reputation_reward_rate in 2 ms
 Loading Creature Reputation OnKill Data...
 >> Loaded 2020 creature award reputation definitions in 6 ms
 Loading Reputation Spillover Data...
 >> Loaded 28 reputation_spillover_template in 2 ms
 Loading Points Of Interest Data...
->> Loaded 854 Points of Interest definitions in 7 ms
+>> Loaded 854 Points of Interest definitions in 6 ms
 Loading Creature Base Stats...
 >> Loaded 460 creature base stats in 2 ms
 Loading Spawn Group Templates...
 >> Loaded 659 spawn group templates in 3 ms
 Loading Creature Data...
->> Loaded 716260 creatures in 38092 ms
+>> Loaded 716254 creatures in 36360 ms
 Loading Temporary Summon Data...
->> Loaded 1123 temp summons in 12 ms
+>> Loaded 1123 temp summons in 25 ms
 Loading pet levelup spells...
 >> Loaded 364 pet levelup and default spells for 84 families in 1 ms
 Loading pet default spells additional to levelup spells...
 Loading summonable creature templates...
->> Loaded 404 summonable creature templates in 86 ms
+>> Loaded 404 summonable creature templates in 89 ms
 Loading Creature Addon Data...
->> Loaded 91032 creature addons in 297 ms
+>> Loaded 91032 creature addons in 303 ms
 Loading Creature Movement Overrides...
->> Loaded 14 movement overrides in 20 ms
+>> Loaded 14 movement overrides in 3 ms
 Loading Gameobject Data...
->> Loaded 199607 gameobjects in 6646 ms
+>> Loaded 199607 gameobjects in 6614 ms
 Loading Spawn Group Data...
->> Loaded 96179 spawn group members in 85 ms
+>> Loaded 96179 spawn group members in 186 ms
 Loading instance spawn groups...
->> Loaded 249 instance spawn groups in 3 ms
+>> Loaded 249 instance spawn groups in 2 ms
 Loading GameObject Addon Data...
->> Loaded 25900 gameobject addons in 70 ms
+>> Loaded 25900 gameobject addons in 73 ms
 Loading GameObject faction and flags overrides...
 >> Loaded 0 gameobject faction and flags overrides. DB table `gameobject_overrides` is empty.
 Loading GameObject Quest Items...
->> Loaded 4174 gameobject quest items in 8 ms
+>> Loaded 4174 gameobject quest items in 10 ms
 Loading Creature Quest Items...
->> Loaded 171005 creature quest items in 209 ms
+>> Loaded 171005 creature quest items in 224 ms
 Loading Creature Quest Currencies...
->> Loaded 85067 creature quest currencies in 355 ms
+>> Loaded 85067 creature quest currencies in 363 ms
 Loading Creature Linked Respawn...
->> Loaded 6 linked respawns in 5 ms
+>> Loaded 6 linked respawns in 36 ms
 Loading Weather Data...
->> Loaded 35 weather definitions in 2 ms
+>> Loaded 35 weather definitions in 5 ms
 Loading Quests...
 >> Loaded 0 quest reward choice items. DB table `quest_reward_choice_items` is empty.
 >> Loaded 0 quest house room rewards. DB table `quest_reward_house_room` is empty.
 >> Loaded 0 quest house decor rewards. DB table `quest_reward_house_decor` is empty.
->> Loaded 49045 quests definitions in 1872 ms
+>> Loaded 49045 quests definitions in 2257 ms
 Checking Quest Disables
 >> Checked 5260 quest disables in 1 ms
 Loading Quest POI
->> Loaded 40787 quest POI definitions in 1075 ms
+>> Loaded 40787 quest POI definitions in 1064 ms
 Loading Quests Starters and Enders...
 Loading GO Start Quest Data...
->> Loaded 1610 quest relations from gameobject_queststarter in 7 ms
+>> Loaded 1610 quest relations from gameobject_queststarter in 10 ms
 Loading GO End Quest Data...
->> Loaded 1512 quest relations from gameobject_questender in 5 ms
+>> Loaded 1512 quest relations from gameobject_questender in 4 ms
 Loading Creature Start Quest Data...
->> Loaded 27136 quest relations from creature_queststarter in 35 ms
+>> Loaded 27136 quest relations from creature_queststarter in 38 ms
 Loading Creature End Quest Data...
->> Loaded 34259 quest relations from creature_questender in 51 ms
+>> Loaded 34259 quest relations from creature_questender in 48 ms
 Loading Quest Greetings...
 >> Loaded 411 quest_greeting in 9 ms
->> Loaded 347 Quest Greeting locale strings in 3 ms
+>> Loaded 347 Quest Greeting locale strings in 4 ms
 Loading Objects Pooling Data...
->> Loaded 3995 objects pools in 75 ms
+>> Loaded 3995 objects pools in 7 ms
 Loading Creatures Pooling Data...
->> Loaded 1366 creatures in pools in 6 ms
+>> Loaded 1366 creatures in pools in 38 ms
 Loading Gameobject Pooling Data...
->> Loaded 9307 gameobject in pools in 24 ms
+>> Loaded 9307 gameobject in pools in 33 ms
 Loading Mother Pooling Data...
->> Loaded 2840 pools in mother pools in 8 ms
+>> Loaded 2840 pools in mother pools in 10 ms
 Starting objects pooling system...
 Loading Quest Pooling Data...
->> Loaded 56 daily, 5 weekly and 0 monthly quest pools in 6 ms
+>> Loaded 56 daily, 5 weekly and 0 monthly quest pools in 12 ms
 Loading World State templates...
->> Loaded 1861 world state templates 10 ms
+>> Loaded 1861 world state templates 20 ms
 >> Loaded 2 saved world state values 1 ms
 Loading Game Event Data...
->> Loaded 89 game events in 1 ms.
+>> Loaded 89 game events in 2 ms.
 Loading Game Event Saves Data...
 >> Loaded 0 game event saves in game events. DB table `game_event_save` is empty.
 Loading Game Event Prerequisite Data...
 >> Loaded 0 game event prerequisites in game events. DB table `game_event_prerequisite` is empty.
 Loading Game Event Creature Data...
->> Loaded 4740 creatures in game events in 5 ms.
+>> Loaded 4740 creatures in game events in 4 ms.
 Loading Game Event GO Data...
 >> Loaded 38361 gameobjects in game events in 39 ms.
 Loading Game Event Model/Equipment Change Data...
@@ -254,7 +254,7 @@ Loading Game Event Model/Equipment Change Data...
 Loading Game Event Quest Data...
 >> Loaded 235 quests additions in game events in 2 ms.
 Loading Game Event GO Quest Data...
->> Loaded 112 quests additions in game events in 1 ms.
+>> Loaded 112 quests additions in game events in 2 ms.
 Loading Game Event Quest Condition Data...
 >> Loaded 0 quest event conditions in game events. DB table `game_event_quest_condition` is empty.
 Loading Game Event Condition Data...
@@ -264,19 +264,19 @@ Loading Game Event Condition Save Data...
 Loading Game Event NPCflag Data...
 >> Loaded 0 npcflags in game events. DB table `game_event_npcflag` is empty.
 Loading Game Event Seasonal Quest Relations...
->> Loaded 690 quests additions in game events in 2 ms.
+>> Loaded 690 quests additions in game events in 3 ms.
 Loading Game Event Vendor Additions Data...
 >> Loaded 102 vendor additions in game events in 2 ms.
 Loading Game Event Pool Data...
 >> Loaded 30 pools for game events in 1 ms.
 Loading creature summoned data...
->> Loaded 54 creature summoned data definitions in 1 ms
+>> Loaded 54 creature summoned data definitions in 2 ms
 Loading UNIT_NPC_FLAG_SPELLCLICK Data...
 >> Loaded 830 spellclick definitions in 121 ms
 Loading Vehicle Templates...
 >> Loaded 9 Vehicle Template entries in 1 ms
 Loading Vehicle Template Accessories...
->> Loaded 519 Vehicle Template Accessories in 4 ms
+>> Loaded 519 Vehicle Template Accessories in 5 ms
 Loading Vehicle Accessories...
 >> Loaded 0 vehicle accessories. DB table `vehicle_accessory` is empty.
 Loading Vehicle Seat Addon Data...
@@ -284,12 +284,12 @@ Loading Vehicle Seat Addon Data...
 Loading SpellArea Data...
 >> Loaded 968 spell area requirements in 4 ms
 Loading World locations...
->> Loaded 4312 world locations 38 ms
+>> Loaded 4312 world locations 17 ms
 Loading Area Trigger Teleports definitions...
->> Loaded 344 area trigger teleport definitions in 7 ms
+>> Loaded 344 area trigger teleport definitions in 5 ms
 Loading Area Trigger Polygon data...
 Loading Access Requirements...
->> Loaded 229 access requirement definitions in 4 ms
+>> Loaded 229 access requirement definitions in 5 ms
 Loading Quest Area Triggers...
 >> Loaded 63 quest trigger points in 5 ms
 Loading Tavern Area Triggers...
@@ -299,22 +299,22 @@ Loading AreaTrigger script names...
 Loading LFG entrance positions...
 >> Loaded 35 lfg dungeon templates in 3 ms
 Loading LFG rewards...
->> Loaded 4 lfg dungeon rewards in 1 ms
+>> Loaded 4 lfg dungeon rewards in 2 ms
 Loading Graveyard-zone links...
->> Loaded 1238 graveyard-zone links in 3 ms
+>> Loaded 1238 graveyard-zone links in 4 ms
 Loading spell pet auras...
->> Loaded 1 spell pet auras in 2 ms
+>> Loaded 1 spell pet auras in 1 ms
 Loading Spell target coordinates...
 >> Loaded 2497 spell teleport coordinates in 11 ms
 Loading linked spells...
->> Loaded 209 linked spells in 2 ms
+>> Loaded 209 linked spells in 3 ms
 Loading Scenes Templates...
->> Loaded 574 scene templates in 3 ms.
+>> Loaded 574 scene templates in 2 ms.
 Loading Player Create Data...
->> Loaded 281 player create definitions in 4 ms
+>> Loaded 281 player create definitions in 5 ms
 Loading Player Create Items Data...
 Loading Player Create Items Override Data...
->> Loaded 1 custom player create items in 3 ms
+>> Loaded 1 custom player create items in 2 ms
 Loading Player Create Skill Data...
 >> Loaded player create skills in 1 ms
 Loading Player Create Custom Spell Data...
@@ -322,98 +322,98 @@ Loading Player Create Custom Spell Data...
 Loading Player Create Cast Spell Data...
 >> Loaded 61 player create cast spells in 1 ms
 Loading Player Create Action Data...
->> Loaded 1942 player create actions in 3 ms
+>> Loaded 1942 player create actions in 4 ms
 Loading Player Create Level Stats Data...
 >> Loaded 1170 level stats definitions in 7 ms
 Loading Player Create XP Data...
->> Loaded 0 xp for level definition(s) from database in 2 ms
+>> Loaded 0 xp for level definition(s) from database in 1 ms
 Loading Exploration BaseXP Data...
 >> Loaded 80 BaseXP definitions in 1 ms
 Loading Pet Name Parts...
->> Loaded 313 pet name parts in 3 ms
+>> Loaded 313 pet name parts in 2 ms
 Loading AreaTrigger Templates...
->> Loaded 903 spell areatrigger templates in 20 ms.
+>> Loaded 903 spell areatrigger templates in 37 ms.
 Loading AreaTrigger Spawns...
->> Loaded 294 areatrigger spawns in 3 ms.
+>> Loaded 294 areatrigger spawns in 4 ms.
 Loading Conversation Templates...
 >> Loaded 687 Conversation line templates in 2 ms
 >> Loaded 230 Conversation actors in 12 ms
->> Loaded 248 Conversation templates in 3 ms
+>> Loaded 248 Conversation templates in 2 ms
 Loading Player Choices...
->> Loaded 4 player choices, 11 responses, 6 rewards, 6 item rewards, 0 currency rewards, 0 faction rewards, 0 item choice rewards and 0 maw powers in 13 ms.
+>> Loaded 4 player choices, 11 responses, 6 rewards, 6 item rewards, 0 currency rewards, 0 faction rewards, 0 item choice rewards and 0 maw powers in 14 ms.
 Loading Spawn Tracking Templates...
->>  Loaded 25819 spawn tracking templates in 32 ms
+>>  Loaded 25819 spawn tracking templates in 29 ms
 Loading Spawn Tracking Quest Objectives...
->>  Loaded 13533 spawn tracking quest objectives in 18 ms
+>>  Loaded 13533 spawn tracking quest objectives in 15 ms
 Loading Spawn Tracking Spawns...
 >> Loaded 150 spawn tracking members in 2 ms
 Loading Spawn Tracking Spawn States...
 >> Loaded 412 spawn tracking states in 4 ms
 Loading Player Choices Locales...
 Loading UIMap questlines...
->> Loaded 4474 UiMap questlines definitions in 9 ms
+>> Loaded 4474 UiMap questlines definitions in 10 ms
 Loading UIMap quests...
 >> Loaded 291 UiMap quests definitions in 2 ms
 Loading Jump Charge Params...
->> Loaded 34 Player Choice locale strings in 1 ms
+>> Loaded 34 Player Choice locale strings in 2 ms
 Loading the max pet number...
 >> Loaded the max pet number: 0 in 1 ms
 Loading pet level stats...
->> Loaded 2715 level pet stats definitions in 16 ms
+>> Loaded 2715 level pet stats definitions in 14 ms
 Loading Player level dependent mail rewards...
->> Loaded 25 level dependent mail rewards in 2 ms
+>> Loaded 25 level dependent mail rewards in 1 ms
 Loading creature loot templates...
->> Loaded 310629 creature loot templates in 1192 ms
+>> Loaded 310629 creature loot templates in 1138 ms
 Loading fishing loot templates...
->> Loaded 281 fishing loot templates in 7 ms
+>> Loaded 281 fishing loot templates in 66 ms
 Loading gameobject loot templates...
->> Loaded 18777 gameobject loot templates in 458 ms
+>> Loaded 18777 gameobject loot templates in 688 ms
 Loading item loot templates...
 >> Loaded 4958 item loot templates in 141 ms
 Loading mail loot templates...
->> Loaded 67 mail loot templates in 2 ms
+>> Loaded 67 mail loot templates in 3 ms
 Loading milling loot templates...
->> Loaded 51 milling loot templates in 21 ms
+>> Loaded 51 milling loot templates in 22 ms
 Loading pickpocketing loot templates...
->> Loaded 10943 pickpocketing loot templates in 54 ms
+>> Loaded 10943 pickpocketing loot templates in 57 ms
 Loading skinning loot templates...
->> Loaded 3157 skinning loot templates in 34 ms
+>> Loaded 3157 skinning loot templates in 36 ms
 Loading disenchanting loot templates...
->> Loaded 108 disenchanting loot templates in 31 ms
+>> Loaded 108 disenchanting loot templates in 32 ms
 Loading prospecting loot templates...
->> Loaded 48 prospecting loot templates in 17 ms
+>> Loaded 48 prospecting loot templates in 18 ms
 Loading spell loot templates...
->> Loaded 440 spell loot templates in 237 ms
+>> Loaded 440 spell loot templates in 242 ms
 Loading reference loot templates...
->> Loaded reference loot templates in 49 ms
+>> Loaded reference loot templates in 56 ms
 Loading Skill Discovery Table...
->> Loaded 42 skill discovery definitions in 62 ms.
+>> Loaded 42 skill discovery definitions in 89 ms.
 Loading Skill Extra Item Table...
->> Loaded 219 spell specialization definitions in 2 ms
+>> Loaded 219 spell specialization definitions in 4 ms
 Loading Skill Perfection Data Table...
->> Loaded 47 spell perfection definitions in 3 ms.
+>> Loaded 47 spell perfection definitions in 4 ms.
 Loading Skill Fishing base level requirements...
->> Loaded 105 areas for fishing base skill level in 1 ms
+>> Loaded 105 areas for fishing base skill level in 2 ms
 Loading skill tier info...
->> Loaded 59 skill max values in 1 ms
+>> Loaded 59 skill max values in 2 ms
 Loading Criteria Modifier trees...
 >> Loaded 315454 criteria modifiers in 152 ms
 Loading Criteria Lists...
->> Loaded 37745 criteria, 1763 guild criteria, 6476 scenario criteria and 5259 quest objective criteria in 117 ms.
+>> Loaded 37745 criteria, 1763 guild criteria, 6476 scenario criteria and 5259 quest objective criteria in 115 ms.
 Loading Criteria Data...
->> Loaded 33 additional criteria data in 6 ms
+>> Loaded 33 additional criteria data in 5 ms
 Loading Achievements...
 >> Loaded 37 achievement references in 0 ms.
 Loading Achievements Scripts...
 >> Loaded 2 achievement scripts in 2 ms
 Loading Achievement Rewards...
->> Loaded 120 achievement rewards in 3 ms.
+>> Loaded 120 achievement rewards in 2 ms.
 Loading Achievement Reward Locales...
->> Loaded 25 achievement reward locale strings in 3 ms.
+>> Loaded 25 achievement reward locale strings in 4 ms.
 Loading Completed Achievements...
->> Loaded 151 realm first completed achievements in 3 ms.
+>> Loaded 151 realm first completed achievements in 2 ms.
 Loading character cache store...
-Loaded character infos for 2 characters in 1 ms
+Loaded character infos for 2 characters in 0 ms
 Loading Auctions...
 >> Loaded 0 auction items in 1 ms
 >> Loaded 0 auction bidders in 1 ms
@@ -423,7 +423,7 @@ Loading Black Market Templates...
 Loading Black Market Auctions...
 >> Loaded 0 black market auctions. DB table `blackmarket_auctions` is empty.
 Loading Guild rewards...
->> Loaded 62 guild reward definitions in 12 ms
+>> Loaded 62 guild reward definitions in 14 ms
 Loading Guilds...
 Loading guilds definitions...
 >> Loaded 0 guild definitions. DB table `guild` is empty.
@@ -438,44 +438,44 @@ Loading GameObjects for quests...
 Loading BattleMasters...
 >> Loaded 172 battlemaster entries in 21 ms
 Loading GameTeleports...
->> Loaded 2286 GameTeleports in 12 ms
+>> Loaded 2286 GameTeleports in 11 ms
 Loading Trainers...
->> Loaded 192 Trainers in 38 ms
+>> Loaded 192 Trainers in 50 ms
 Loading Gossip menu...
->> Loaded 14194 gossip_menu IDs in 217 ms
+>> Loaded 14194 gossip_menu IDs in 225 ms
 Loading Gossip menu options...
->> Loaded 14421 gossip_menu_option entries in 87 ms
+>> Loaded 14421 gossip_menu_option entries in 99 ms
 Loading Gossip menu addon...
->> Loaded 11 gossip_menu_addon IDs in 2 ms
+>> Loaded 11 gossip_menu_addon IDs in 3 ms
 Loading Creature Template Gossip...
->> Loaded 6840 creature template gossip menus in 26 ms
+>> Loaded 6840 creature template gossip menus in 27 ms
 Loading Creature trainers...
->> Loaded 972 default trainers in 4 ms
+>> Loaded 972 default trainers in 3 ms
 Loading Vendors...
->> Loaded 92036 Vendors in 553 ms
+>> Loaded 92036 Vendors in 554 ms
 Loading Waypoint paths...
->> Loaded 9868 waypoint paths in 21 ms
->> Loaded 174014 waypoint path nodes in 249 ms
+>> Loaded 9868 waypoint paths in 40 ms
+>> Loaded 174014 waypoint path nodes in 297 ms
 Loading Creature Formations...
->> Loaded 3280 creatures in formations in 9 ms
+>> Loaded 3280 creatures in formations in 30 ms
 Loading Persistend World Variables...
 >> Loaded 9 world variables in 2 ms
 Loading Terrain World Map definitions...
->> Loaded 6 terrain world maps in 1 ms.
+>> Loaded 6 terrain world maps in 2 ms.
 Loading Terrain Swap Default definitions...
 >> Loaded 10 terrain swap defaults in 2 ms.
 Loading Phase Area definitions...
->> Loaded 660 phase areas in 3 ms.
+>> Loaded 660 phase areas in 4 ms.
 Loading Conditions...
 >> Loaded 29652 conditions in 855 ms
 Loading faction change achievement pairs...
 >> Loaded 103 faction change achievement pairs in 2 ms
 Loading faction change spell pairs...
->> Loaded 113 faction change spell pairs in 2 ms
+>> Loaded 113 faction change spell pairs in 3 ms
 Loading faction change quest pairs...
 >> Loaded 290 faction change quest pairs in 3 ms
 Loading faction change item pairs...
->> Loaded 19522 faction change item pairs in 18 ms
+>> Loaded 19522 faction change item pairs in 16 ms
 Loading faction change reputation pairs...
 >> Loaded 30 faction change reputation pairs in 2 ms
 Loading faction change title pairs...
@@ -490,28 +490,28 @@ Loading GM complaints...
 Loading GM suggestions...
 >> Loaded 0 GM suggestions. DB table `gm_suggestion` is empty!
 Loading garrison info...
->> Loaded 0 garrison plot finalize entries in 0.
+>> Loaded 0 garrison plot finalize entries in 1.
 >> Loaded 170 garrison follower class spec abilities in 0.
 Returning old mails...
 >> No expired mails found.
 Loading Autobroadcasts...
 >> Loaded 0 autobroadcasts definitions. DB table `autobroadcast` is empty for this realm!
 Loading event_scripts...
->> Loaded 500 script definitions in 5 ms
->> Loaded 12 event scripts in 3 ms
+>> Loaded 500 script definitions in 7 ms
+>> Loaded 12 event scripts in 2 ms
 Loading spell script names...
->> Loaded 4120 spell script names in 20 ms
+>> Loaded 4300 spell script names in 24 ms
 Loading Creature Texts...
->> Loaded 39604 creature texts for 12468 creatures in 371 ms
+>> Loaded 39604 creature texts for 12468 creatures in 387 ms
 Loading Creature Text Locales...
->> Loaded 13 creature localized texts in 2 ms
+>> Loaded 13 creature localized texts in 6 ms
 Loading creature StaticFlags overrides...
 >> Loaded 145 creature static flag overrides in 2 ms
 Initializing Scripts...
->> Loaded spline chain data for 124 chains, consisting of 325 splines with 1684 waypoints in 7 ms
+>> Loaded spline chain data for 124 chains, consisting of 325 splines with 1684 waypoints in 9 ms
 Loading C++ scripts
 Invalid BattlegroundMapScript for 618; no such map ID.
->> Loaded 5333 C++ scripts in 529 ms
+>> Loaded 5424 C++ scripts in 629 ms
 Validating spell scripts...
 SpellScriptBase::ValidateSpellInfo: Spell 373457 does not exist.
 SpellScriptBase::ValidateSpellInfo: Spell 373462 does not exist.
@@ -616,6 +616,7 @@ Spell `51690` Effect `Index: EFFECT_1, Effect: SPELL_EFFECT_3` of script `spell_
 Spell `51690` Effect `Index: EFFECT_1 Target: 16` of script `spell_rog_killing_spree` did not match dbc effect data - handler bound to hook `OnObjectAreaTargetSelect` of SpellScript won't be executed
 Spell `51719` Effect `Index: EFFECT_1, Effect: SPELL_EFFECT_77` of script `spell_gen_clone` did not match dbc effect data - handler bound to hook `OnEffectHitTarget` of SpellScript won't be executed
 Spell `51719` Effect `Index: EFFECT_2, Effect: SPELL_EFFECT_77` of script `spell_gen_clone` did not match dbc effect data - handler bound to hook `OnEffectHitTarget` of SpellScript won't be executed
+Spell `53385` script `spell_pal_empyrean_legacy_mod_ex` does not have a damage effect - handler bound to hook `CalcHealing` of SpellScript won't be executed
 Spell `53478` Effect `Index: EFFECT_0, Effect: SPELL_EFFECT_3` of script `spell_hun_last_stand_pet` did not match dbc effect data - handler bound to hook `OnEffectHitTarget` of SpellScript won't be executed
 SpellScriptBase::ValidateSpellInfo: Spell 53479 does not exist.
 Spell `53478` did not pass Validate() function of script `spell_hun_last_stand_pet` - script will be not added to the spell
@@ -657,6 +658,10 @@ SpellScriptBase::ValidateSpellInfo: Spell 199804 does not exist.
 Spell `79096` did not pass Validate() function of script `spell_rog_restless_blades` - script will be not added to the spell
 Spell `80643` Effect `Index: EFFECT_0 Target: 18` of script `spell_stalactite_mod_dest_height` did not match dbc effect data - handler bound to hook `OnDestinationTargetSelect` of SpellScript won't be executed
 Spell `81690` Effect `Index: EFFECT_0, Effect: SPELL_EFFECT_77` of script `spell_gen_random_aggro_taunt` did not match dbc effect data - handler bound to hook `OnEffectHitTarget` of SpellScript won't be executed
+Spell `85222` script `spell_pal_empyrean_legacy_mod_ex` does not have a damage effect - handler bound to hook `CalcDamage` of SpellScript won't be executed
+Spell `85256` script `spell_pal_holy_flames_ex` does not have a damage effect - handler bound to hook `CalcDamage` of SpellScript won't be executed
+Spell `85256` script `spell_pal_light_within_damage_ex` does not have a damage effect - handler bound to hook `CalcDamage` of SpellScript won't be executed
+Spell `85256` script `spell_pal_t36_divine_arbiter_bonus_ex` does not have a damage effect - handler bound to hook `CalcDamage` of SpellScript won't be executed
 Spell `85948` Effect `Index: EFFECT_1, Effect: SPELL_EFFECT_3` of script `spell_dk_festering_strike` did not match dbc effect data - handler bound to hook `OnEffectHitTarget` of SpellScript won't be executed
 SpellScriptBase::ValidateSpellInfo: Spell 194310 does not exist.
 Spell `85948` did not pass Validate() function of script `spell_dk_festering_strike` - script will be not added to the spell
@@ -713,7 +718,6 @@ SpellScriptBase::ValidateSpellInfo: Spell 0 does not exist.
 Spell `146739` did not pass Validate() function of script `spell_gen_trigger_exclude_caster_aura_spell` - script will be not added to the spell
 SpellScriptBase::ValidateSpellEffect: Spell 453189 does not exist.
 Spell `146739` did not pass Validate() function of script `spell_warl_deaths_embrace_dots` - script will be not added to the spell
-Spell `156910` Effect `Index: EFFECT_0, Effect: SPELL_EFFECT_3` of script `spell_pal_beacon_of_faith_ex` did not match dbc effect data - handler bound to hook `OnEffectHitTarget` of SpellScript won't be executed
 Spell `157982` Effect `Index: EFFECT_ALL, AuraName: SPELL_AURA_ANY` of script `spell_gen_major_healing_cooldown_modifier_aura` did not match dbc effect data - handler bound to hook `DoEffectCalcDamageAndHealing` of AuraScript won't be executed
 SpellScriptBase::ValidateSpellInfo: Spell 115070 does not exist.
 Spell `178338` did not pass Validate() function of script `spell_gen_trigger_exclude_caster_aura_spell` - script will be not added to the spell
@@ -732,9 +736,6 @@ Spell `193358` Effect `Index: EFFECT_0, AuraName: SPELL_AURA_4` of script `spell
 SpellScriptBase::ValidateSpellInfo: Spell 90259 does not exist.
 Spell `194834` did not pass Validate() function of script `spell_gen_trigger_exclude_caster_aura_spell` - script will be not added to the spell
 Spell `197214` Effect `Index: EFFECT_3 Target: 129` of script `spell_sha_molten_thunder_sundering` did not match dbc effect data - handler bound to hook `OnObjectAreaTargetSelect` of SpellScript won't be executed
-Spell `200025` Effect `Index: EFFECT_1, Effect: SPELL_EFFECT_3` of script `spell_pal_beacon_of_virtue_ex` did not match dbc effect data - handler bound to hook `OnEffectHitTarget` of SpellScript won't be executed
-Spell `200025` Effect `Index: EFFECT_0, Effect: SPELL_EFFECT_3` of script `spell_pal_beacon_of_virtue_ex` did not match dbc effect data - handler bound to hook `OnEffectHitTarget` of SpellScript won't be executed
-Spell `200025` Effect `Index: EFFECT_1 Target: 30` of script `spell_pal_beacon_of_virtue_ex` did not match dbc effect data - handler bound to hook `OnObjectAreaTargetSelect` of SpellScript won't be executed
 Spell `204074` Effect `Index: EFFECT_0, AuraName: SPELL_AURA_4` of script `spell_pal_righteous_protector` did not match dbc effect data - handler bound to hook `DoCheckEffectProc` of AuraScript won't be executed
 Spell `204074` Effect `Index: EFFECT_0, AuraName: SPELL_AURA_4` of script `spell_pal_righteous_protector` did not match dbc effect data - handler bound to hook `OnEffectProc` of AuraScript won't be executed
 Spell `205021` Effect `Index: EFFECT_1, AuraName: SPELL_AURA_3` of script `spell_mage_ray_of_frost` did not match dbc effect data - handler bound to hook `AfterEffectRemove` of AuraScript won't be executed
@@ -819,9 +820,12 @@ Spell `390693` Effect `Index: EFFECT_1, AuraName: SPELL_AURA_4` of script `spell
 Spell `394062` did not pass Validate() function of script `spell_warr_improved_whirlwind_cleave` - script will be not added to the spell
 Spell `394063` script `spell_warr_improved_whirlwind_cleave` does not have a damage effect - handler bound to hook `CalcDamage` of SpellScript won't be executed
 Spell `394063` did not pass Validate() function of script `spell_warr_improved_whirlwind_cleave` - script will be not added to the spell
+Spell `403460` Effect `Index: EFFECT_0 Target: 30` of script `spell_pal_lightforged_blessing_cap_ex` did not match dbc effect data - handler bound to hook `OnObjectAreaTargetSelect` of SpellScript won't be executed
 Spell `410530` Effect `Index: EFFECT_0, AuraName: SPELL_AURA_4` of script `spell_pal_t30_2p_protection_bonus_heal` did not match dbc effect data - handler bound to hook `DoCheckEffectProc` of AuraScript won't be executed
 Spell `410530` Effect `Index: EFFECT_0, AuraName: SPELL_AURA_4` of script `spell_pal_t30_2p_protection_bonus_heal` did not match dbc effect data - handler bound to hook `OnEffectProc` of AuraScript won't be executed
 Spell `410939` Effect `Index: EFFECT_1, AuraName: SPELL_AURA_42` of script `spell_mage_ethereal_blink` did not match dbc effect data - handler bound to hook `OnEffectProc` of AuraScript won't be executed
+Spell `431911` Effect `Index: EFFECT_ALL Target: 16` of script `spell_pal_suns_avatar_beam_ex` did not match dbc effect data - handler bound to hook `OnObjectAreaTargetSelect` of SpellScript won't be executed
+Spell `431939` Effect `Index: EFFECT_ALL Target: 31` of script `spell_pal_suns_avatar_beam_ex` did not match dbc effect data - handler bound to hook `OnObjectAreaTargetSelect` of SpellScript won't be executed
 SpellScriptBase::ValidateSpellEffect: Spell 450347 does not have EFFECT_2.
 Spell `450347` did not pass Validate() function of script `spell_dru_natures_grace` - script will be not added to the spell
 Spell `453109` Effect `Index: EFFECT_1, AuraName: SPELL_AURA_4` of script `spell_pri_power_surge` did not match dbc effect data - handler bound to hook `OnEffectProc` of AuraScript won't be executed
@@ -829,13 +833,13 @@ Spell `453282` Effect `Index: EFFECT_0, AuraName: SPELL_AURA_226` of script `spe
 Spell `455143` Effect `Index: EFFECT_0, AuraName: SPELL_AURA_4` of script `spell_rog_acrobatic_strikes` did not match dbc effect data - handler bound to hook `OnEffectProc` of AuraScript won't be executed
 Spell `470057` Effect `Index: EFFECT_0, Effect: SPELL_EFFECT_2` of script `spell_sha_voltaic_blaze` did not match dbc effect data - handler bound to hook `OnEffectHitTarget` of SpellScript won't be executed
 Spell `1215245` Effect `Index: EFFECT_0, AuraName: SPELL_AURA_4` of script `spell_pri_eternal_sanctity` did not match dbc effect data - handler bound to hook `OnEffectProc` of AuraScript won't be executed
->> Validated 4083 scripts in 55 ms
+>> Validated 4297 scripts in 71 ms
 Loading SmartAI scripts...
->> Loaded SmartAIMgr Helpers in 139 ms
->> Loaded 66686 SmartAI scripts in 25420 ms
+>> Loaded SmartAIMgr Helpers in 110 ms
+>> Loaded 66686 SmartAI scripts in 27819 ms
 Loading Calendar data...
->> Loaded 0 calendar events in 7 ms
->> Loaded 0 calendar invites in 2 ms
+>> Loaded 0 calendar events in 2 ms
+>> Loaded 0 calendar invites in 1 ms
 Loading Petitions...
 >> Loaded 0 petitions.
 Loading Signatures...
@@ -844,7 +848,7 @@ Loading Item loot...
 >> Loaded 0 stored item loots
 >> Loaded 0 stored item money
 Initialize query data...
->> Initialized query cache data in 2740 ms
+>> Initialized query cache data in 3726 ms
 Initialize commands...
 Initialize game time and timers
 Mail timer set to: 1020, mail return is called every 1440 minutes
@@ -872,8 +876,8 @@ Calculate deletion of old calendar events time...
 Calculate guild limitation(s) reset time...
 Calculate next currency reset time...
 Loading race and class expansion requirements...
->> Loaded 283 class expansion requirements in 1 ms.
->> Loaded 31 race expansion requirements in 2 ms.
+>> Loaded 283 class expansion requirements in 2 ms.
+>> Loaded 31 race expansion requirements in 1 ms.
 Loading character templates...
 >> Loaded 0 character template classes. DB table `character_template_class` is empty.
 >> Loaded 0 character templates. DB table `character_template` is empty.
@@ -885,9 +889,9 @@ Loading scenarios
 Loading scenario poi data
 >> Loaded 0 scenario POI definitions. DB table `scenario_poi` is empty.
 Loading phase names...
->> Loaded 4276 phase names in 9 ms.
+>> Loaded 4276 phase names in 11 ms.
 Loading transmog data...
-World initialized in 2 minutes 26 seconds
+World initialized in 2 minutes 33 seconds
 Starting up anti-freeze thread (60 seconds max stuck time)...
 TrinityCore rev. a96d89772a96+ 2026-09-23 09:52:55 +0200 (master branch) (Windows, AMD64, Release, Static) (worldserver-daemon) ready...
 Received not handled opcode [CMSG_QUICK_JOIN_AUTO_ACCEPT_REQUESTS 0x430132 (4391218)] from [Player: Account: 2]
@@ -896,65 +900,26 @@ Received not handled opcode [CMSG_GET_LAST_CATALOG_FETCH 0x2A0036 (2752566)] fro
 Received not handled opcode [CMSG_FETCH_BLEEP_PROXIES 0x4301A1 (4391329)] from [Player: Account: 2]
 Received not handled opcode [CMSG_SETUP_WARBAND_GROUPS 0x43018F (4391311)] from [Player: Account: 2]
 Received not handled opcode [CMSG_QUICK_JOIN_AUTO_ACCEPT_REQUESTS 0x430132 (4391218)] from [Player: Account: 2]
-Received not handled opcode [CMSG_GET_LAST_CATALOG_FETCH 0x2A0036 (2752566)] from [Player: Account: 2]
-[Player: Account: 2] Client tried to call not implemented method ResourcesService.GetContentHandle({ program: 16974 stream: 1634756212 version: 1920291413 })
-Received not handled opcode [CMSG_FETCH_BLEEP_PROXIES 0x4301A1 (4391329)] from [Player: Account: 2]
-Received not handled opcode [CMSG_SETUP_WARBAND_GROUPS 0x43018F (4391311)] from [Player: Account: 2]
-Received not handled opcode [CMSG_QUICK_JOIN_AUTO_ACCEPT_REQUESTS 0x430132 (4391218)] from [Player: Account: 2]
 Received not handled opcode [CMSG_SET_EXCLUDED_CHAT_CENSOR_SOURCES 0x430133 (4391219)] from [Player: Account: 2]
 Received not handled opcode [CMSG_GET_ACCOUNT_CHARACTER_LIST 0x4300E4 (4391140)] from [Player: Account: 2]
 Received not handled opcode [CMSG_GET_RAF_ACCOUNT_INFO 0x430150 (4391248)] from [Player: Account: 2]
 Received not handled opcode [CMSG_GET_REMAINING_GAME_TIME 0x43011B (4391195)] from [Player: Account: 2]
-Received not handled opcode [CMSG_OVERRIDE_SCREEN_FLASH 0x3E00BB (4063419)] from [Player: Logging in: Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_REQUEST_MYTHIC_PLUS_SEASON_DATA 0x3D00BC (3997884)] from [Player: Logging in: Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_OPEN_TRADESKILL_NPC 0x3D01E5 (3998181)] from [Player: Logging in: Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_REQUEST_WEEKLY_REWARDS 0x3D0268 (3998312)] from [Player: Logging in: Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO 0x350013 (3473427)] from [Player: Logging in: Player-1-00000002, Account: 2]
-Non-existing quest objective criteria 48008 data has been removed from the table `character_queststatus_objectives_criteria_progress`.
-Non-existing quest objective criteria 48009 data has been removed from the table `character_queststatus_objectives_criteria_progress`.
+Received not handled opcode [CMSG_OVERRIDE_SCREEN_FLASH 0x3E00BB (4063419)] from [Player: Logging in: Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_REQUEST_MYTHIC_PLUS_SEASON_DATA 0x3D00BC (3997884)] from [Player: Logging in: Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_OPEN_TRADESKILL_NPC 0x3D01E5 (3998181)] from [Player: Logging in: Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_REQUEST_WEEKLY_REWARDS 0x3D0268 (3998312)] from [Player: Logging in: Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO 0x350013 (3473427)] from [Player: Logging in: Player-1-00000004, Account: 2]
 Player::AddSpell: Spell (ID: 205656) does not exist
 Player::AddSpell: Spell (ID: 371571) does not exist
-Received not handled opcode [CMSG_REQUEST_SCHEDULED_PVP_INFO 0x3D0042 (3997762)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_LFG_LIST_GET_STATUS 0x430039 (4390969)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_REQUEST_LFG_LIST_BLACKLIST 0x3D017F (3998079)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_OPEN_TRADESKILL_NPC 0x3D01E5 (3998181)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_GET_LANDING_PAGE_SHIPMENTS 0x3D01DC (3998172)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_MOVE_SET_TURN_RATE_CHEAT 0x410024 (4259876)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_GET_CHARACTER_CURRENCY_TRANSFER_LOG 0x2A001F (2752543)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_QUICK_JOIN_AUTO_ACCEPT_REQUESTS 0x430132 (4391218)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_SET_EXCLUDED_CHAT_CENSOR_SOURCES 0x430133 (4391219)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_REQUEST_INSTANCE_ENCOUNTER_EVENT_SYNC 0x3D0192 (3998098)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_PERKS_PROGRAM_STATUS_REQUEST 0x3D02B2 (3998386)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-MoveSplineInitArgs::Validate: expression '_checkPathLengths()' failed for Creature-0-1-1-0-149671-0000000B78
-MoveSplineInitArgs::Validate: expression '_checkPathLengths()' failed for Creature-0-1-1-0-149671-0000000B78
-MoveSplineInitArgs::Validate: expression '_checkPathLengths()' failed for Creature-0-1-1-0-3296-0000000244
-MoveSplineInitArgs::Validate: expression '_checkPathLengths()' failed for Creature-0-1-1-0-3296-000000024B
-Received not handled opcode [CMSG_GET_LAST_CATALOG_FETCH 0x2A0036 (2752566)] from [Player: Account: 2]
-Received not handled opcode [CMSG_SETUP_WARBAND_GROUPS 0x43018F (4391311)] from [Player: Account: 2]
-Received not handled opcode [CMSG_QUICK_JOIN_AUTO_ACCEPT_REQUESTS 0x430132 (4391218)] from [Player: Account: 2]
-Received not handled opcode [CMSG_SET_EXCLUDED_CHAT_CENSOR_SOURCES 0x430133 (4391219)] from [Player: Account: 2]
-Received not handled opcode [CMSG_GET_ACCOUNT_CHARACTER_LIST 0x4300E4 (4391140)] from [Player: Account: 2]
-Received not handled opcode [CMSG_GET_RAF_ACCOUNT_INFO 0x430150 (4391248)] from [Player: Account: 2]
-Received not handled opcode [CMSG_GET_REMAINING_GAME_TIME 0x43011B (4391195)] from [Player: Account: 2]
-Received not handled opcode [CMSG_OVERRIDE_SCREEN_FLASH 0x3E00BB (4063419)] from [Player: Logging in: Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_REQUEST_MYTHIC_PLUS_SEASON_DATA 0x3D00BC (3997884)] from [Player: Logging in: Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_OPEN_TRADESKILL_NPC 0x3D01E5 (3998181)] from [Player: Logging in: Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_REQUEST_WEEKLY_REWARDS 0x3D0268 (3998312)] from [Player: Logging in: Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_HOUSING_SVCS_GET_PLAYER_HOUSES_INFO 0x350013 (3473427)] from [Player: Logging in: Player-1-00000002, Account: 2]
-Non-existing quest objective criteria 48008 data has been removed from the table `character_queststatus_objectives_criteria_progress`.
-Non-existing quest objective criteria 48009 data has been removed from the table `character_queststatus_objectives_criteria_progress`.
-Player::AddSpell: Spell (ID: 205656) does not exist
-Player::AddSpell: Spell (ID: 371571) does not exist
-Received not handled opcode [CMSG_QUICK_JOIN_AUTO_ACCEPT_REQUESTS 0x430132 (4391218)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_SET_EXCLUDED_CHAT_CENSOR_SOURCES 0x430133 (4391219)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_REQUEST_SCHEDULED_PVP_INFO 0x3D0042 (3997762)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_LFG_LIST_GET_STATUS 0x430039 (4390969)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_REQUEST_LFG_LIST_BLACKLIST 0x3D017F (3998079)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_GET_CHARACTER_CURRENCY_TRANSFER_LOG 0x2A001F (2752543)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-MoveSplineInitArgs::Validate: expression '_checkPathLengths()' failed for Creature-0-1-1-0-3296-0000000244
-Received not handled opcode [CMSG_OPEN_TRADESKILL_NPC 0x3D01E5 (3998181)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_GET_LANDING_PAGE_SHIPMENTS 0x3D01DC (3998172)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-Received not handled opcode [CMSG_REQUEST_INSTANCE_ENCOUNTER_EVENT_SYNC 0x3D0192 (3998098)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-MoveSplineInitArgs::Validate: expression '_checkPathLengths()' failed for Creature-0-1-1-0-3296-000000024B
-Received not handled opcode [CMSG_PERKS_PROGRAM_STATUS_REQUEST 0x3D02B2 (3998386)] from [Player: Царьсвета Player-1-00000002, Account: 2]
-MoveSplineInitArgs::Validate: expression '_checkPathLengths()' failed for Creature-0-1-1-0-14377-00000009F8
+Received not handled opcode [CMSG_QUICK_JOIN_AUTO_ACCEPT_REQUESTS 0x430132 (4391218)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_SET_EXCLUDED_CHAT_CENSOR_SOURCES 0x430133 (4391219)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_REQUEST_SCHEDULED_PVP_INFO 0x3D0042 (3997762)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_REQUEST_LFG_LIST_BLACKLIST 0x3D017F (3998079)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_LFG_LIST_GET_STATUS 0x430039 (4390969)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_GET_CHARACTER_CURRENCY_TRANSFER_LOG 0x2A001F (2752543)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_OPEN_TRADESKILL_NPC 0x3D01E5 (3998181)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_GET_LANDING_PAGE_SHIPMENTS 0x3D01DC (3998172)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_MOVE_SET_TURN_RATE_CHEAT 0x410024 (4259876)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_REQUEST_INSTANCE_ENCOUNTER_EVENT_SYNC 0x3D0192 (3998098)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_PERKS_PROGRAM_STATUS_REQUEST 0x3D02B2 (3998386)] from [Player: Царьсвета Player-1-00000004, Account: 2]
+Received not handled opcode [CMSG_PERKS_PROGRAM_REQUEST_PENDING_REWARDS 0x2A0017 (2752535)] from [Player: Царьсвета Player-1-00000004, Account: 2]
