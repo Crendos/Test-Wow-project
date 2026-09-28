@@ -39,7 +39,7 @@ $hasAT    = $raw.Contains('RegisterAreaTriggerAI(at_pal_blessed_hammer)')
 $hasGuard = $raw.Contains('procSpell->IsTriggered()')
 $hasMech  = $raw.Contains('PAL_MECH_REV_20260926')
 $hasSafe  = $raw.Contains('PAL_NO_PROTECTED_TARGETINFO')
-$hasRev   = $raw.Contains('PAL_REV2_20260928')
+$hasRev   = $raw.Contains('PAL_REV3_20260928')
 $hasBad   = $raw.Contains('GetSpell()->m_UniqueTargetInfo')
 Write-Host "[1/4] маркеров в spell_paladin.cpp сейчас: $cur (нужно 0 или 11)"
 $needRollback = $false
@@ -47,7 +47,7 @@ if ($cur -eq 11) {
     if ($hasNew -and $hasAT -and $hasGuard -and $hasMech -and $hasSafe -and $hasRev -and -not $hasBad) {
         Write-Host ">>> УЖЕ УСТАНОВЛЕНО (последняя версия) — вставка пропущена"
     } else {
-        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_REV2_20260928 / PAL_NO_PROTECTED_TARGETINFO или ещё есть protected-поле) — заменяю на новую"
+        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_REV3_20260928 / PAL_NO_PROTECTED_TARGETINFO или ещё есть protected-поле) — заменяю на новую"
         $needRollback = $true
     }
 } elseif ($cur -ne 0) {

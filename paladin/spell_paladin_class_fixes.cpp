@@ -715,7 +715,9 @@ class spell_pal_judgment_greater_ex : public SpellScript
         if (!caster->HasAura(SPELL_EX_GREATER_JUDGMENT) && !caster->HasSpell(SPELL_EX_GREATER_JUDGMENT))
             return;
 
-        int32 const bonus = GreaterJudgmentBonus(caster);
+        // Гнев Верховного лорда (404512): Правосудие накладывает ещё одно наложение 197277.
+        int32 const stacks = (caster->HasAura(404512) || caster->HasSpell(404512)) ? 2 : 1;
+        int32 const bonus = GreaterJudgmentBonus(caster) * stacks;
         Aura* debuff = hit->GetAura(SPELL_EX_GREATER_JUDGMENT_DEBUFF, caster->GetGUID());
         bool const fresh = debuff == nullptr;
         if (!debuff)

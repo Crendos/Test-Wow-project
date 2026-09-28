@@ -99,3 +99,47 @@ REPLACE INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- шанс считает скрипт (RPPM 0.55 с хастом), ВКД 1 с — как в тултипе.
 REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES (432964,0x00,0,0,0,0,0,0x15510,0x0,0x3,0x2,0x0,0x0,0x0,0,100,1000,0);
+
+-- ============================================================================
+-- PAL_REV3 (28.09.2026, v3): сверка талантов с Raider.io (топ М+: Свет/Прот/Рет).
+-- Таланты с Dummy «Server-side script» / динамическим значением. Повторный прогон безопасен.
+-- ============================================================================
+DELETE FROM `spell_script_names` WHERE `ScriptName` IN (
+  'spell_pal_vengeful_wrath_ex','spell_pal_blessing_of_dusk_ex','spell_pal_rising_sunlight_ex',
+  'spell_pal_afterimage_spend_ex','spell_pal_afterimage_echo_ex','spell_pal_shield_of_vengeance_talent_ex',
+  'spell_pal_blessed_champion_ex','spell_pal_seething_flames_ex',
+  'spell_pal_authoritative_rebuke_cleanse_ex','spell_pal_authoritative_rebuke_interrupt_ex');
+DELETE FROM `spell_script_names` WHERE `spell_id` = 184662 AND `ScriptName` = 'spell_pal_shield_of_vengeance';
+
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+-- Мстительный гнев: Молот гнева до +50% по раненой цели
+(24275,   'spell_pal_vengeful_wrath_ex'),
+-- Благословение сумерек: снижение урона от потерянного здоровья
+(1241945, 'spell_pal_blessing_of_dusk_ex'),
+-- Восходящий солнечный свет: +лечение по здоровью целей Частиц
+(1277651, 'spell_pal_rising_sunlight_ex'),
+-- Остаточный образ: счётчик трат Силы Света + отражение Слова славы
+(53600,   'spell_pal_afterimage_spend_ex'),
+(85673,   'spell_pal_afterimage_spend_ex'),
+(85222,   'spell_pal_afterimage_spend_ex'),
+(383328,  'spell_pal_afterimage_spend_ex'),
+(85256,   'spell_pal_afterimage_spend_ex'),
+(224266,  'spell_pal_afterimage_spend_ex'),
+(53385,   'spell_pal_afterimage_spend_ex'),
+(156322,  'spell_pal_afterimage_spend_ex'),
+(427453,  'spell_pal_afterimage_spend_ex'),
+(85673,   'spell_pal_afterimage_echo_ex'),
+-- Щит возмездия (талант 1261562): Божественная защита кастует 184662;
+-- сам щит — стоковый скрипт TC (в пустой базе привязки нет)
+(498,     'spell_pal_shield_of_vengeance_talent_ex'),
+(403876,  'spell_pal_shield_of_vengeance_talent_ex'),
+(184662,  'spell_pal_shield_of_vengeance'),
+-- Благословенный защитник: -25% по доп. целям Удара воина Света / храмовника
+(35395,   'spell_pal_blessed_champion_ex'),
+(407480,  'spell_pal_blessed_champion_ex'),
+(406647,  'spell_pal_blessed_champion_ex'),
+-- Кипящее пламя: +2 удара Испепеления
+(255937,  'spell_pal_seething_flames_ex'),
+-- Властное порицание (Кузнец света): Свет — Очищение, Прот — Порицание
+(4987,    'spell_pal_authoritative_rebuke_cleanse_ex'),
+(96231,   'spell_pal_authoritative_rebuke_interrupt_ex');

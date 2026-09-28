@@ -33,7 +33,7 @@
 // ============================================================================
 
 // === CUT HERE ===============================================================
-// PAL_REV2_20260928
+// PAL_REV3_20260928 (включает PAL_REV2)
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -1057,6 +1057,404 @@ class spell_pal_reflection_holy_bulwark_ex : public AuraScript
     }
 };
 
+// --- PAL_REV3: сверка талантов с Raider.io (топ М+ сезона: Свет / Прот / Рет) ------
+// Таланты, которые берут топ-игроки, но у которых в DB2 только Dummy «Server-side
+// script» или динамическое значение (без скрипта не работали вовсе).
+
+enum PaladinEx12Spells
+{
+    SPELL_EX12_VENGEFUL_WRATH          = 1241958, // Мстительный гнев (25/50 по рангу, PvP 0.4)
+    SPELL_EX12_BLESSING_OF_DUSK        = 1241945, // Благословение сумерек (E0 периодик, E1 %урона)
+    SPELL_EX12_RISING_SUNLIGHT         = 1277651, // Восходящий солнечный свет (E0/E2 %лечения)
+    SPELL_EX12_AFTERIMAGE              = 385414,  // Остаточный образ (E0 30%, E2 20 ед.)
+    SPELL_EX12_LIGHTBEARER             = 469416,  // Светоносец (10% входящего лечения -> 4 союзника)
+    SPELL_EX12_SOV_TALENT              = 1261562, // Щит возмездия (талант): БЗ кастует 184662
+    SPELL_EX12_SHIELD_OF_VENGEANCE     = 184662,
+    SPELL_EX12_BLESSED_CHAMPION        = 403010,  // Благословенный защитник (E2 = 25% меньше вторичным)
+    SPELL_EX12_SEETHING_FLAMES         = 405355,  // Кипящее пламя: +2 удара Испепеления
+    SPELL_EX12_SEETHING_FLAMES_LASH_1  = 405345,
+    SPELL_EX12_SEETHING_FLAMES_LASH_2  = 405350,
+    SPELL_EX12_AUTHORITATIVE_REBUKE    = 469886,  // Властное порицание
+    SPELL_EX12_CLEANSE                 = 4987,
+    SPELL_EX12_REBUKE                  = 96231,
+    SPELL_EX12_BEACON_OF_LIGHT         = 53563,
+    SPELL_EX12_BEACON_OF_FAITH         = 156910,
+    SPELL_EX12_BEACON_OF_VIRTUE        = 200025,
+};
+
+namespace
+{
+    std::mutex gEx12AfterimageLock;
+    std::unordered_map<ObjectGuid, int32> gEx12AfterimageHolyPower; // паладин -> потрачено Силы Света
+    thread_local bool gEx12LightbearerBusy = false;
+
+    float Ex12MissingHealthFrac(Unit const* unit)
+    {
+        return std::clamp(1.f - unit->GetHealthPct() / 100.f, 0.f, 1.f);
+    }
+
+    bool Ex12WieldsArmament(Unit const* paladin)
+    {
+        return paladin->HasAura(SPELL_EX11_HOLY_BULWARK_BUFF, paladin->GetGUID())
+            || paladin->HasAura(SPELL_EX11_SACRED_WEAPON_BUFF, paladin->GetGUID());
+    }
+
+    // Самые раненые союзники рейда в радиусе (кроме exclude), не больше maxCount.
+    std::vector<Unit*> Ex12InjuredAllies(Unit* center, Unit* exclude, float radius, size_t maxCount)
+    {
+        std::vector<Unit*> nearby;
+        Trinity::AnyFriendlyUnitInObjectRangeCheck check(center, center, radius);
+        Trinity::UnitListSearcher searcher(center, nearby, check);
+        Cell::VisitAllObjects(center, searcher, radius);
+
+        std::erase_if(nearby, [center, exclude](Unit* unit)
+        {
+            return unit == exclude || !unit->IsAlive() || unit->GetHealth() >= unit->GetMaxHealth()
+                || (unit != center && !unit->IsInRaidWith(center));
+        });
+        std::sort(nearby.begin(), nearby.end(), [](Unit const* a, Unit const* b) { return a->GetHealthPct() < b->GetHealthPct(); });
+        if (nearby.size() > maxCount)
+            nearby.resize(maxCount);
+        return nearby;
+    }
+}
+
+// 24275 - Молот гнева: Мстительный гнев — до +25/50% урона (ранг) по мере потери здоровья цели.
+class spell_pal_vengeful_wrath_ex : public SpellScript
+{
+    void HandleCalcDamage(SpellEffectInfo const& /*spellEffectInfo*/, Unit* victim, int32& /*damage*/, int32& /*flatMod*/, float& pctMod)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !victim)
+            return;
+        AuraEffect const* talent = caster->GetAuraEffect(SPELL_EX12_VENGEFUL_WRATH, EFFECT_0);
+        if (!talent)
+            return;
+        float maxPct = float(talent->GetAmount());
+        if (maxPct <= 0.f || maxPct > 100.f)
+            maxPct = 50.f;
+        if (victim->IsControlledByPlayer())
+            maxPct *= 0.4f; // PvP-множитель из DB2
+        float const bonus = maxPct * Ex12MissingHealthFrac(victim);
+        if (bonus > 0.f)
+            AddPct(pctMod, bonus);
+    }
+
+    void Register() override
+    {
+        CalcDamage += SpellCalcDamageFn(spell_pal_vengeful_wrath_ex::HandleCalcDamage);
+    }
+};
+
+// 1241945 - Благословение сумерек: E0 (Periodic Dummy, 1 с) пересчитывает E1
+// (Mod % Damage Taken): до -10% (Свет/Рет) / -20% (Прот) линейно от потерянного здоровья.
+class spell_pal_blessing_of_dusk_ex : public AuraScript
+{
+    void HandlePeriodic(AuraEffect const* /*aurEff*/)
+    {
+        Unit* target = GetTarget();
+        AuraEffect* reduction = GetEffect(EFFECT_1);
+        if (!reduction)
+            return;
+        float const maxPct = IsProtectionPaladinEx(target) ? 20.f : 10.f;
+        int32 const amount = -int32(std::lround(maxPct * Ex12MissingHealthFrac(target)));
+        if (int32(reduction->GetAmount()) == amount)
+            return;
+        reduction->SetCanBeRecalculated(false);
+        reduction->ChangeAmount(amount);
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_blessing_of_dusk_ex::HandlePeriodic, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// 1277651 - Восходящий солнечный свет: E1 (Periodic Dummy, 1.5 с, значение 10) — до +10%
+// лечения (E0 прямое, E2 периодическое) по среднему здоровью союзников с вашими Частицами.
+class spell_pal_rising_sunlight_ex : public AuraScript
+{
+    void HandlePeriodic(AuraEffect const* aurEff)
+    {
+        Unit* paladin = GetTarget();
+        ObjectGuid const guid = paladin->GetGUID();
+        float sum = 0.f;
+        uint32 count = 0;
+        auto consider = [&](Unit* unit)
+        {
+            if (!unit || !unit->IsAlive())
+                return;
+            if (unit->HasAura(SPELL_EX12_BEACON_OF_LIGHT, guid) || unit->HasAura(SPELL_EX12_BEACON_OF_FAITH, guid)
+                || unit->HasAura(SPELL_EX12_BEACON_OF_VIRTUE, guid))
+            {
+                sum += unit->GetHealthPct();
+                ++count;
+            }
+        };
+
+        consider(paladin);
+        if (Player* player = paladin->ToPlayer())
+            if (Group* group = player->GetGroup())
+                for (GroupReference const& ref : group->GetMembers())
+                    if (Player* member = ref.GetSource())
+                        if (member != paladin && member->IsInMap(paladin))
+                            consider(member);
+
+        float maxPct = float(aurEff->GetAmount());
+        if (maxPct <= 0.f || maxPct > 50.f)
+            maxPct = 10.f;
+        int32 const amount = count ? int32(std::lround(maxPct * std::clamp(1.f - sum / count / 100.f, 0.f, 1.f))) : 0;
+
+        for (SpellEffIndex idx : { EFFECT_0, EFFECT_2 })
+            if (AuraEffect* eff = GetEffect(idx))
+                if (int32(eff->GetAmount()) != amount)
+                {
+                    eff->SetCanBeRecalculated(false);
+                    eff->ChangeAmount(amount);
+                }
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_pal_rising_sunlight_ex::HandlePeriodic, EFFECT_1, SPELL_AURA_PERIODIC_DUMMY);
+    }
+};
+
+// Траты Силы Света: копят счётчик Остаточного образа (E2 = 20).
+class spell_pal_afterimage_spend_ex : public SpellScript
+{
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->HasAura(SPELL_EX12_AFTERIMAGE))
+            return;
+        Optional<int32> spent = GetHolyPowerCost(GetSpell());
+        if (!spent || *spent <= 0)
+            return;
+        std::lock_guard<std::mutex> guard(gEx12AfterimageLock);
+        int32& acc = gEx12AfterimageHolyPower[caster->GetGUID()];
+        acc = std::min(acc + *spent, 40);
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_afterimage_spend_ex::HandleAfterCast);
+    }
+};
+
+// 85673 - Слово славы: после 20 потраченной Силы Света следующее Слово славы
+// отражается на раненого союзника рядом с силой 30% (E0).
+class spell_pal_afterimage_echo_ex : public SpellScript
+{
+    void HandleOnHit()
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (!caster || !target || _done)
+            return;
+        AuraEffect const* talent = caster->GetAuraEffect(SPELL_EX12_AFTERIMAGE, EFFECT_0);
+        if (!talent)
+            return;
+        int32 need = 20;
+        if (AuraEffect const* threshold = caster->GetAuraEffect(SPELL_EX12_AFTERIMAGE, EFFECT_2))
+            if (threshold->GetAmount() > 0 && threshold->GetAmount() <= 100)
+                need = int32(threshold->GetAmount());
+        {
+            std::lock_guard<std::mutex> guard(gEx12AfterimageLock);
+            int32& acc = gEx12AfterimageHolyPower[caster->GetGUID()];
+            if (acc < need)
+                return;
+            acc -= need;
+        }
+        _done = true;
+
+        float pct = float(talent->GetAmount());
+        if (pct <= 0.f || pct > 100.f)
+            pct = 30.f;
+        uint32 const amount = uint32(CalculatePct(float(std::max(GetHitHeal(), 0)), pct));
+        if (!amount)
+            return;
+        std::vector<Unit*> allies = Ex12InjuredAllies(target, target, 30.f, 1);
+        if (allies.empty())
+            return;
+        HealInfo healInfo(caster, allies.front(), amount, GetSpellInfo(), GetSpellInfo()->GetSchoolMask());
+        caster->HealBySpell(healInfo, false);
+    }
+
+    void Register() override
+    {
+        OnHit += SpellHitFn(spell_pal_afterimage_echo_ex::HandleOnHit);
+    }
+
+    bool _done = false;
+};
+
+// Светоносец: 10% лечения, полученного паладином от других источников, лечит до 4
+// союзников рядом (поровну). UnitScript: прок-аура не видит чужое лечение.
+class spell_pal_lightbearer_tracker_ex : public UnitScript
+{
+public:
+    spell_pal_lightbearer_tracker_ex() : UnitScript("spell_pal_lightbearer_tracker_ex") { }
+
+    void OnHeal(Unit* healer, Unit* receiver, uint32& gain) override
+    {
+        if (gEx12LightbearerBusy || !receiver || !gain || healer == receiver || !receiver->IsAlive())
+            return;
+        if (receiver->GetTypeId() != TYPEID_PLAYER || !receiver->HasAura(SPELL_EX12_LIGHTBEARER))
+            return;
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(SPELL_EX12_LIGHTBEARER, DIFFICULTY_NONE);
+        if (!info)
+            return;
+        float pct = 10.f;
+        if (AuraEffect const* eff = receiver->GetAuraEffect(SPELL_EX12_LIGHTBEARER, EFFECT_0))
+            if (eff->GetAmount() > 0 && eff->GetAmount() <= 100)
+                pct = float(eff->GetAmount());
+        uint32 const pool = uint32(CalculatePct(float(gain), pct));
+        if (!pool)
+            return;
+        std::vector<Unit*> allies = Ex12InjuredAllies(receiver, receiver, 20.f, 4);
+        if (allies.empty())
+            return;
+        uint32 const share = std::max<uint32>(pool / uint32(allies.size()), 1);
+        gEx12LightbearerBusy = true;
+        for (Unit* ally : allies)
+        {
+            HealInfo healInfo(receiver, ally, share, info, info->GetSchoolMask());
+            receiver->HealBySpell(healInfo, false);
+        }
+        gEx12LightbearerBusy = false;
+    }
+};
+
+// 498 / 403876 - Божественная защита: талант Щит возмездия (1261562) кастует 184662.
+// -10% урона (E0 таланта) — DBC. Поглощение/взрыв — стоковый spell_pal_shield_of_vengeance.
+class spell_pal_shield_of_vengeance_talent_ex : public SpellScript
+{
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (caster && caster->HasAura(SPELL_EX12_SOV_TALENT))
+            caster->CastSpell(caster, SPELL_EX12_SHIELD_OF_VENGEANCE, CastSpellExtraArgsInit{
+                .TriggerFlags = TRIGGERED_FULL_MASK,
+                .TriggeringSpell = GetSpell()
+            });
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_shield_of_vengeance_talent_ex::HandleAfterCast);
+    }
+};
+
+// 35395 / 407480 / 406647 - Удар воина Света / Удар храмовника / Выпад храмовника:
+// Благословенный защитник — доп. цели (DBC, Jump Targets) получают на 25% (E2) меньше.
+class spell_pal_blessed_champion_ex : public SpellScript
+{
+    void HandleCalcDamage(SpellEffectInfo const& /*spellEffectInfo*/, Unit* victim, int32& /*damage*/, int32& /*flatMod*/, float& pctMod)
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !victim || victim == GetExplTargetUnit() || !caster->HasAura(SPELL_EX12_BLESSED_CHAMPION))
+            return;
+        float reduction = 25.f;
+        if (SpellInfo const* talent = sSpellMgr->GetSpellInfo(SPELL_EX12_BLESSED_CHAMPION, DIFFICULTY_NONE))
+            if (talent->GetEffects().size() > EFFECT_2)
+            {
+                int32 const value = talent->GetEffect(EFFECT_2).CalcValue();
+                if (value > 0 && value < 100)
+                    reduction = float(value);
+            }
+        AddPct(pctMod, -reduction);
+    }
+
+    void Register() override
+    {
+        CalcDamage += SpellCalcDamageFn(spell_pal_blessed_champion_ex::HandleCalcDamage);
+    }
+};
+
+// 255937 - Испепеление: Кипящее пламя — ещё 2 удара (405345 / 405350, 227% AP).
+class spell_pal_seething_flames_ex : public SpellScript
+{
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->HasAura(SPELL_EX12_SEETHING_FLAMES))
+            return;
+        uint32 delay = 0;
+        for (uint32 lash : { uint32(SPELL_EX12_SEETHING_FLAMES_LASH_1), uint32(SPELL_EX12_SEETHING_FLAMES_LASH_2) })
+        {
+            delay += 500;
+            if (!sSpellMgr->GetSpellInfo(lash, DIFFICULTY_NONE))
+                continue;
+            caster->m_Events.AddEventAtOffset([caster, lash]()
+            {
+                if (caster->IsAlive())
+                    caster->CastSpell(caster->GetVictim(), lash, CastSpellExtraArgs(TRIGGERED_FULL_MASK));
+            }, Milliseconds(delay));
+        }
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_seething_flames_ex::HandleAfterCast);
+    }
+};
+
+namespace
+{
+    void Ex12ReduceCooldownLater(Unit* paladin, uint32 spellId, int32 ms)
+    {
+        // КД ставится после попаданий — сдвигаем на следующий апдейт.
+        paladin->m_Events.AddEventAtOffset([paladin, spellId, ms]()
+        {
+            paladin->GetSpellHistory()->ModifyCooldown(spellId, Milliseconds(-ms));
+        }, 1ms);
+    }
+}
+
+// 4987 - Очищение (Свет): Властное порицание — успешное рассеивание -1 с КД (x2 с доспехом).
+class spell_pal_authoritative_rebuke_cleanse_ex : public SpellScript
+{
+    void HandleDispel(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        if (_done || !caster || !caster->HasAura(SPELL_EX12_AUTHORITATIVE_REBUKE) || !IsHolyPaladinEx(caster))
+            return;
+        _done = true;
+        Ex12ReduceCooldownLater(caster, SPELL_EX12_CLEANSE, Ex12WieldsArmament(caster) ? 2000 : 1000);
+    }
+
+    void Register() override
+    {
+        OnEffectSuccessfulDispel += SpellEffectFn(spell_pal_authoritative_rebuke_cleanse_ex::HandleDispel, EFFECT_ALL, SPELL_EFFECT_DISPEL);
+    }
+
+    bool _done = false;
+};
+
+// 96231 - Порицание (Прот): Властное порицание — успешное прерывание -1 с КД (x2 с доспехом).
+class spell_pal_authoritative_rebuke_interrupt_ex : public SpellScript
+{
+    void HandleInterrupt(SpellEffIndex /*effIndex*/)
+    {
+        Unit* caster = GetCaster();
+        Unit* target = GetHitUnit();
+        if (_done || !caster || !target || !caster->HasAura(SPELL_EX12_AUTHORITATIVE_REBUKE) || !IsProtectionPaladinEx(caster))
+            return;
+        if (!target->IsNonMeleeSpellCast(false, false, true))
+            return;
+        _done = true;
+        Ex12ReduceCooldownLater(caster, SPELL_EX12_REBUKE, Ex12WieldsArmament(caster) ? 2000 : 1000);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_pal_authoritative_rebuke_interrupt_ex::HandleInterrupt, EFFECT_ALL, SPELL_EFFECT_INTERRUPT_CAST);
+    }
+
+    bool _done = false;
+};
+
 void AddSC_paladin_spell_scripts_ex11()
 {
     RegisterSpellScript(spell_pal_sentinel_decay_ex);
@@ -1081,4 +1479,16 @@ void AddSC_paladin_spell_scripts_ex11()
     RegisterSpellScript(spell_pal_hammer_and_anvil_ex);
     RegisterSpellScript(spell_pal_laying_down_arms_ex);
     RegisterSpellScript(spell_pal_valiance_consume_ex);
+    // PAL_REV3: таланты из сверки с Raider.io
+    RegisterSpellScript(spell_pal_vengeful_wrath_ex);
+    RegisterSpellScript(spell_pal_blessing_of_dusk_ex);
+    RegisterSpellScript(spell_pal_rising_sunlight_ex);
+    RegisterSpellScript(spell_pal_afterimage_spend_ex);
+    RegisterSpellScript(spell_pal_afterimage_echo_ex);
+    RegisterSpellScript(spell_pal_shield_of_vengeance_talent_ex);
+    RegisterSpellScript(spell_pal_blessed_champion_ex);
+    RegisterSpellScript(spell_pal_seething_flames_ex);
+    RegisterSpellScript(spell_pal_authoritative_rebuke_cleanse_ex);
+    RegisterSpellScript(spell_pal_authoritative_rebuke_interrupt_ex);
+    new spell_pal_lightbearer_tracker_ex();
 }
