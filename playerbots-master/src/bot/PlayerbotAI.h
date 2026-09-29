@@ -21,7 +21,9 @@ struct Position;
 class PlayerbotAI
 {
 public:
-    PlayerbotAI(Player* bot, std::vector<BotKnowledge> knowledge);
+    // qaMode=true → роль QA-бота (аккаунт в Playerbots.QAAccountsStart/End):
+    // sweep, лог CAST_FAIL, быстрые ретраи фейлов, без чёрного списка.
+    PlayerbotAI(Player* bot, std::vector<BotKnowledge> knowledge, bool qaMode = false);
     ~PlayerbotAI();
 
     void Update(uint32 diff);
@@ -49,7 +51,9 @@ public:
 
     // QA-sweep: один прогон ВСЕХ боевых спеллов знания (Damage/DoT/Debuff) по одному
     // разу с логом попыток и результатов; после — обычная ротация. Вызывать после StartDummy.
-    void EnableDummySweep();
+    // Только для QA-ботов (_qaMode), иначе false и ничего не происходит.
+    bool EnableDummySweep();
+    bool IsQAMode() const { return _qaMode; }
 
     // для mgr: битва/gravel-филлер после длинного тикта
     void NotifyCombatEnter();
@@ -103,6 +107,7 @@ private:
     void RandomChat(uint32 diff);
 
     Player* _bot;
+    bool   _qaMode = false;                        // v6.1: роль QA-бота (см. конструктор)
     std::vector<BotKnowledge> m_knowledge;
     bool _manualKnowledge = false;
 

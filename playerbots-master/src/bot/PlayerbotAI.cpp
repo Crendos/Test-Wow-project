@@ -28,8 +28,9 @@
 #include "WorldSession.h"
 #include <algorithm>
 
-PlayerbotAI::PlayerbotAI(Player* bot, std::vector<BotKnowledge> knowledge)
+PlayerbotAI::PlayerbotAI(Player* bot, std::vector<BotKnowledge> knowledge, bool qaMode /*= false*/)
     : _bot(bot)
+    , _qaMode(qaMode)
     , m_knowledge(std::move(knowledge))
 {
     m_combatRange = GetDefaultCombatRange(_bot->GetClass());
@@ -38,7 +39,8 @@ PlayerbotAI::PlayerbotAI(Player* bot, std::vector<BotKnowledge> knowledge)
     if (!_manualKnowledge)
     {
         BuildKnowledgeFromSpellbook();
-        TC_LOG_INFO("playerbots", "AI {}: знание построено из спелбукка — {} правил", _bot->GetName(), m_knowledge.size());
+        TC_LOG_INFO("playerbots", "AI {}: знание построено из спелбукка — {} правил (роль: {})",
+            _bot->GetName(), m_knowledge.size(), _qaMode ? "QA" : "игровой");
     }
 
     std::sort(m_knowledge.begin(), m_knowledge.end(),
@@ -236,15 +238,23 @@ bool PlayerbotAI::CastSpellAt(uint32 spellId, Unit* target)
             _bot->GetMotionMaster()->MoveIdle();
     }
 
-    // master: CastSpell ВОЗВРАЩАЕТ SpellCastResult — неудачу логируем (QA-слой) и
-    // ставим короткую паузу, чтобы не спамить фейлом каждый тик.
-    // Чёрный список НЕ заполняем: QA нужно видеть повторные попытки.
+    // master: CastSpell ВОЗВРАЩАЕТ SpellCastResult. Реакция зависит от роли:
+    //  - QA-бот: фейл в лог (CAST_FAIL) + короткая пауза 500мс и НОВЫЙ спелл по
+    //    приоритету (TryAttackSpell продолжает цикл при false); чёрный список не
+    //    заполняется — QA должны видеть повторные попытки;
+    //  - игровой бот: старое поведение v4/v5 — полный GCD, без шума в лог.
     SpellCastResult castResult = _bot->CastSpell(CastSpellTargetArg(target), spellId, CastSpellExtraArgs(TRIGGERED_NONE));
     if (castResult != SPELL_CAST_OK)
     {
-        sPlayerbotDummyLog.HandleCastFail(_bot, spellId, int32(castResult), target);
-        m_recastTimerMs = 500;
-        return false;
+        uint32 base = std::max<uint32>(info->StartRecoveryTime, 1500u);
+        if (_qaMode)
+        {
+            sPlayerbotDummyLog.HandleCastFail(_bot, spellId, int32(castResult), target);
+            m_recastTimerMs = 500;
+            return false;
+        }
+        m_recastTimerMs = std::max<uint32>(base, 1000u);
+        return true;
     }
 
     // v3 GCD-подобный интервал (на master: StartRecoveryTime — это фактический GCD-флажок)
@@ -791,10 +801,17 @@ bool PlayerbotAI::StartDummy(ObjectGuid targetGuid, Position const* dest, std::s
     return true;
 }
 
-void PlayerbotAI::EnableDummySweep()
+bool PlayerbotAI::EnableDummySweep()
 {
     if (!IsDummyMode())
-        return;
+        return false;
+    if (!_qaMode)
+    {
+        // роли разделены: игровой бот не «шумит» и не выливает всё — это работа QA
+        TC_LOG_INFO("playerbots", "dummy: {} — игровой бот, sweep недоступен (нужен QA-аккаунт, Playerbots.QAAccountsStart/End)",
+            _bot->GetName());
+        return false;
+    }
 
     m_sweepList.clear();
     for (BotKnowledge const& k : m_knowledge)
@@ -810,6 +827,7 @@ void PlayerbotAI::EnableDummySweep()
         ? "SWEEP start total=" + std::to_string(m_sweepList.size())
         : "SWEEP start total=0 (боевых спеллов в знании нет)";
     sPlayerbotDummyLog.Note(_bot, note);
+    return true;
 }
 
 std::string PlayerbotAI::StopDummy(std::string const& reason)

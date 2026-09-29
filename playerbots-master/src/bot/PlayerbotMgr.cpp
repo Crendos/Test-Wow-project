@@ -38,6 +38,8 @@ PlayerbotMgr::PlayerbotMgr()
     m_enabled          = sConfigMgr->GetBoolDefault("Playerbots.Enabled", false);
     m_freeAccountStart = sConfigMgr->GetIntDefault("Playerbots.FreeAccountsStart", 9000);
     m_freeAccountEnd   = sConfigMgr->GetIntDefault("Playerbots.FreeAccountsEnd", 9499);
+    m_qaAccountStart   = sConfigMgr->GetIntDefault("Playerbots.QAAccountsStart", 9500);
+    m_qaAccountEnd     = sConfigMgr->GetIntDefault("Playerbots.QAAccountsEnd", 9599);
     m_maxBots          = sConfigMgr->GetIntDefault("Playerbots.MaxCount", 100);
     m_rosterRotationMin= sConfigMgr->GetIntDefault("Playerbots.Rotation.Minutes", 5);
 }
@@ -64,6 +66,21 @@ bool PlayerbotMgr::IsBot(Player* player) const
 bool PlayerbotMgr::IsBotSession(uint32 accountId) const
 {
     return m_bots.count(accountId) != 0;
+}
+
+bool PlayerbotMgr::IsQAAccount(uint32 accountId) const
+{
+    return m_qaAccountStart != 0
+        && accountId >= m_qaAccountStart
+        && accountId <= m_qaAccountEnd;
+}
+
+bool PlayerbotMgr::IsBotQA(std::string const& botName) const
+{
+    ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName);
+    if (!guid)
+        return false;
+    return IsQAAccount(sCharacterCache->GetCharacterAccountIdByGuid(guid));
 }
 
 std::vector<std::string> PlayerbotMgr::GetBotsOnline() const
@@ -198,7 +215,9 @@ void PlayerbotMgr::HandlePlayerBotLoggedIn(Player* player)
     if (m_combatSpells.empty())
         LoadPlayerBotCombatSpells(m_combatSpells);
 
-    entry.ai = new PlayerbotAI(player, ResolveKnowledge(entry.name, player->GetClass()));
+    // v6.1: роль бота определяется диапазоном аккаунта (Playerbots.QAAccountsStart/End)
+    entry.ai = new PlayerbotAI(player, ResolveKnowledge(entry.name, player->GetClass()),
+        IsQAAccount(player->GetSession()->GetAccountId()));
 
     TC_LOG_INFO("playerbots", "HandlePlayerBotLoggedIn: {} в мире (guid {})", entry.name, player->GetGUID().ToString());
 }
@@ -840,10 +859,12 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
     newChar.reset();    // CleanupsBeforeDelete + delete (сессия ещё нужна — ниже)
     delete session;
 
-    if (accountId < m_freeAccountStart || accountId > m_freeAccountEnd)
+    // предупреждение, если аккаунт вне обоих рабочих диапазонов (игровом и QA)
+    bool inFree = accountId >= m_freeAccountStart && accountId <= m_freeAccountEnd;
+    if (!inFree && !IsQAAccount(accountId))
         res.error += "внимание: accountId вне Playerbots.FreeAccountsStart/End ("
             + std::to_string(m_freeAccountStart) + ".." + std::to_string(m_freeAccountEnd)
-            + "); ";
+            + ") и вне QA-диапазона; ";
 
     TC_LOG_INFO("playerbots",
         "CreateCharacter: {} (guid {}, account {}) class={} race={} gender={} level={} spec={} hero={}",

@@ -115,7 +115,7 @@ namespace
                 return true;
             }
             for (std::string const& n : bots)
-                handler->SendSysMessage(n.c_str());
+                handler->PSendSysMessage("{}{}", n, sPlayerbotMgr.IsBotQA(n) ? "  [QA]" : "");
             return true;
         }
 
@@ -276,6 +276,9 @@ namespace
                 return false;
             }
             handler->PSendSysMessage("Создано: {} (guid {}, account {})", r.name, r.guid, accountId);
+            handler->PSendSysMessage("Роль: {}", sPlayerbotMgr.IsQAAccount(accountId)
+                ? "QA (sweep, CAST_FAIL, быстрые ретраи фейлов)"
+                : "игровой (обычная ротация, без QA-шума)");
             if (!r.error.empty())
                 handler->PSendSysMessage("Замечания: {}", r.error);
             handler->PSendSysMessage("Дальше: .playerbots add {} ; бой: .playerbots dummy start {} <цель>", r.name, r.name);
@@ -411,8 +414,10 @@ namespace
             }
             if (sweep)
             {
-                ai->EnableDummySweep();
-                handler->SendSysMessage("QA-sweep включён: каждый боевой спелл — попытка раз (строки SWEEP/CAST_FAIL в логе).");
+                if (ai->EnableDummySweep())
+                    handler->SendSysMessage("QA-sweep включён: каждый боевой спелл — попытка раз (строки SWEEP/CAST_FAIL в логе).");
+                else
+                    handler->SendSysMessage("sweep недоступен: это привилегия QA-ботов (аккаунт в Playerbots.QAAccountsStart/End, см. docs/08).");
             }
             handler->PSendSysMessage("Бот {} бьёт «{}» (entry {}). Лог пишется; стоп: .playerbots dummy stop {}",
                 botName, target->GetName(), target->GetEntry(), botName);

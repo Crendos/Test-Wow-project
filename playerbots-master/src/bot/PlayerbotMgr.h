@@ -93,6 +93,11 @@ public:
     BotCreateResult CreateCharacter(uint32 accountId, BotCreateCriteria const& criteria);
     static uint32 ParseClassToken(std::string token);   // "paladin"/"pala"/"2" → CLASS_*
 
+    // v6.1: роли ботов. QA-бот = аккаунт в диапазоне Playerbots.QAAccountsStart/End.
+    // QA: sweep, лог CAST_FAIL, быстрые ретраи фейлов. Игровые: обычная ротация.
+    bool IsQAAccount(uint32 accountId) const;
+    bool IsBotQA(std::string const& botName) const;      // имя → аккаунт → роль
+
 private:
     PlayerbotMgr();
 
@@ -117,6 +122,7 @@ private:
 
     bool     m_enabled = false;
     uint32   m_freeAccountStart = 0, m_freeAccountEnd = 0;
+    uint32   m_qaAccountStart = 0, m_qaAccountEnd = 0;   // v6.1: диапазон QA-аккаунтов
     uint32   m_maxBots = 100;
     uint32   m_rosterRotationMin = 5;   // минуты между ротациями
     static constexpr uint32 ROSTER_SIZE = 3;

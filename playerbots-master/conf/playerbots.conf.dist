@@ -17,6 +17,16 @@ Playerbots.MaxCount = 100
 Playerbots.FreeAccountsStart = 9000
 Playerbots.FreeAccountsEnd   = 9499
 
+# v6.1: диапазон АККАУНТОВ под QA-ботов (отдельно от игровых 9000..9499).
+# QA-бот = бот, чей аккаунт попал сюда. Отличия от игровых ботов:
+#   - .playerbots dummy start ... sweep (прогон всех спеллов по разу);
+#   - лог CAST_FAIL (причина отклонённого каста) и быстрые ретраи фейлов (500мс);
+#   - без чёрного списка фейлов — QA должны видеть повторы.
+# Игровые боты: обычная ротация (полный GCD при отказе, без QA-шума).
+# Список ботов помечает роли: name  [QA]. Подробности — docs/08_CREATE_DUMMY_LOG.md.
+Playerbots.QAAccountsStart = 9500
+Playerbots.QAAccountsEnd   = 9599
+
 # Интервал ротации состава (world.playerbots_rotation), в минутах. MVP:
 # смена окна производится только по команде `.playerbots roster start` + ручная
 # ротация через `.playerbots roster rotation <мин>` (планировщик — в фазе 1).
