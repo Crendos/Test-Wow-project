@@ -87,6 +87,19 @@ echo [3/4] Copy bot module to src\server\scripts\Custom\playerbots ...
 if not exist "%SRC%\src\server\scripts\Custom\playerbots" mkdir "%SRC%\src\server\scripts\Custom\playerbots"
 robocopy "%MODDIR%\src\bot" "%SRC%\src\server\scripts\Custom\playerbots" *.h *.cpp /NFL /NDL /NJH /NJS >nul
 if errorlevel 8 ( echo [ERROR] robocopy failed & popd & exit /b 1 )
+rem Sanity: every .cpp expected by the build must exist in the source module
+if not exist "%MODDIR%\src\bot\DummyLog.cpp" (
+  echo [ERROR] DummyLog.cpp is missing in "%MODDIR%\src\bot".
+  echo         Your playerbots-master is stale - run git pull (or download
+  echo         the branch ZIP) and re-run this script.
+  popd
+  exit /b 1
+)
+if not exist "%SRC%\src\server\scripts\Custom\playerbots\DummyLog.cpp" (
+  echo [ERROR] DummyLog.cpp was not copied into the TC source.
+  popd
+  exit /b 1
+)
 
 echo [4/4] Done. No build was started.
 echo.
@@ -97,9 +110,14 @@ echo        %SRC%\src\server\game\...                   (core files)
 echo      WARNING: re-running this script OVERWRITES files copied from
 echo      src\bot - keep custom fixes in files that do not exist upstream,
 echo      or commit them to the playerbots-master repo.
-echo   2. Compile everything together:
+echo   2. NEW .cpp files in the module need a CMake re-configure first:
+echo      sources are collected with file(GLOB) AT CONFIGURE TIME, so a
+echo      build alone will not see files added later (LNK2019 symptoms).
+echo      Re-run configuration (cache/generator are kept):
+echo        cmake -B ^<TC_BUILD_DIR^> -S ^<TC_SRC^>
+echo   3. Compile everything together:
 echo        "%MODDIR%\tools\build_windows.cmd" ^<TC_BUILD_DIR^> [CONFIG]
-echo   3. One-time data/config:
+echo   4. One-time data/config:
 echo      - sql\world_playerbots_rotation.sql into world database
 echo        (see docs\08 for the other SQL files);
 echo      - keys from conf\playerbots.conf.dist into worldserver.conf

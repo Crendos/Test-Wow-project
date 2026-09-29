@@ -94,5 +94,12 @@ cmake --build %BUILD% --config RelWithDebInfo --target worldserver -- /m
   база класса в WorldSession.h (LoginQueryHolder) — разбор по docs/02.
 - MSVS может выдать C4265/warnings в наших файлах — на сборку не влияет.
 - `scripts_custom` появляется в solution ТОЛЬКО после шага `cmake %BUILD%` (reconfigure).
+- **Новые `.cpp` модуля видны только после reconfigure**: TC собирает скрипты через
+  `file(GLOB *.cpp)` **на момент конфигурации CMake** — файл, скопированный apply'ем
+  после последней конфигурации, сборка не увидит и выдаст ровно такие `LNK2019`
+  (неопределённые символы его функций). Лечится одной командой (кэш и генератор
+  сохраняются): `cmake -B <TC_BUILD_DIR> -S <TC_SRC>` — и дальше обычная сборка.
+  Тот же принцип: apply теперь сам проверяет DummyLog.cpp и подсказывает про
+  reconfigure в конце.
 - Если сборка worldserver жалуется на libcrypto/libssl — ничего не меняйте: ваши dll'ы
   уже лежат рядом с worldserver.exe, как и раньше.
