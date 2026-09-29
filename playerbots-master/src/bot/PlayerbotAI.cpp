@@ -817,8 +817,13 @@ bool PlayerbotAI::EnableDummySweep()
     for (BotKnowledge const& k : m_knowledge)
         if (k.kind == BotKnowledge::Kind::Damage
             || k.kind == BotKnowledge::Kind::DoT
-            || k.kind == BotKnowledge::Kind::Debuff)
+            || k.kind == BotKnowledge::Kind::Debuff
+            || k.kind == BotKnowledge::Kind::SelfBuff      // герой- и обычные бафы
+            || k.kind == BotKnowledge::Kind::Defensive     // защиты: свип проверяет «кастуется/отказ»
+            || k.kind == BotKnowledge::Kind::Interrupt)
             m_sweepList.push_back(k.spellId);
+        // Heal/Dispel намеренно вне свипа: на полном HP манекена гейты
+        // лечения всегда откажут — это шум, а не баг класса (см. docs/08).
 
     m_sweepIdx = m_sweepOk = m_sweepFail = 0;
     m_dummySweep = !m_sweepList.empty();

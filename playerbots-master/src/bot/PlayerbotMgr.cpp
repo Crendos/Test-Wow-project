@@ -21,6 +21,8 @@
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "SpellMgr.h"
+#include "TraitMgr.h"
+#include "TraitPacketsCommon.h"
 #include "World.h"
 #include "WorldSession.h"
 #include "WorldSocket.h"
@@ -856,6 +858,122 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
         newChar->GiveLevel(uint8(level));
     TC_LOG_INFO("playerbots", "CreateCharacter[{}]: спек id {}, уровень {} ok",
         accountId, specEntry->ID, uint32(level));
+
+    // --- 7b. автоталанты: максимизируем trait-конфиг спека -----------------
+    // Правила (пререквизиты, бюджет очков, взаимоисключения selection-нод)
+    // валидирует сам TraitMgr: жадно добавляем ноды по одному (несколько
+    // проходов, чтобы цепочки пререквизитов доросли), после каждого шага
+    // конфиг остаётся сервер-валидным. Спеллы нод персонаж выучит при входе
+    // (.playerbots add) — ApplyTraitConfig активного combat-конфига;
+    // при недоверии сервера есть штатный fallback на granted-ноды.
+    {
+        WorldPackets::Traits::TraitConfig traitConfig;
+        traitConfig.Type = TraitConfigType::Combat;
+        traitConfig.ChrSpecializationID = specEntry->ID;
+        traitConfig.CombatConfigFlags = TraitCombatConfigFlags::ActiveForSpec;
+        traitConfig.LocalIdentifier = 1;
+        traitConfig.Name = specEntry->Name[session->GetSessionDbcLocale()];
+
+        // деревья, доступные спекам нашего класса (+ общие с ChrSpecializationID=0)
+        std::vector<int32> trees;
+        for (TraitTreeLoadoutEntry const* lo : sTraitTreeLoadoutStore)
+        {
+            int32 treeId = int32(lo->TraitTreeID);
+            if (std::find(trees.begin(), trees.end(), treeId) != trees.end())
+                continue;
+            if (lo->ChrSpecializationID == 0)
+                trees.push_back(treeId);
+            else if (ChrSpecializationEntry const* ls = sChrSpecializationStore.LookupEntry(lo->ChrSpecializationID))
+                if (ls->ClassID == c.classId)
+                    trees.push_back(treeId);
+        }
+
+        // кандидаты: все связи «нода ↔ её опция» внутри наших деревьев
+        struct TraitCand { int32 node; int32 entry; int32 rank; };
+        std::vector<TraitCand> cands;
+        for (TraitNodeXTraitNodeEntryEntry const* link : sTraitNodeXTraitNodeEntryStore)
+        {
+            TraitNodeEntry const* node = sTraitNodeStore.LookupEntry(link->TraitNodeID);
+            if (!node || std::find(trees.begin(), trees.end(), int32(node->TraitTreeID)) == trees.end())
+                continue;
+            TraitNodeEntryEntry const* opt = sTraitNodeEntryStore.LookupEntry(link->TraitNodeEntryID);
+            if (!opt || opt->MaxRanks <= 0)
+                continue;
+            cands.push_back({ int32(link->TraitNodeID), link->TraitNodeEntryID, opt->MaxRanks });
+        }
+
+        // бесплатные granted-ноды — база конфига
+        for (UF::TraitEntry const& granted : TraitMgr::GetGrantedTraitEntriesForConfig(traitConfig, newChar.get()))
+            traitConfig.Entries.push_back(WorldPackets::Traits::TraitEntry(granted));
+        TraitMgr::ValidateConfig(traitConfig, newChar.get(), false, true);
+
+        auto nodeOccupied = [&](int32 nodeId)
+        {
+            for (WorldPackets::Traits::TraitEntry const& e : traitConfig.Entries)
+                if (e.TraitNodeID == nodeId)
+                    return true;
+            return false;
+        };
+        auto present = [&](TraitCand const& cd)
+        {
+            for (WorldPackets::Traits::TraitEntry const& e : traitConfig.Entries)
+                if (e.TraitNodeID == cd.node && e.TraitNodeEntryID == cd.entry)
+                    return true;
+            return false;
+        };
+
+        auto nodeSingleChoice = [&](int32 nodeId) -> bool
+        {
+            TraitNodeEntry const* n = sTraitNodeStore.LookupEntry(uint32(nodeId));
+            if (!n)
+                return false;
+            TraitNodeType t = n->GetType();
+            return t == TraitNodeType::Selection || t == TraitNodeType::SubTreeSelection;
+        };
+
+        // жадные проходы: добавляем по одной ноде; у selection-ноды живёт
+        // ровно первая опция (валидатор требует одну), у обычных нод
+        // дописываем и остальные их entry; отклонённые кандидаты пробуем
+        // снова — пререквизиты и бюджет успевают дорасти.
+        for (int pass = 0; pass < 4; ++pass)
+        {
+            int added = 0;
+            for (TraitCand const& cd : cands)
+            {
+                if (present(cd))
+                    continue;
+                if (nodeSingleChoice(cd.node) && nodeOccupied(cd.node))
+                    continue;
+                WorldPackets::Traits::TraitEntry e;
+                e.TraitNodeID = cd.node;
+                e.TraitNodeEntryID = cd.entry;
+                e.Rank = cd.rank;
+                traitConfig.Entries.push_back(e);
+                TraitMgr::ValidateConfig(traitConfig, newChar.get(), false, true);
+                if (present(cd))
+                    ++added;
+            }
+            if (!added)
+                break;
+        }
+
+        if (!cands.empty())
+        {
+            newChar->CreateTraitConfig(traitConfig);
+            TC_LOG_INFO("playerbots",
+                "CreateCharacter[{}]: автоталанты — деревьев {}, кандидатов {}, в конфиге {} нод",
+                accountId, trees.size(), cands.size(), traitConfig.Entries.size());
+            res.error += "автоталанты: нод в trait-билде "
+                + std::to_string(traitConfig.Entries.size()) + "; ";
+        }
+        else
+        {
+            TC_LOG_INFO("playerbots",
+                "CreateCharacter[{}]: автоталанты — кандидатов нет (TraitTreeLoadout пуст для класса?)",
+                accountId);
+            res.error += "автоталанты: trait-деревья не найдены (проверь TraitTreeLoadout в DBC); ";
+        }
+    }
 
     // --- 8. геро-таланты: списки spell_id из world.playerbots_hero_talents -
     if (!c.hero.empty())
