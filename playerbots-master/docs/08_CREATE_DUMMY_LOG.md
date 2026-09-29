@@ -149,12 +149,46 @@ disabled race/class маски; кастомизация лица — дефол
 Создание QA-персонажа:
 
 ```
-# аккаунт 9501 должен существовать в auth (диапазон QAAccounts)
+# аккаунт 9501 должен существовать в auth (диапазон QAAccounts) — см. ниже
 .playerbots create 9501 class=paladin level=80 spec=dps hero=templar
 # → «Роль: QA (sweep, CAST_FAIL, быстрые ретраи фейлов)»
 .playerbots add <Имя>
 .playerbots dummy start <Имя> sweep
 ```
+
+#### Как создать бот-аккаунты в нужном диапазоне
+
+`.playerbots create <id>` требует, чтобы аккаунт с таким **числовым id**
+уже был в auth-БД (проверка `SELECT id FROM account WHERE id = <id>`).
+Команда `.account create` делает id автоматическим, поэтому диапазон
+задаётся через AUTO_INCREMENT (один раз):
+
+```sql
+-- mysql -u trinity -p auth   (СНАЧАЛА: SELECT MAX(id) FROM account; — должен быть < 9500)
+ALTER TABLE account AUTO_INCREMENT = 9500;
+```
+
+```text
+-- worldserver-консоль/GM (пароль любой, боты в него не входят):
+.account create qa9500 AnyPass1     → id 9500
+.account create qa9501 AnyPass1     → id 9501  ← попадает в QAAccountsStart/End
+```
+
+```sql
+-- проверка:
+SELECT id, username FROM account WHERE id BETWEEN 9500 AND 9599;
+```
+
+Игровые аккаунты (9000…9499) — так же, но `AUTO_INCREMENT = 9000`
+(значение должно быть больше MAX(id); порядок: сначала меньший диапазон,
+затем `ALTER` на больший). Если свободные id в диапазоне недоступны
+(сервер не пустой) — либо сдвиньте `Playerbots.QAAccountsStart/End`
+в worldserver.conf под свободный хвост, либо вставляйте строку в
+`account` вручную по схеме своей auth-БД.
+
+**Быстрый тест без настройки:** любой существующий аккаунт подходит для
+`create` (роль будет «игровой», если id не попадает в QA-диапазон):
+`SELECT id, username FROM account;` → `.playerbots create <id> …`.
 
 Игровой и QA-бот могут драться с одним манекеном параллельно — у каждого
 свой лог; сравнивая строки `CAST`/`CAST_FAIL`/`DMG` двух файлов, видно,
