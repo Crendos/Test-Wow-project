@@ -1,118 +1,83 @@
-Это с world:
-mysql> SELECT table_name FROM information_schema.tables
-WHERE table_schema = 'world' AND table_name LIKE '%spell%' ORDER BY table_name;
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(160,35): error C2039: "Get
+Option": не является членом "ConfigMgr". [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\server\scripts\scripts.v
+cxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+      C:\Users\USER\Desktop\new\test\TrinityCore\src\common\Configuration\Config.h(26,21):
+       см. объявление "ConfigMgr"
 
-SHOW COLUMNS FROM spell_script_names;
-+-------------------------------+
-| TABLE_NAME                    |
-+-------------------------------+
-| creature_template_spell       |
-| npc_spellclick_spells         |
-| player_factionchange_spells   |
-| playerbots_combat_spells      |
-| playercreateinfo_cast_spell   |
-| playercreateinfo_spell_custom |
-| quest_reward_display_spell    |
-| serverside_spell              |
-| serverside_spell_effect       |
-| spell_area                    |
-| spell_custom_attr             |
-| spell_enchant_proc_data       |
-| spell_group                   |
-| spell_group_stack_rules       |
-| spell_learn_spell             |
-| spell_linked_spell            |
-| spell_loot_template           |
-| spell_pet_auras               |
-| spell_proc                    |
-| spell_required                |
-| spell_script_names            |
-| spell_target_position         |
-| spell_threat                  |
-| spell_totem_model             |
-| trainer_spell                 |
-+-------------------------------+
-25 rows in set (0.09 sec)
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(243,23): error C3318: "aut
+o *[2]": массив не может иметь тип элементов, содержащий "auto" [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\s
+erver\scripts\scripts.vcxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
 
-+------------+-------------+------+-----+---------+-------+
-| Field      | Type        | Null | Key | Default | Extra |
-+------------+-------------+------+-----+---------+-------+
-| spell_id   | int         | NO   | PRI | NULL    |       |
-| ScriptName | varchar(64) | NO   | PRI | NULL    |       |
-+------------+-------------+------+-----+---------+-------+
-2 rows in set (0.02 sec)
-Это с hotfixes:
-mysql> SELECT table_name FROM information_schema.tables
-WHERE table_schema = 'hotfixes'
-  AND (table_name LIKE '%spell%' OR table_name LIKE '%proc%' OR table_name LIKE '%effect%')
-ORDER BY table_name;
-+----------------------------------+
-| TABLE_NAME                       |
-+----------------------------------+
-| barrage_effect                   |
-| battle_pet_ability_effect        |
-| battle_pet_effect_properties     |
-| beam_effect                      |
-| camera_effect                    |
-| camera_effect_entry              |
-| chr_upgrade_bucket_spell         |
-| corruption_effects               |
-| glyph_bindable_spell             |
-| guild_perk_spells                |
-| item_effect                      |
-| item_set_spell                   |
-| item_x_item_effect               |
-| override_spell_data              |
-| specialization_spells            |
-| specialization_spells_locale     |
-| spell_aura_options               |
-| spell_aura_restrictions          |
-| spell_cast_times                 |
-| spell_casting_requirements       |
-| spell_categories                 |
-| spell_category                   |
-| spell_category_locale            |
-| spell_class_options              |
-| spell_cooldowns                  |
-| spell_duration                   |
-| spell_effect                     |
-| spell_empower                    |
-| spell_empower_stage              |
-| spell_equipped_items             |
-| spell_focus_object               |
-| spell_focus_object_locale        |
-| spell_interrupts                 |
-| spell_item_enchantment           |
-| spell_item_enchantment_condition |
-| spell_item_enchantment_locale    |
-| spell_keybound_override          |
-| spell_label                      |
-| spell_learn_spell                |
-| spell_levels                     |
-| spell_misc                       |
-| spell_name                       |
-| spell_name_locale                |
-| spell_power                      |
-| spell_power_difficulty           |
-| spell_procs_per_minute           |
-| spell_procs_per_minute_mod       |
-| spell_radius                     |
-| spell_range                      |
-| spell_range_locale               |
-| spell_reagents                   |
-| spell_reagents_currency          |
-| spell_scaling                    |
-| spell_shapeshift                 |
-| spell_shapeshift_form            |
-| spell_shapeshift_form_locale     |
-| spell_target_restrictions        |
-| spell_totems                     |
-| spell_visual                     |
-| spell_visual_effect_name         |
-| spell_visual_kit                 |
-| spell_visual_missile             |
-| spell_x_spell_visual             |
-| trait_definition_effect_points   |
-| world_effect                     |
-+----------------------------------+
-65 rows in set (0.07 sec)
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(251,30): error C2109: для
+индекса требуется массив или указатель [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\server\scripts\scripts.vcx
+proj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(251,20): error C2530: snap
+: ссылки должны быть инициализированы [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\server\scripts\scripts.vcxp
+roj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(274,23): error C3536: snap
+: не может использоваться до инициализации [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\server\scripts\scripts
+.vcxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(275,17): error C3536: it:
+не может использоваться до инициализации [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\server\scripts\scripts.v
+cxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(305,31): error C3312: не н
+айдена вызываемая функция "begin" для типа "<error type>" [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\server\
+scripts\scripts.vcxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(305,31): error C3312: не н
+айдена вызываемая функция "end" для типа "<error type>" [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\server\sc
+ripts\scripts.vcxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(305,26): error C2530: kv:
+ссылки должны быть инициализированы [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\server\scripts\scripts.vcxpro
+j]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(305,26): error C3531: kv:
+символ, тип которого содержит спецификатор 'auto' должен иметь инициализатор [C:\Users\USER\Desktop\new\test\TrinityCor
+e\build\src\server\scripts\scripts.vcxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(305,29): error C2143: синт
+аксическая ошибка: отсутствие ";" перед ":" [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\server\scripts\script
+s.vcxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(305,35): error C2143: синт
+аксическая ошибка: отсутствие ";" перед ")" [C:\Users\USER\Desktop\new\test\TrinityCore\build\src\server\scripts\script
+s.vcxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+
+  draenor_script_loader.cpp
+  CreatureGroups.cpp
+C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(332,60): error C2440: <fun
+ction-style-cast>: невозможно преобразовать "initializer list" в "ObjectGuid" [C:\Users\USER\Desktop\new\test\TrinityCo
+re\build\src\server\scripts\scripts.vcxproj]
+  (компиляция исходного файла "../../../../src/server/scripts/Custom/playerbots/DummyLog.cpp")
+      C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(332,60):
+      "ObjectGuid::ObjectGuid": ни одна перегруженная функция не может преобразовать все типы аргументов
+          C:\Users\USER\Desktop\new\test\TrinityCore\src\server\game\Entities\Object\ObjectGuid.h(424,9):
+          может быть "ObjectGuid::ObjectGuid(uint64,uint64)"
+              C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(332,60):
+              "ObjectGuid::ObjectGuid(uint64,uint64)": невозможно преобразовать аргумент 1 из "HighGuid" в "uint64"
+                  C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(332,71):
+                  Для этого преобразования требуется явное приведение (static_cast, приведение в стиле С или приведение
+   в стиле функции в круглых скобках)
+          C:\Users\USER\Desktop\new\test\TrinityCore\src\server\scripts\Custom\playerbots\DummyLog.cpp(332,60):
+          при попытке сопоставить список аргументов "(HighGuid, _Ty1)"
+          with
+          [
+              _Ty1=const uint32
+          ]
