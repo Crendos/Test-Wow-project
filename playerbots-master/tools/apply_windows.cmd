@@ -9,6 +9,10 @@ rem    1) apply_windows.cmd <TC_SOURCE_DIR>   - patch core + copy module
 rem    2) your own source fixes (optional, e.g. class/paladin fixes)
 rem    3) build_windows.cmd <TC_BUILD_DIR>    - compile everything together
 rem
+rem  git is optional: if git is not in PATH, the script checks a patch
+rem  marker (MarkAsPlayerBot in WorldSession.h) with findstr and skips
+rem  the patch step when the patch is already applied.
+rem
 rem  Usage:
 rem    apply_windows.cmd <TC_SOURCE_DIR>
 rem  Example:
@@ -36,20 +40,48 @@ echo ==========================================================================
 
 pushd "%SRC%"
 
-echo [2/4] git apply --3way patches/0001-core-integration.diff ...
+echo [2/4] Core patch: patches\0001-core-integration.diff ...
+
+set "HAVE_GIT=1"
+where git >nul 2>nul
+if errorlevel 1 set "HAVE_GIT=0"
+
+if "%HAVE_GIT%"=="0" goto :patch_no_git
+
 git apply --3way --verbose "%MODDIR%\patches\0001-core-integration.diff"
+if errorlevel 1 goto :patch_git_failed
+goto :patch_done
+
+:patch_no_git
+rem --- git is not available: check our patch marker with built-in findstr ---
+findstr /C:"MarkAsPlayerBot" "%SRC%\src\server\game\Server\WorldSession.h" >nul 2>nul
 if errorlevel 1 (
-    git apply --reverse --quiet --check "%MODDIR%\patches\0001-core-integration.diff"
-    if not errorlevel 1 (
-        echo [INFO] Patch is already applied - skipping.
-    ) else (
-        echo [ERROR] git apply failed. Manual steps:
-        echo         1. git apply --reject "%MODDIR%\patches\0001-core-integration.diff"
-        echo         2. Resolve .rej files using docs\02_CORE_PATCH.md as reference.
-        popd
-        exit /b 1
-    )
+    echo [ERROR] git not found in PATH and the core patch is NOT applied yet.
+    echo         Fix - install Git for Windows: https://git-scm.com/download/win
+    echo         ^(re-open this prompt after install; you also need git for
+    echo         updating playerbots-master via git pull^)
+    echo         Or apply the patch manually:
+    echo           git apply --reject "%MODDIR%\patches\0001-core-integration.diff"
+    echo         and resolve .rej files using docs\02_CORE_PATCH.md.
+    popd
+    exit /b 1
 )
+echo [INFO] git not found in PATH - patch marker detected (already applied), skipping patch step.
+goto :patch_done
+
+:patch_git_failed
+git apply --reverse --quiet --check "%MODDIR%\patches\0001-core-integration.diff"
+if not errorlevel 1 (
+    echo [INFO] Patch is already applied - skipping.
+    goto :patch_done
+)
+echo [ERROR] git apply failed. Manual steps:
+echo         1. git apply --reject "%MODDIR%\patches\0001-core-integration.diff"
+echo         2. Resolve .rej files using docs\02_CORE_PATCH.md as reference.
+popd
+exit /b 1
+
+:patch_done
 
 echo [3/4] Copy bot module to src\server\scripts\Custom\playerbots ...
 if not exist "%SRC%\src\server\scripts\Custom\playerbots" mkdir "%SRC%\src\server\scripts\Custom\playerbots"
