@@ -157,7 +157,7 @@ void PlayerbotDummyLog::StartRecording(Player* bot, Unit const* target)
     if (IsRecording(bot))
         StopRecording(bot, "рестарт");
 
-    std::string dir = sConfigMgr->GetOption<std::string>("Playerbots.DummyLogDir", "PlayerbotsLogs");
+    std::string dir = sConfigMgr->GetStringDefault("Playerbots.DummyLogDir", "PlayerbotsLogs");
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
 
@@ -240,7 +240,7 @@ void PlayerbotDummyLog::PollAuras(Record& rec, Player* bot)
     Creature* target = (bot && bot->GetMap()) ? bot->GetMap()->GetCreature(rec.targetGuid) : nullptr;
 
     Unit* units[2] = { bot, target };
-    auto* snaps[2]  = { &rec.botAuras, &rec.targetAuras };
+    std::unordered_map<uint32, AuraSnap>* snaps[2] = { &rec.botAuras, &rec.targetAuras };
 
     for (int i = 0; i < 2; ++i)
     {
@@ -329,7 +329,7 @@ void PlayerbotDummyLog::Update(uint32 diff)
 
     for (auto it = m_records.begin(); it != m_records.end();)
     {
-        Player* bot = ObjectAccessor::FindPlayer(ObjectGuid(HighGuid::Player, it->first));
+        Player* bot = ObjectAccessor::FindPlayer(ObjectGuid::Create<HighGuid::Player>(it->first));
         if (!bot)
         {
             it->second.file.close();

@@ -593,23 +593,24 @@ namespace
             roleFilter = false;    // это имя спека (en)
 
         ChrSpecializationEntry const* best = nullptr;
-        for (ChrSpecializationEntry const& e : sChrSpecializationStore)
+        // DB2Storage::iterator даёт указатели (T const*) — только указательная форма
+        for (ChrSpecializationEntry const* pe : sChrSpecializationStore)
         {
-            if (e.ClassID != classId)
+            if (pe->ClassID != classId)
                 continue;
             if (roleFilter)
             {
-                if (e.GetRole() != role)
+                if (pe->GetRole() != role)
                     continue;
             }
             else
             {
-                std::string nm = ToLowerCopy(std::string(e.Name[LOCALE_enUS] ? e.Name[LOCALE_enUS] : ""));
+                std::string nm = ToLowerCopy(std::string(pe->Name[LOCALE_enUS] ? pe->Name[LOCALE_enUS] : ""));
                 if (nm != want)
                     continue;
             }
-            if (!best || e.OrderIndex < best->OrderIndex)
-                best = &e;
+            if (!best || pe->OrderIndex < best->OrderIndex)
+                best = pe;
         }
 
         if (best || roleFilter)

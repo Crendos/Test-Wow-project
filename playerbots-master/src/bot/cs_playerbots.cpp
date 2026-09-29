@@ -538,7 +538,7 @@ namespace
             if (handler->GetPlayer())
             {
                 // сообщение через конфиг-менедажер, т.к. доступно и из world-console
-                // sConfigMgr->SetIntDefault запишет NonVolatile в配置文件 — отложим до v1
+                // sConfigMgr-геттеров для записи нет — отложим до v1
             }
             handler->SendSysMessage("Ротация состава: каждые минут.");
             return true;
