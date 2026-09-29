@@ -280,3 +280,22 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (20271,  'spell_pal_avenging_crusader_heal_ex'),
 (275779, 'spell_pal_avenging_crusader_heal_ex'),
 (275773, 'spell_pal_avenging_crusader_heal_ex');
+
+-- ============================================================================
+-- v11 (PAL_REV11_20261001): Юрисдикция и Наставление Тириона + чистка старых привязок
+-- ============================================================================
+
+-- Чистка: скрипт spell_pal_crusading_strikes_hp_ex удалён ещё в партии 2 (Силу Света от
+-- «Крещендо ударов» даёт стоковый spell_pal_crusading_strikes), но строка привязки осталась
+-- от старого paladin_class_fixes.sql. Ядро на такой строке пишет ошибку при загрузке
+-- («Scriptname: ... has no code»), поэтому удаляем.
+DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_pal_crusading_strikes_hp_ex';
+
+-- 402971 «Юрисдикция»: Правосудие +20 м (E2-DUMMY в данных — теперь свой модификатор дальности).
+-- 633 «Слово света»: «Наставление Тириона» (414720) — −40% КД и возврат 5% маны (415299).
+DELETE FROM `spell_script_names` WHERE `ScriptName` IN (
+    'spell_pal_jurisdiction_ex',
+    'spell_pal_tyrion_guidance_ex');
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+(402971, 'spell_pal_jurisdiction_ex'),
+(633,    'spell_pal_tyrion_guidance_ex');

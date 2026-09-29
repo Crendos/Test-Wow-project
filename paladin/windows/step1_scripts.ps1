@@ -39,8 +39,8 @@ $srcTwo = Get-Content -Raw (Join-Path $fix 'spell_paladin_class_fixes_2.cpp')
     $srcFive = Get-Content -Raw (Join-Path $fix 'spell_paladin_class_fixes_5.cpp')
 $srcSix = Get-Content -Raw (Join-Path $fix 'spell_paladin_class_fixes_6.cpp')
 $srcOld = $srcRev.Contains('kEx13AddUnitTarget') -or $srcRev.Contains('using Spell::AddUnitTarget')
-if ((-not $srcRev.Contains('PAL_REV10_20260928')) -or $srcOld -or (-not $srcOne.Contains('ExIsHitCrit')) -or (-not $srcTwo.Contains('PAL_TITANS_FIX_20260928')) -or (-not $srcSix.Contains('PAL_RESONANCE_15S_20260928')) -or (-not $srcRev.Contains('PAL_CRUSADER_RESET_20260928')) -or (-not $srcOne.Contains('PAL_DP_FREE_20260928')) -or (-not $srcOne.Contains('PAL_AVENGING_CRUSADER_20260928')) -or (-not $srcFive.Contains('PAL_TYRS_FIX_20260928'))) {
-    Write-Host "[X] папка paladin устарела: нет PAL_REV10_20260928 / ExIsHitCrit / PAL_TITANS_FIX / PAL_RESONANCE_15S / PAL_CRUSADER_RESET" -ForegroundColor Red
+if ((-not $srcRev.Contains('PAL_REV10_20260928')) -or (-not $srcRev.Contains('PAL_REV11_20261001')) -or $srcOld -or (-not $srcOne.Contains('ExIsHitCrit')) -or (-not $srcTwo.Contains('PAL_TITANS_FIX_20260928')) -or (-not $srcSix.Contains('PAL_RESONANCE_15S_20260928')) -or (-not $srcRev.Contains('PAL_CRUSADER_RESET_20260928')) -or (-not $srcOne.Contains('PAL_DP_FREE_20260928')) -or (-not $srcOne.Contains('PAL_AVENGING_CRUSADER_20260928')) -or (-not $srcFive.Contains('PAL_TYRS_FIX_20260928'))) {
+    Write-Host "[X] папка paladin устарела: нет PAL_REV11_20261001 / PAL_REV10_20260928 / ExIsHitCrit / PAL_TITANS_FIX / PAL_RESONANCE_15S / PAL_CRUSADER_RESET" -ForegroundColor Red
     Write-Host "    (или остался обход protected: kEx13AddUnitTarget / using Spell::AddUnitTarget = ошибка MSVC C2248)." -ForegroundColor Red
     Write-Host "    Скачайте свежую папку paladin из репозитория (Code -> Download ZIP ветки PR #6) и запустите скрипт снова." -ForegroundColor Yellow
     Read-Host "Нажмите Enter для выхода"; exit 1
@@ -53,7 +53,7 @@ $hasAT    = $raw.Contains('RegisterAreaTriggerAI(at_pal_blessed_hammer)')
 $hasGuard = $raw.Contains('procSpell->IsTriggered()')
 $hasMech  = $raw.Contains('PAL_MECH_REV_20260926')
 $hasSafe  = $raw.Contains('PAL_NO_PROTECTED_TARGETINFO')
-$hasRev   = $raw.Contains('PAL_REV10_20260928')
+$hasRev   = $raw.Contains('PAL_REV11_20261001')
 $hasBad   = $raw.Contains('GetSpell()->m_UniqueTargetInfo')
 Write-Host "[1/4] маркеров в spell_paladin.cpp сейчас: $cur (нужно 0 или 11)"
 $needRollback = $false
@@ -61,7 +61,7 @@ if ($cur -eq 11) {
     if ($hasNew -and $hasAT -and $hasGuard -and $hasMech -and $hasSafe -and $hasRev -and -not $hasBad) {
         Write-Host ">>> УЖЕ УСТАНОВЛЕНО (последняя версия) — вставка пропущена"
     } else {
-        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_REV10_20260928 / PAL_NO_PROTECTED_TARGETINFO / ExIsHitCrit / правок v10 или остался обход protected через указатель на член = MSVC C2248) — заменяю на новую"
+        Write-Host ">>> найдена УСТАРЕВШАЯ версия партий (нет PAL_REV11_20261001 / PAL_REV10 / PAL_NO_PROTECTED_TARGETINFO / ExIsHitCrit или остался обход protected через указатель на член = MSVC C2248) — заменяю на новую"
         $needRollback = $true
     }
 } elseif ($cur -ne 0) {
@@ -112,6 +112,9 @@ if ($cur -eq 0) {
     $dpN   = $raw2.Contains('PAL_DP_FREE_20260928')
     $acN   = $raw2.Contains('PAL_AVENGING_CRUSADER_20260928')
     $tyrN  = $raw2.Contains('PAL_TYRS_FIX_20260928')
+    $rev11 = $raw2.Contains('PAL_REV11_20261001')
+    $jurN  = $raw2.Contains('spell_pal_jurisdiction_ex')
+    $tyrG  = $raw2.Contains('spell_pal_tyrion_guidance_ex')
     $old7 = $raw2.Contains('kEx13AddUnitTarget')
     $adtN = ([regex]::Matches($raw2, 'AddExtraTarget')).Count
     $critN = ([regex]::Matches($raw2, [regex]::Escape('ExIsHitCrit(this)'))).Count
@@ -125,7 +128,8 @@ if ($cur -eq 0) {
     Write-Host "[3f]  крит без ASSERT (ExIsHitCrit): $critN вызовов (ожидается 6), struct ExCritTargetAccess: $critStruct (ожидается True)"
     Write-Host "[3g]  v9: Свет титанов (тик по ауре): $titN ; Резонанс 15с/3 тика: $resN ; Крестоносец обнуляет КД: $crusN (ожидается True True True)"
     Write-Host "[3h]  v10: Замысел (бесплатная трата): $dpN ; Рыцарь мститель (лечение ОС/Правосудия): $acN ; Избавление Тира: $tyrN (ожидается True True True)"
-    if ($now -eq 11 -and $ms -eq 20 -and $atN -eq 1 -and $gdN -eq 2 -and $mech -and $safe -and $rev9 -and (-not $old7) -and ($adtN -eq 2) -and ($critN -eq 6) -and $critStruct -and $titN -and $resN -and $crusN -and $dpN -and $acN -and $tyrN) {
+    Write-Host "[3i]  v11: ревизия $rev11 ; Юрисдикция (+20 м Правосудию): $jurN ; Наставление Тириона: $tyrG (ожидается True True True)"
+    if ($now -eq 11 -and $ms -eq 20 -and $atN -eq 1 -and $gdN -eq 2 -and $mech -and $safe -and $rev9 -and (-not $old7) -and ($adtN -eq 2) -and ($critN -eq 6) -and $critStruct -and $titN -and $resN -and $crusN -and $dpN -and $acN -and $tyrN -and $rev11 -and $jurN -and $tyrG) {
     else { Write-Host "[X] НЕ СХОДИТСЯ — пришлите этот вывод целиком" -ForegroundColor Red; Read-Host Enter; exit 1 }
 }
 

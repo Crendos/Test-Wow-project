@@ -35,6 +35,9 @@
 // === CUT HERE ===============================================================
 // PAL_REV10_20260928 (включает PAL_REV9, PAL_REV8, PAL_REV7, PAL_REV6, PAL_REV5, PAL_REV4, PAL_REV3, PAL_REV2)
 // 28.09.2026 (v10): Божественный замысел (часть 1), Рыцарь мститель и Избавление Тира (часть 5).
+// 29.09.2026 (v11, PAL_REV11_20261001): Юрисдикция (Правосудие +20 м), Наставление Тириона
+//   (Слово света: −40% КД и 5% маны). Плюс исправление +15% Божественного замысла в части 1
+//   (класс-маска умножает PCT-значение на число совпавших битов — теперь +15% даёт скрипт).
 // 28.09.2026 (v9, PAL_CRUSADER_RESET_20260928): Великий крестоносец — свой скрипт
 //   spell_pal_grand_crusader_reset_ex (привязки 85043 и 85416 в paladin_class_fixes_11.sql)
 //   ловит и наложение бафа прока, и сам прок без привязки к типу ауры → ResetCooldown(31935).
@@ -2018,6 +2021,204 @@ class spell_pal_grand_crusader_reset_ex : public AuraScript
 };
 
 
+// ============================================================================
+// PAL_REV11_20261001 — v11: «Юрисдикция» (Правосудие +20 м) и «Наставление Тириона»
+// (Слово света: −40% КД и возврат 5% маны). Карта покрытия класса — CLASS_COVERAGE.md.
+// ============================================================================
+namespace
+{
+    constexpr uint32 EX11V_JURISDICTION       = 402971;   // «Юрисдикция» (E2-DUMMY: радиус Правосудия +20)
+    constexpr uint32 EX11V_JUDGMENT           = 20271;    // Правосудие (Воздаяние) — владелец модификатора
+    constexpr float  EX11V_JURISDICTION_RANGE = 20.f;
+    constexpr uint32 EX11V_TYRIONS_GUIDANCE   = 414720;   // «Наставление Тириона» (Свет)
+    constexpr uint32 EX11V_LAY_ON_HANDS       = 633;      // Слово света
+    constexpr uint32 EX11V_MANA_RESTORE       = 415299;   // возврат 5% маны из таланта
+    constexpr float  EX11V_TYRION_CD_PCT      = 40.f;     // −40% КД
+
+    // Маска из ОДНОГО бита флагов семейства заклинания.
+    // Ядро (Player::GetSpellModValues) применяет FLAT/PCT-модификатор столько раз, сколько
+    // битов маски совпало с флагами цели (SpellInfo::IsAffectedBySpellMod → popcount),
+    // поэтому маска-объединение дала бы +20 м × N. Один бит = ровно одно применение.
+    [[nodiscard]] flag128 Ex11SingleFlagBit(uint32 spellId)
+    {
+        flag128 mask;
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE);
+        if (!info)
+            return mask;
+
+        flag128 const& flags = info->SpellFamilyFlags;
+        for (uint8 i = 0; i < 4; ++i)
+            for (uint8 b = 0; b < 32; ++b)
+                if (flags[i] & (1u << b))
+                {
+                    mask[i] |= (1u << b);
+                    return mask;
+                }
+        return mask;
+    }
+
+    // Есть ли у таланта свой модификатор КД (тогда своими руками КД не режем — было бы двойное).
+    [[nodiscard]] bool Ex11TalentHasCooldownMod(Unit* unit, uint32 talentId)
+    {
+        if (!unit)
+            return false;
+        Aura* aura = unit->GetAura(talentId);
+        if (!aura)
+            return false;
+
+        for (AuraEffect const* eff : aura->GetAuraEffects())
+        {
+            if (!eff)
+                continue;
+            AuraType const type = eff->GetAuraType();
+            if (type != SPELL_AURA_ADD_FLAT_MODIFIER && type != SPELL_AURA_ADD_PCT_MODIFIER
+                && type != SPELL_AURA_ADD_FLAT_MODIFIER_BY_SPELL_LABEL && type != SPELL_AURA_ADD_PCT_MODIFIER_BY_SPELL_LABEL)
+                continue;
+            if (eff->GetMiscValue() == int32(SpellModOp::Cooldown))
+                return true;
+        }
+        return false;
+    }
+}
+
+// 402971 «Юрисдикция»: Правосудие бьёт на 20 м дальше. В данных это E2-DUMMY — ядро такой
+// эффект не обрабатывает. Пока пассивная аура таланта на игроке, вешаем свой FLAT-модификатор
+// дальности (SpellModOp::Range) с маской из одного флага семейства Правосудия; при снятии
+// ауры — снимаем (страховка в деструкторе, как у Божественного замысла).
+class spell_pal_jurisdiction_ex : public AuraScript
+{
+public:
+    ~spell_pal_jurisdiction_ex() override
+    {
+        Detach(true);
+    }
+
+private:
+    void Attach()
+    {
+        if (_attached)
+            return;
+
+        Player* player = GetTarget() ? GetTarget()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+
+        flag128 mask = Ex11SingleFlagBit(EX11V_JUDGMENT);
+        if (!mask)
+        {
+            TC_LOG_ERROR("scripts", "Paladin: Юрисдикция — у Правосудия нет флагов семейства, +20 м не включить");
+            return;
+        }
+
+        _ownerGuid = player->GetGUID();
+        _mod = new SpellFlatModifierByClassMask(SpellModOp::Range, EX11V_JUDGMENT, GetAura(), mask);
+        static_cast<SpellFlatModifierByClassMask*>(_mod)->value = int32(EX11V_JURISDICTION_RANGE);
+        player->AddSpellMod(_mod, true);
+        _attached = true;
+
+        static bool logged = false;
+        if (!logged)
+        {
+            TC_LOG_INFO("scripts", "Paladin: Юрисдикция — Правосудие бьёт на +20 м (модификатор дальности повешен)");
+            logged = true;
+        }
+    }
+
+    void Detach(bool destroying)
+    {
+        if (!_mod)
+            return;
+
+        Player* player = ObjectAccessor::FindPlayer(_ownerGuid);
+        if (player)
+        {
+            player->AddSpellMod(_mod, false);
+            delete _mod;
+        }
+        else
+        {
+            // Игрока уже нет: обнуляем маску, чтобы модификатор ни на что не влиял,
+            // и не удаляем объект — иначе в списке игрока остался бы висячий указатель.
+            static_cast<SpellModifierByClassMask*>(_mod)->mask.Set();
+            if (destroying)
+                TC_LOG_DEBUG("scripts", "Paladin: Юрисдикция — игрок недоступен, маска модификатора обнулена");
+        }
+        _mod = nullptr;
+        _attached = false;
+    }
+
+    void OnApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Attach();
+    }
+
+    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        Detach(false);
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_pal_jurisdiction_ex::OnApply, EFFECT_FIRST_FOUND, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_pal_jurisdiction_ex::OnRemove, EFFECT_FIRST_FOUND, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL);
+    }
+
+    ObjectGuid _ownerGuid;
+    SpellModifier* _mod = nullptr;
+    bool _attached = false;
+};
+
+// 414720 «Наставление Тириона» (Свет): Слово света (633) — КД −40% и возврат 5% маны.
+// Серверная часть в данных не реализована, поэтому возврат маны (415299) кастуем сами,
+// а КД сокращаем своими руками ТОЛЬКО если у таланта нет своего модификатора КД.
+class spell_pal_tyrion_guidance_ex : public SpellScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return true; // 415299 может отсутствовать в клиентских данных — проверяем в рантайме
+    }
+
+    void HandleAfterCast()
+    {
+        Unit* caster = GetCaster();
+        if (!caster || !caster->IsPlayer())
+            return;
+
+        if (!caster->HasSpell(EX11V_TYRIONS_GUIDANCE) && !caster->HasAura(EX11V_TYRIONS_GUIDANCE))
+            return;
+
+        if (SpellInfo const* restore = sSpellMgr->GetSpellInfo(EX11V_MANA_RESTORE, DIFFICULTY_NONE))
+        {
+            CastSpellExtraArgs args(TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_IGNORE_SPELL_AND_CATEGORY_CD | TRIGGERED_DONT_REPORT_CAST_ERROR);
+            args.SetTriggeringSpell(GetSpell());
+            caster->CastSpell(caster, restore->Id, args);
+        }
+
+        if (!Ex11TalentHasCooldownMod(caster, EX11V_TYRIONS_GUIDANCE))
+        {
+            if (SpellInfo const* loh = sSpellMgr->GetSpellInfo(EX11V_LAY_ON_HANDS, DIFFICULTY_NONE))
+            {
+                auto const remaining = caster->GetSpellHistory()->GetRemainingCooldown(loh);
+                int32 const ms = int32(remaining.count() * double(EX11V_TYRION_CD_PCT) / 100.0);
+                if (ms > 0)
+                    caster->GetSpellHistory()->ModifyCooldown(loh, Milliseconds(-ms));
+            }
+        }
+
+        static bool logged = false;
+        if (!logged)
+        {
+            TC_LOG_INFO("scripts", "Paladin: Наставление Тириона — Слово света: −40% КД и возврат 5% маны");
+            logged = true;
+        }
+    }
+
+    void Register() override
+    {
+        AfterCast += SpellCastFn(spell_pal_tyrion_guidance_ex::HandleAfterCast);
+    }
+};
+
 void AddSC_paladin_spell_scripts_ex11()
 {
     RegisterSpellScript(spell_pal_sentinel_decay_ex);
@@ -2068,4 +2269,7 @@ void AddSC_paladin_spell_scripts_ex11()
     RegisterSpellScript(spell_pal_armory_of_light_ex);
     // PAL_REV9: Великий крестоносец — обнуление КД Щита мстителя
     RegisterSpellScript(spell_pal_grand_crusader_reset_ex);
+    // PAL_REV11: Юрисдикция (+20 м Правосудию) и Наставление Тириона (Слово света)
+    RegisterSpellScript(spell_pal_jurisdiction_ex);
+    RegisterSpellScript(spell_pal_tyrion_guidance_ex);
 }

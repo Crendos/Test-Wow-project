@@ -1818,11 +1818,25 @@ namespace
         }
         return false;
     }
+
+    // Нужен ли свой +15% урона/лечения (данные клиента своего модификатора не дают)?
+    [[nodiscard]] bool ExDpBuffNeedsOurDamageBonus(Unit* unit)
+    {
+        Aura* buff = ExDpBuff(unit);
+        return buff && !ExDpDataHasDamageMod(buff);
+    }
 }
 
-// 223819 / 408458 — баф Божественного замысла: пока висит, вешаем игроку свои
-// модификаторы (-100% стоимости спендера, +15% урона/лечения без своего из данных),
-// а при снятии бафа — снимаем их. Модификаторы живут ровно столько же, сколько баф.
+// 223819 / 408458 — баф Божественного замысла: пока висит, вешаем игроку свой
+// модификатор стоимости (-100%), а при снятии бафа — снимаем его. Модификатор живёт
+// ровно столько же, сколько баф.
+//
+// ПОЧЕМУ +15% урона/лечения здесь НЕ через модификатор с маской: ядро (Player::GetSpellModValues)
+// применяет FLAT/PCT-модификатор СТОЛЬКО РАЗ, сколько битов маски совпало с флагами
+// семейства цели (SpellInfo::IsAffectedBySpellMod возвращает popcount совпадений —
+// `*pct *= pow(1 + pct, applyCount)`). Для PCT это 1.15^N, т.е. +32% и больше вместо +15%.
+// Поэтому «+15%» накладывает сам скрипт спендера (CalcDamage/CalcHealing, ровно один раз).
+// Для стоимости это неважно: 0^N = 0, каст всё равно бесплатный.
 class spell_pal_divine_purpose_buff_ex : public AuraScript
 {
 public:
@@ -1857,27 +1871,19 @@ private:
         static_cast<SpellPctModifierByClassMask*>(_costMod)->value = -100.f;
         player->AddSpellMod(_costMod, true);
 
-        if (!ExDpDataHasDamageMod(GetAura()))
-        {
-            _damageMod = new SpellPctModifierByClassMask(SpellModOp::HealingAndDamage, EX_DP_MOD_OWNER_SPELL, GetAura(), mask);
-            static_cast<SpellPctModifierByClassMask*>(_damageMod)->value = 15.f;
-            player->AddSpellMod(_damageMod, true);
-        }
-
         _attached = true;
 
         static bool logged = false;
         if (!logged)
         {
-            TC_LOG_INFO("scripts", "Paladin: Божественный замысел — трата Силы Света бесплатна (модификатор повешен), +15% {}",
-                _damageMod ? "ставим сами" : "из данных клиента");
+            TC_LOG_INFO("scripts", "Paladin: Божественный замысел — трата Силы Света бесплатна (модификатор -100% повешен), +15% даёт скрипт спендера");
             logged = true;
         }
     }
 
     void DetachMods(bool destroying)
     {
-        if (!_costMod && !_damageMod)
+        if (!_costMod)
             return;
 
         Player* player = ObjectAccessor::FindPlayer(_ownerGuid);
@@ -1901,7 +1907,6 @@ private:
             mod = nullptr;
         };
         drop(_costMod);
-        drop(_damageMod);
         _attached = false;
     }
 
@@ -1923,7 +1928,6 @@ private:
 
     ObjectGuid _ownerGuid;
     SpellModifier* _costMod = nullptr;
-    SpellModifier* _damageMod = nullptr;
     bool _attached = false;
 };
 
@@ -1937,26 +1941,33 @@ class spell_pal_divine_purpose_spender_ex : public SpellScript
         _buff = nullptr;
         _spent = 0;
         _rolled = false;
+        _ourBonus = false;
 
         Unit* caster = GetCaster();
         if (!caster)
             return;
 
+        // Есть ли у заклинания вообще стоимость в Силе Света (Amount под нашим модификатором
+        // может быть 0 — это нормально). Триггерные варианты из списка (урон Арбитра и пр.)
+        // стоимость не имеют и замысла не касаются.
         Optional<int32> const cost = GetHolyPowerCost(GetSpell());
-        if (!cost || *cost <= 0)
-            return; // не трата Силы Света — замысел не при чём
+        if (!cost)
+            return;
 
-        // Стоимость уже посчитана с модификаторами (наш -100% из бафа): если баф висит,
-        // эта трата «бесплатная».
-        _spent = *cost;
+        _spent = *cost > 0 ? *cost : 0;
 
         if (Aura* buff = ExDpBuff(caster))
         {
             _buff = buff;
+            _ourBonus = ExDpBuffNeedsOurDamageBonus(caster);
             return;
         }
 
         if (!ExDpKnowsTalent(caster))
+            return;
+
+        // Бесплатная трата (чужой прок, «Сияние» и т.п.): замысел за неё не бросаем.
+        if (_spent <= 0)
             return;
 
         int32 chance = 15;
@@ -1972,6 +1983,21 @@ class spell_pal_divine_purpose_spender_ex : public SpellScript
         }
 
         _rolled = roll_chance(chance);
+    }
+
+    // +15% урона/лечения траты, расходующей баф. Вешаем именно здесь, а не модификатором
+    // с класс-маской: ядро применяет PCT-модификатор столько раз, сколько битов маски
+    // совпало с флагами цели (Player::GetSpellModValues → 1.15^N вместо 1.15).
+    void HandleCalcDamage(SpellEffectInfo const& /*effectInfo*/, Unit* /*victim*/, int32& /*damage*/, int32& /*flatMod*/, float& pctMod)
+    {
+        if (_ourBonus)
+            AddPct(pctMod, 15);
+    }
+
+    void HandleCalcHealing(SpellEffectInfo const& /*effectInfo*/, Unit* /*victim*/, int32& /*healing*/, int32& /*flatMod*/, float& pctMod)
+    {
+        if (_ourBonus)
+            AddPct(pctMod, 15);
     }
 
     void HandleAfterCast()
@@ -2011,12 +2037,15 @@ class spell_pal_divine_purpose_spender_ex : public SpellScript
     void Register() override
     {
         BeforeCast += SpellCastFn(spell_pal_divine_purpose_spender_ex::HandleBeforeCast);
+        CalcDamage += SpellCalcDamageFn(spell_pal_divine_purpose_spender_ex::HandleCalcDamage);
+        CalcHealing += SpellCalcHealingFn(spell_pal_divine_purpose_spender_ex::HandleCalcHealing);
         AfterCast += SpellCastFn(spell_pal_divine_purpose_spender_ex::HandleAfterCast);
     }
 
     Aura* _buff = nullptr;
     int32 _spent = 0;
     bool _rolled = false;
+    bool _ourBonus = false;
 };
 
 // T36 Ret 4pc (1296661), бонусы спендера, выпускающего арбитра (ретейл, поверх БД):
