@@ -20,6 +20,7 @@
 #include "Random.h"
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
+#include "SpellMgr.h"
 #include "World.h"
 #include "WorldSession.h"
 #include "WorldSocket.h"
@@ -675,13 +676,30 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
         return res;
     }
 
-    // --- 1. аккаунт должен быть в auth ------------------------------------
+    // --- 1. аккаунт должен быть в auth (нет — создаём автоматически) ------
     QueryResult acc = LoginDatabase.Query(
         ("SELECT id FROM account WHERE id = " + std::to_string(accountId)).c_str());
     if (!acc)
     {
-        res.error = "аккаунт " + std::to_string(accountId) + " не найден в auth";
-        return res;
+        // Фиксированный id обязателен (диапазоны игровых/QA-аккаунтов);
+        // логин PB<id> (боты в него не входят), salt/verifier нулевые —
+        // при желании пароль задаётся позже GM-командой.
+        std::string uname = "PB" + std::to_string(accountId);
+        LoginDatabase.DirectPExecute(
+            "INSERT INTO account (id, username, salt, verifier) VALUES ({}, '{}', UNHEX(REPEAT('00',32)), UNHEX(REPEAT('00',32)))",
+            accountId, uname);
+        acc = LoginDatabase.Query(
+            ("SELECT id FROM account WHERE id = " + std::to_string(accountId)).c_str());
+        if (!acc)
+        {
+            res.error = "аккаунт " + std::to_string(accountId)
+                + " не найден в auth и авто-создание не сработало "
+                "(id может быть занят другим игроком или username 'PB"
+                + std::to_string(accountId) + "' уже существует); ";
+            return res;
+        }
+        res.error += "аккаунт " + std::to_string(accountId)
+            + " создан автоматически (login " + uname + ", пароль не задан); ";
     }
 
     // --- 2. race / class / gender -----------------------------------------
@@ -830,10 +848,28 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
         std::string key = std::to_string(c.classId) + ":" + ToLowerCopy(c.hero);
         auto it = m_heroTalents.find(key);
         if (it == m_heroTalents.end())
-            res.error += "геро-дерево '" + c.hero + "' не найдено в playerbots_hero_talents (нужен sql/world_playerbots_hero_talents.sql в world-БД; таблица пуста или не создана); ";
+        {
+            res.error += "геро-дерево '" + c.hero + "' не найдено в playerbots_hero_talents (нужен sql/world_playerbots_hero_talents.sql в world-БД; таблица пуста или дерево не внесено); ";
+            // подсказка: какие деревья ЕСТЬ для этого класса
+            std::string avail;
+            std::string prefix = std::to_string(c.classId) + ":";
+            for (auto const& kv : m_heroTalents)
+                if (kv.first.compare(0, prefix.size(), prefix) == 0)
+                    avail += (avail.empty() ? "" : ", ") + kv.first.substr(prefix.size());
+            res.error += avail.empty()
+                ? ("для класса " + std::to_string(c.classId) + " в таблице нет ни одного дерева — дополни SQL; ")
+                : ("доступно для этого класса: " + avail + "; ");
+        }
         else
             for (uint32 spellId : it->second)
-                newChar->LearnSpell(spellId, false);
+            {
+                // жёсткость к версиям: спелл мог не попасть в DBC клиента —
+                // пропускаем с пометкой, а не падаем
+                if (sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE))
+                    newChar->LearnSpell(spellId, false);
+                else
+                    res.error += "hero spell " + std::to_string(spellId) + " отсутствует в DBC клиента (пропущен); ";
+            }
     }
 
     // --- 9. предметы: в сумки; экипировка — .playerbots equip после входа --

@@ -149,19 +149,48 @@ disabled race/class маски; кастомизация лица — дефол
 Создание QA-персонажа:
 
 ```
-# аккаунт 9501 должен существовать в auth (диапазон QAAccounts) — см. ниже
+# аккаунт 9501 при отсутствии создаётся автоматически (login PB9501, см. ниже)
 .playerbots create 9501 class=paladin level=80 spec=dps hero=templar
 # → «Роль: QA (sweep, CAST_FAIL, быстрые ретраи фейлов)»
 .playerbots add <Имя>
 .playerbots dummy start <Имя> sweep
 ```
 
-#### Как создать бот-аккаунты в нужном диапазоне
+#### Спеки и геро-деревья (что поддерживается)
 
-`.playerbots create <id>` требует, чтобы аккаунт с таким **числовым id**
-уже был в auth-БД (проверка `SELECT id FROM account WHERE id = <id>`).
-Команда `.account create` делает id автоматическим, поэтому диапазон
-задаётся через AUTO_INCREMENT (один раз):
+`spec=` работает для **любого** класса: ролью (`dps|heal|tank`), именем спека
+на en (напр. `protection`) или числовым ChrSpecialization ID. Паладин
+(Midnight 12.1), ключи `hero=`:
+
+| Спека | `spec=` | Деревья `hero=` |
+|---|---|---|
+| Retribution (урон) | `dps` | `templar`, `herald` |
+| Holy (хил) | `heal` | `herald`, `lightsmith` |
+| Protection (танк) | `tank` | `templar`, `lightsmith` |
+
+```
+.playerbots create 9501 class=paladin level=90 spec=dps  hero=templar
+.playerbots create 9502 class=paladin level=90 spec=heal  hero=herald
+.playerbots create 9503 class=paladin level=90 spec=tank  hero=lightsmith
+```
+
+Опечатка в `hero=` → в ошибке перечисляются доступные для класса деревья.
+Спеллы дерева, отсутствующие в DBC клиента, пропускаются с пометкой в
+«Замечания». Деревья других классов — INSERT-ы в
+`sql/world_playerbots_hero_talents.sql` (класс-привязку сверять на wowhead:
+тип Talent + перечень классов).
+
+#### Как создаются бот-аккаунты
+
+Если аккаунта с указанным **числовым id** нет в auth-БД, `.playerbots create`
+**создаёт его автоматически** (login `PB<id>`, пароль не задан — боты в него
+не входят; в «Замечаниях» печатается `аккаунт N создан автоматически`).
+Роль бота (QA/игровой) определяется id-диапазоном, так что для обычной
+работы ничего настраивать не нужно.
+
+Ручная процедура нужна только если хотите, чтобы аккаунт был полноценным
+(с паролем для входа). Команда `.account create` делает id автоматическим,
+поэтому диапазон задаётся через AUTO_INCREMENT (один раз):
 
 ```sql
 -- mysql -u trinity -p auth   (СНАЧАЛА: SELECT MAX(id) FROM account; — должен быть < 9500)
@@ -186,9 +215,9 @@ SELECT id, username FROM account WHERE id BETWEEN 9500 AND 9599;
 в worldserver.conf под свободный хвост, либо вставляйте строку в
 `account` вручную по схеме своей auth-БД.
 
-**Быстрый тест без настройки:** любой существующий аккаунт подходит для
-`create` (роль будет «игровой», если id не попадает в QA-диапазон):
-`SELECT id, username FROM account;` → `.playerbots create <id> …`.
+**Быстрый тест:** `.playerbots create <любой существующий_id> …` работает и
+с обычными аккаунтами (роль «игровой», если id не в QA-диапазоне) — либо
+просто указывай любой свободный id: недостающий аккаунт создастся сам.
 
 Игровой и QA-бот могут драться с одним манекеном параллельно — у каждого
 свой лог; сравнивая строки `CAST`/`CAST_FAIL`/`DMG` двух файлов, видно,
