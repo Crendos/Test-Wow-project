@@ -5,18 +5,29 @@
 узнавать их заново не нужно). Сборка VS 2022, x64, Dynamic Scripts
 (scripts_custom.dll — ваш режим уже такой).
 
-## Быстрый путь (автоматика)
+## Быстрый путь (два этапа: сначала патч, потом сборка)
 
 1. Пуск → **Visual Studio 2022 → x64 Native Tools Command Prompt for VS 2022**.
-2. В нем:
+2. **Патч — ничего не компилирует:**
    ```bat
    :: пример — подставьте свои пути
    C:\...\Test-Wow-project\playerbots-master\tools\apply_windows.cmd ^
-       C:\TrinityCore\Source C:\TrinityCore\Build RelWithDebInfo
+       C:\TrinityCore\Source
    ```
-   Скрипт проверяет, что он запущен именно из native-prompt, патчит ядро,
-   копирует модуль, запускает `cmake reconfigure` и собирает цели
-   **game → scripts_custom → worldserver**.
+   Скрипт проверяет, что он запущен именно из native-prompt, патчит ядро
+   (`git apply --3way`, при частичном конфликте — по docs\02) и копирует
+   модуль в `src\server\scripts\Custom\playerbots`. **Компиляции нет** —
+   это этап, на который вносятся свои правки в исходники (например, фиксы
+   паладина). Внимание: повторный запуск перезаписывает файлы, скопированные
+   из `src\bot` — правки в одноимённых файлах затрутся; держите свои правки
+   в новых файлах или коммитьте их в `playerbots-master`.
+3. **Сборка — отдельной командой, когда все правки внесены:**
+   ```bat
+   C:\...\Test-Wow-project\playerbots-master\tools\build_windows.cmd ^
+       C:\TrinityCore\Build RelWithDebInfo
+   ```
+   Переконфигурирует CMake (все ваши пути остаются в кеше) и собирает цели
+   **game → scripts (или scripts_custom) → worldserver**.
 
 ## Ручной путь (те же шаги одной строкой каждая — в том же prompt)
 
@@ -48,7 +59,7 @@ cmake --build %BUILD% --config RelWithDebInfo --target worldserver -- /m
 
 Зачем именно такой порядок: патч меняет **game** (WorldSession/CharacterHandler);
 модуль компилируется внутри **scripts** (static) либо **scripts_custom** (dynamic —
-оба случая apply_windows.cmd определяет сам по CMakeCache.txt);
+оба случая build_windows.cmd определяет сам по CMakeCache.txt);
 **worldserver** линкуется последним. Первая сборка `scripts` при static — долгая
 (компилируются все модули скриптов), это нормально, дальше — инкрементально.
 

@@ -29,9 +29,14 @@ whisper-управление, компаньоны.
 
 ## Порядок внедрения (кратко, детали — в docs/)
 
-**Windows/VS2022:** готовый скрипт `tools/apply_windows.cmd` (запускать из
-«x64 Native Tools Command Prompt for VS 2022») + пошаговая инструкция
-`docs/03_WINDOWS_VS2022.md`.
+**Windows/VS2022 — два этапа**, оба из «x64 Native Tools Command Prompt for VS 2022»
+(пошаговая инструкция `docs/03_WINDOWS_VS2022.md`):
+
+1. `tools\apply_windows.cmd <TC_SOURCE_DIR>` — **только патч**: ядро (`git apply`)
+   + копия модуля в `Custom\playerbots`, без единой компиляции. Здесь же можно
+   внести свои правки в исходники (например, фиксы паладина).
+2. `tools\build_windows.cmd <TC_BUILD_DIR> [CONFIG]` — **сборка всего вместе**:
+   cmake reconfigure → game → scripts/scripts_custom → worldserver.
 
 1. Клонировать master, нанести `patches/0001-core-integration.diff` (git apply --3way при частичных конфликтах)
    (правки только в `WorldSession.h/.cpp`, ~80 строк).
@@ -67,6 +72,7 @@ whisper-управление, компаньоны.
 | `src/bot/PlayerbotAI.*` + `Knowledge.h` | AI бота: follow, бой, ротация, авто-шмот |
 | `src/bot/cs_playerbots.cpp` | Команда `.playerbots` + WorldScript-тик |
 | `conf/playerbots.conf.dist` | Настройки (копировать в worldserver.conf) |
-| `tools/apply_windows.cmd` | Применение изменений на Windows-машине (x64 Native Tools prompt, скрипт только ASCII!) |
+| `tools/apply_windows.cmd` | Патч ядра + копия модуля, **без сборки** (x64 Native Tools prompt, скрипт только ASCII!) |
+| `tools/build_windows.cmd` | Сборка после всех правок: cmake reconfigure + game → scripts → worldserver |
 
 
