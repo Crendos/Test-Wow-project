@@ -90,8 +90,8 @@ if errorlevel 8 ( echo [ERROR] robocopy failed & popd & exit /b 1 )
 rem Sanity: every .cpp expected by the build must exist in the source module
 if not exist "%MODDIR%\src\bot\DummyLog.cpp" (
   echo [ERROR] DummyLog.cpp is missing in "%MODDIR%\src\bot".
-  echo         Your playerbots-master is stale - run git pull (or download
-  echo         the branch ZIP) and re-run this script.
+  echo         Your playerbots-master is stale - run git pull, or download
+  echo         the branch ZIP and re-run this script.
   popd
   exit /b 1
 )
