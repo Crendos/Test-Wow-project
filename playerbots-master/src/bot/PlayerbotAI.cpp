@@ -835,7 +835,11 @@ std::string PlayerbotAI::StopDummy(std::string const& reason)
     if (!IsDummyMode())
         return std::string();
 
-    // сперва финальный снапшот + SUMMARY в файл
+    // сводка sweep — в QA-отчёт (даже если прогон не закончен)
+    if (!m_sweepList.empty())
+        sPlayerbotDummyLog.SetSweepSummary(_bot, m_sweepOk, m_sweepFail, uint32(m_sweepList.size()));
+
+    // сперва финальный снапшот + SUMMARY + QA-отчёт в файлы
     std::string path = sPlayerbotDummyLog.StopRecording(_bot, reason);
 
     // немедленно перестать бить манекена (дальше бот живёт обычным режимом AI)

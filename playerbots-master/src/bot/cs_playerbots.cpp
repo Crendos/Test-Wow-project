@@ -448,7 +448,16 @@ namespace
             }
             std::string path = ai->StopDummy("по команде");
             if (!path.empty())
-                handler->PSendSysMessage("Лог закрыт: {}", path);
+            {
+                handler->PSendSysMessage("Лог боя: {}", path);
+                // QA-отчёт пишется рядом: тот же путь с расширением .qa.txt
+                std::string report = path;
+                if (report.size() >= 4 && report.compare(report.size() - 4, 4, ".log") == 0)
+                    report.replace(report.size() - 4, 4, ".qa.txt");
+                else
+                    report += ".qa.txt";
+                handler->PSendSysMessage("QA-отчёт (аномалии/баги): {}", report);
+            }
             else
                 handler->SendSysMessage("Режим снят (файл лога не создавался).");
             return true;

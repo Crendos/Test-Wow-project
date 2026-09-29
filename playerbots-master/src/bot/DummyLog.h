@@ -13,6 +13,7 @@
 #include <fstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 class Player;
 class Unit;
@@ -44,6 +45,9 @@ public:
     void HandleCastFail(Player const* caster, uint32 spellId, int32 result, Unit const* target);
     void Note(Player const* bot, std::string const& text);   // строка SWEEP/прочее в текущий лог
 
+    // сводка sweep для QA-отчёта (вызывается из PlayerbotAI::StopDummy до StopRecording)
+    void SetSweepSummary(Player const* bot, uint32 ok, uint32 fail, uint32 total);
+
     static std::string SpellName(uint32 spellId);
     static std::string CastResultName(int32 result);         // SpellCastResult → человекочитаемое имя
 
@@ -64,11 +68,18 @@ private:
         ObjectGuid targetGuid;
         uint32 targetEntry = 0;
         std::string targetName;
+        std::string botName;                                    // для заголовка QA-отчёта
         std::chrono::steady_clock::time_point start;
         uint32 pollAccMs = 0;
         uint64 totalDealt = 0;
         uint32 castCount = 0;
         uint32 castFails = 0;                                   // QA: отклонённые касты
+        // --- агрегаты для QA-отчёта (.qa.txt) ---
+        std::unordered_map<uint32 /*spellId*/, uint32> casted;   // сколько раз каждый спелл скастован
+        std::unordered_set<uint32 /*spellId*/> damaged;          // спеллы, дававшие урон
+        std::unordered_map<uint32 /*spellId*/, uint32> failCount;
+        std::unordered_map<uint32 /*spellId*/, int32> failResult;// последний код отказа
+        std::string sweepSummary;                               // "SWEEP ok=... fail=..." если был sweep
         std::unordered_map<uint32 /*spellId*/, AuraSnap> botAuras;
         std::unordered_map<uint32 /*spellId*/, AuraSnap> targetAuras;
     };
@@ -76,6 +87,9 @@ private:
     Record* Find(uint32 botCounter);
     void PollAuras(Record& rec, Player* bot);
     void Write(Record& rec, std::string const& line);
+    // QA-отчёт: анализ агрегатов сессии → файл <session>.qa.txt; возвращает путь
+    std::string WriteQaReport(Record const& rec, std::string const& sessionPath,
+                              std::string const& reason, float duration);
 
     std::unordered_map<uint32 /*bot guid counter*/, Record> m_records;
     uint32 m_globalPollMs = 0;

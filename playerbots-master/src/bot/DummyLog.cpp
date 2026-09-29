@@ -23,10 +23,12 @@
 #include "World.h"
 #include "WorldSession.h"
 
+#include <cctype>
 #include <ctime>
 #include <filesystem>
 #include <iomanip>
 #include <sstream>
+#include <vector>
 
 namespace
 {
@@ -161,6 +163,7 @@ void PlayerbotDummyLog::StartRecording(Player* bot, Unit const* target)
 
     Record rec;
     rec.path = dir + "/" + bot->GetName() + "_" + TimeStamp("%Y%m%d-%H%M%S") + ".log";
+    rec.botName = bot->GetName();
     rec.file.open(rec.path, std::ios::out | std::ios::trunc);
     if (!rec.file.is_open())
     {
@@ -214,11 +217,19 @@ std::string PlayerbotDummyLog::StopRecording(Player* bot, std::string const& rea
         << " reason=\"" << reason << "\"";
     Write(rec, sum.str());
 
+    // QA-анализ сессии → отдельный файл <session>.qa.txt (рядом с логом)
+    std::string reportPath = WriteQaReport(rec, rec.path, reason, duration);
+    if (!reportPath.empty())
+        Write(rec, "QA_REPORT file=\"" + reportPath + '"');
+
     std::string path = rec.path;
     rec.file.close();
     m_records.erase(it);
 
-    TC_LOG_INFO("playerbots", "DummyLog: лог {} закрыт ({})", path, reason);
+    if (!reportPath.empty())
+        TC_LOG_INFO("playerbots", "DummyLog: лог {} и QA-отчёт {} закрыты ({})", path, reportPath, reason);
+    else
+        TC_LOG_INFO("playerbots", "DummyLog: лог {} закрыт ({})", path, reason);
     return path;
 }
 
@@ -346,6 +357,7 @@ void PlayerbotDummyLog::HandleSpellDamage(Unit const* attacker, Unit const* vict
         return;
     if (Record* rec = Find(attacker->GetGUID().GetCounter()))
     {
+        rec->damaged.insert(spellId);
         std::ostringstream os;
         os << "DMG src=spell spell=" << spellId
            << " name=\"" << SpellName(spellId) << '"'
@@ -406,6 +418,7 @@ void PlayerbotDummyLog::HandleCast(Player const* caster, Spell const* spell)
         Unit* target = spell->m_targets.GetUnitTarget();
 
         ++rec->castCount;
+        ++rec->casted[spellId];
         std::ostringstream os;
         os << "CAST spell=" << spellId
            << " name=\"" << SpellName(spellId) << '"';
@@ -444,6 +457,8 @@ void PlayerbotDummyLog::HandleCastFail(Player const* caster, uint32 spellId, int
     if (Record* rec = Find(caster->GetGUID().GetCounter()))
     {
         ++rec->castFails;
+        ++rec->failCount[spellId];
+        rec->failResult[spellId] = result;
         std::ostringstream os;
         os << "CAST_FAIL spell=" << spellId
            << " name=\"" << SpellName(spellId) << '"'
@@ -461,4 +476,159 @@ void PlayerbotDummyLog::Note(Player const* bot, std::string const& text)
         return;
     if (Record* rec = Find(bot->GetGUID().GetCounter()))
         Write(*rec, text);
+}
+
+void PlayerbotDummyLog::SetSweepSummary(Player const* bot, uint32 ok, uint32 fail, uint32 total)
+{
+    if (!bot)
+        return;
+    if (Record* rec = Find(bot->GetGUID().GetCounter()))
+        rec->sweepSummary = "SWEEP ok=" + std::to_string(ok)
+            + " fail=" + std::to_string(fail)
+            + " total=" + std::to_string(total);
+}
+
+// ---------------------------------------------------------------- QA-отчёт
+
+std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string const& sessionPath,
+                                              std::string const& reason, float duration)
+{
+    // путь: <Bot>_<ts>.log → <Bot>_<ts>.qa.txt
+    std::string reportPath = sessionPath;
+    if (reportPath.size() >= 4 && reportPath.compare(reportPath.size() - 4, 4, ".log") == 0)
+        reportPath.replace(reportPath.size() - 4, 4, ".qa.txt");
+    else
+        reportPath += ".qa.txt";
+
+    std::ofstream f(reportPath, std::ios::out | std::ios::trunc);
+    if (!f.is_open())
+    {
+        TC_LOG_ERROR("playerbots", "DummyLog: не удалось записать QA-отчёт {}", reportPath);
+        return std::string();
+    }
+
+    std::vector<std::string> lines;
+    std::unordered_set<uint32> flagged;      // спелл уже попал в находку — не дублируем
+    uint32 findings = 0;
+    auto add = [&lines](std::string s) { lines.push_back(std::move(s)); };
+
+    auto lastResult = [&rec](uint32 spellId) -> int32
+    {
+        auto it = rec.failResult.find(spellId);
+        return it != rec.failResult.end() ? it->second : 0;
+    };
+    auto isDamageSpell = [](SpellInfo const* si) -> bool
+    {
+        if (!si)
+            return false;
+        for (SpellEffectInfo const& eff : si->GetEffects())
+            if (eff.Effect == SPELL_EFFECT_SCHOOL_DAMAGE)
+                return true;
+        return false;
+    };
+
+    // 1) неизвестные коды отказа — главная находка QA (непокрытый случай/баг ядра)
+    for (auto const& kv : rec.failCount)
+    {
+        std::string rn = CastResultName(lastResult(kv.first));
+        bool unknown = rn.size() > 1 && rn[0] == 'E' && std::isdigit(static_cast<unsigned char>(rn[1]));
+        if (!unknown)
+            continue;
+        std::ostringstream os;
+        os << "[BUG] unknown_cast_result spell=" << kv.first
+           << " name=\"" << SpellName(kv.first) << '"'
+           << " result=" << rn
+           << " count=" << kv.second
+           << " — код отказа не распознан: разобрать вручную (см. enum SpellCastResult)";
+        add(os.str());
+        flagged.insert(kv.first);
+        ++findings;
+    }
+
+    // 2) уронные спеллы (спендеры), отклонённые по ресурсу
+    for (auto const& kv : rec.failCount)
+    {
+        if (flagged.count(kv.first))
+            continue;
+        if (CastResultName(lastResult(kv.first)).find("NO_POWER") == std::string::npos)
+            continue;
+        if (!isDamageSpell(sSpellMgr->GetSpellInfo(kv.first, DIFFICULTY_NONE)))
+            continue;
+        std::ostringstream os;
+        os << "[WARN] resource_starved spell=" << kv.first
+           << " name=\"" << SpellName(kv.first) << '"'
+           << " count=" << kv.second
+           << " — спендер отклонён по ресурсу (Holy Power и пр.)";
+        add(os.str());
+        flagged.insert(kv.first);
+        ++findings;
+    }
+
+    // 3) уронный спелл скастован, но ни одного DMG с его spellId не было
+    for (auto const& kv : rec.casted)
+    {
+        if (flagged.count(kv.first) || rec.damaged.count(kv.first))
+            continue;
+        if (!isDamageSpell(sSpellMgr->GetSpellInfo(kv.first, DIFFICULTY_NONE)))
+            continue;
+        std::ostringstream os;
+        os << "[SUSPECT] cast_without_damage spell=" << kv.first
+           << " name=\"" << SpellName(kv.first) << '"'
+           << " casts=" << kv.second
+           << " — касты прошли, урона с этим spellId нет: свери лог (возможен баг/прок-замена)";
+        add(os.str());
+        flagged.insert(kv.first);
+        ++findings;
+    }
+
+    // 4) общий итог: были касты — нет авторитетного урона
+    if (rec.totalDealt == 0 && rec.castCount > 0)
+    {
+        add("[BUG] zero_total_damage — касты были, total_dealt=0");
+        ++findings;
+    }
+
+    // 5) повторяющиеся отказы с уже известными кодами
+    for (auto const& kv : rec.failCount)
+    {
+        if (kv.second < 5 || flagged.count(kv.first))
+            continue;
+        std::ostringstream os;
+        os << "[INFO] repeated_failure spell=" << kv.first
+           << " name=\"" << SpellName(kv.first) << '"'
+           << " result=" << CastResultName(lastResult(kv.first))
+           << " count=" << kv.second;
+        add(os.str());
+        flagged.insert(kv.first);
+        ++findings;
+    }
+
+    // 6) сводка sweep (если QA-прогон был)
+    if (!rec.sweepSummary.empty())
+        add("[INFO] " + rec.sweepSummary);
+
+    // статистика сессии
+    {
+        std::ostringstream os;
+        os << std::fixed << std::setprecision(1)
+           << "[STAT] duration_s=" << duration
+           << " total_dealt=" << rec.totalDealt
+           << " casts=" << rec.castCount
+           << " cast_fails=" << rec.castFails;
+        add(os.str());
+    }
+
+    f << "# playerbots QA report v1\n";
+    f << "# bot=" << rec.botName
+      << " target=" << rec.targetName
+      << " entry=" << rec.targetEntry << '\n';
+    f << "# generated=" << TimeStamp("%Y-%m-%dT%H:%M:%S")
+      << " duration_s=" << std::fixed << std::setprecision(1) << duration
+      << " reason=\"" << reason << "\"\n";
+    f << "# session_log=" << sessionPath << "\n";
+    f << "FINDINGS " << findings << "\n";
+    for (std::string const& l : lines)
+        f << l << '\n';
+    f.close();
+    return reportPath;
 }
