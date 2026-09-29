@@ -254,3 +254,37 @@ Id с Wowhead: T35 — 1264844…1264849, T36 — 1296656…1296661 (Holy 2/4, P
 
 Не сделано: Благословение Ан'ше (Рет-часть: «следующее Правосудие +50%») — ID баффа не найден в Wowhead.
 Святая часть (+15% Шок небес) работает из DB2.
+
+
+## 28.09.2026 (v6, маркер `PAL_REV6_20260928`) — только сборка
+
+| Что | Было | Стало |
+|---|---|---|
+| Прилив Света 407067 (Рет) | аргументы каста собирались одним designated-инициализатором с вложенным списком `SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, amount } }` — MSVC на таком падает (C2440/C2078), это и ломало сборку | `CastSpellExtraArgs args(TRIGGERED_FULL_MASK); args.SetTriggeringAura(aurEff); args.AddSpellMod(SPELLVALUE_BASE_POINT0, amount);` |
+
+Игровая логика не изменилась: тот же бафф 407065 (+5% скорости, 10 с) с тем же КД 0.5 с.
+
+
+## 28.09.2026 (v7, маркер `PAL_REV7_20260928`) — только сборка
+
+| Что | Было | Стало |
+|---|---|---|
+| Благословенный защитник 403010 (Рет, доп. цели Правосудия 20271) | доступ к protected `Spell::AddUnitTarget` через указатель на член, взятый у наследника (`using Spell::AddUnitTarget` + `&Ex13SpellTargetAccess::AddUnitTarget`) — GCC это компилирует, MSVC падает с `error C2248` на строке `spell_paladin.cpp(10036,116)` | вызов из обычного метода наследника: `struct Ex13SpellTargetAccess : Spell { void AddExtraTarget(Unit*, uint32) { AddUnitTarget(target, effectMask, true, true, nullptr); } }` и в `HandleOnCast` — `static_cast<Ex13SpellTargetAccess*>(spell)->AddExtraTarget(enemy, mask);` |
+
+Игровая логика не изменилась: у Правосудия (20271) с Благословенным защитником по-прежнему
+до 4 дополнительных целей, −25% урона по ним считает `spell_pal_blessed_champion_ex`.
+Причина правки: MSVC (17.14, VS2022) не принимает взятие адреса protected-члена базового класса
+через наследника, хотя GCC принимает; обход `kEx13AddUnitTarget` был единственным
+непереносимым местом во всём паке.
+
+
+## 28.09.2026 (v8, маркер `PAL_REV8_20260928`) — только сборка и стабильность
+
+| Что | Было | Стало |
+|---|---|---|
+| Крит «летящих» спеллов (Правосудие 20271, Молот гнева 24275, Эмпирейский молот 431398, Молот и наковальня 275779/275773, Почтение, T36 Prot 4pc) | `IsHitCrit()` (ядро) — на спеллах с travel time ядро вынимает цель из `Spell::m_UniqueTargetInfo` до обработки, `ASSERT` в `SpellScript.cpp:657` ронял worldserver (лог от 28.09 21:38, манекен в Ретри-Храмовнике) | своя обёртка `ExIsHitCrit(this)` (часть 1): тот же поиск крита, но вместо `ASSERT` — `false` + строка в лог `scripts` (debug); плюс правка ядра `PAL_CORE_CRITFIX_20260928` в `Spell::handle_delayed()` — цель остаётся в списке во время обработки, крит считается верно |
+| `Spell.cpp` (ядро) | `handle_delayed()` перемещал «долетевшие» цели в локальный вектор до обработки | те же цели обрабатываются прямо в `m_UniqueTargetInfo` и удаляются после; порядок обработки и `next_time` не изменились (ставится `windows\step0b_core_critfix.bat`, патч — `core_patch/0002-core-IsHitCrit-delayed-targets.patch`) |
+
+Игровая логика не изменилась: крит по-прежнему берётся из того же `TargetInfo::IsCrit`, меняется
+только устойчивость к падению. Причина бага — в ядре TrinityCore (подтверждено сравнением
+`SpellScript.cpp`/`Spell.cpp` с master: файлы идентичны, upstream-фикса нет).

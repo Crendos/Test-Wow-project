@@ -475,7 +475,7 @@ class spell_pal_veneration_ex : public SpellScript
         Unit* caster = GetCaster();
         if (!caster || !caster->HasAura(SPELL_EX4_VENERATION))
             return;
-        if (!IsHitCrit())
+        if (!ExIsHitCrit(this))
             return;
 
         for (uint32 spellId : { SPELL_EX4_JUDGMENT_HOLY, SPELL_EX4_JUDGMENT_RET, SPELL_EX4_JUDGMENT_PROT })

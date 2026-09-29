@@ -2,6 +2,8 @@
 -- Paladin class fixes — часть 11 (28.09.2026): героические таланты, Гильотина,
 -- Божественный арбитр (T36 Ret 4pc) — бонусы выпускающего спендера.
 -- Спутник к paladin/spell_paladin_class_fixes_11.cpp (+ классы T36 в основной части).
+-- v10 (28.09.2026): Божественный замысел (223817/223819/408458/408459), Рыцарь
+--   мститель (216331, лечение ОС/Правосудия) и Избавление Тира (1241275 -> 200652).
 -- Повторный прогон безопасен.
 -- ============================================================================
 
@@ -175,6 +177,8 @@ VALUES
 
 -- ============================================================================
 -- PAL_REV5 (28.09.2026, v5): второй проход по логам WCL. Повторный прогон безопасен.
+-- v6 (PAL_REV6_20260928), v7 (PAL_REV7_20260928) и v8 (PAL_REV8_20260928) — правки только в C++
+-- (сборка/стабильность) + правка ядра Spell.cpp; этот файл без изменений.
 -- ============================================================================
 DELETE FROM `spell_script_names` WHERE `ScriptName` IN (
   'spell_pal_born_in_sunlight_aw_ex','spell_pal_undying_embers_ex',
@@ -195,9 +199,84 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 -- Оружейная Света: 15% шанс -20% урона (щит: заклинания, без щита: ближний бой)
 (1277443, 'spell_pal_armory_of_light_ex');
 
+-- v9 (28.09): Великий крестоносец — обнуление КД Щита мстителя (31935).
+-- 85416 — баф прока (ловим наложение), 85043 — пассивка таланта (ловим сам прок).
+-- Скрипт не привязан к типу ауры/номеру эффекта, поэтому работает при любых данных.
+DELETE FROM `spell_script_names` WHERE `ScriptName` = 'spell_pal_grand_crusader_reset_ex';
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+(85043, 'spell_pal_grand_crusader_reset_ex'),
+(85416, 'spell_pal_grand_crusader_reset_ex');
+
 -- Неугасимые угли: периодический урон (тик 469882, фильтр в скрипте).
 -- Воля рассвета: получение любого урона; E1/E2 (периодик и «по здоровью») не прокают.
 REPLACE INTO `spell_proc` (`SpellId`,`SchoolMask`,`SpellFamilyName`,`SpellFamilyMask0`,`SpellFamilyMask1`,`SpellFamilyMask2`,`SpellFamilyMask3`,`ProcFlags`,`ProcFlags2`,`SpellTypeMask`,`SpellPhaseMask`,`HitMask`,`AttributesMask`,`DisableEffectsMask`,`ProcsPerMinute`,`Chance`,`Cooldown`,`Charges`)
 VALUES
 (1244019,0x00,0,0,0,0,0,0x40000,0x0,0x1,0x2,0x0,0x1,0x0,0,100,0,0),
 (431406, 0x00,0,0,0,0,0,0x100000,0x0,0x0,0x0,0x0,0x0,0x3,0,100,0,0);
+
+-- ============================================================================
+-- v10 (28.09.2026): Божественный замысел, Рыцарь мститель, Избавление Тира
+-- ============================================================================
+
+-- Божественный замысел: прок (15%) и расход бафа делаем сами, поэтому стоковый скрипт
+-- ядра снимаем (он полагался на строку spell_proc), а на сам баф вешаем свой — он даёт
+-- «бесплатную» трату Силы Света (модификатор -100% стоимости) и +15% урона/лечения.
+DELETE FROM `spell_script_names` WHERE `ScriptName` IN (
+    'spell_pal_divine_purpose',
+    'spell_pal_divine_purpose_buff_ex',
+    'spell_pal_divine_purpose_spender_ex');
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+-- бафы: 223819 (все спеки) и 408458 (Рет-версия таланта 408459)
+(223819, 'spell_pal_divine_purpose_buff_ex'),
+(408458, 'spell_pal_divine_purpose_buff_ex'),
+-- спендеры Силы Света (клиентский список «Affected Spells» бафа 223819 E1/E2)
+(53600,  'spell_pal_divine_purpose_spender_ex'),
+(85673,  'spell_pal_divine_purpose_spender_ex'),
+(53385,  'spell_pal_divine_purpose_spender_ex'),
+(85222,  'spell_pal_divine_purpose_spender_ex'),
+(156322, 'spell_pal_divine_purpose_spender_ex'),
+(383328, 'spell_pal_divine_purpose_spender_ex'),
+(85256,  'spell_pal_divine_purpose_spender_ex'),
+(427453, 'spell_pal_divine_purpose_spender_ex'),
+(1306923,'spell_pal_divine_purpose_spender_ex'),
+(215661, 'spell_pal_divine_purpose_spender_ex'),
+(84963,  'spell_pal_divine_purpose_spender_ex'),
+(172320, 'spell_pal_divine_purpose_spender_ex'),
+(172321, 'spell_pal_divine_purpose_spender_ex'),
+(383469, 'spell_pal_divine_purpose_spender_ex'),
+(391309, 'spell_pal_divine_purpose_spender_ex'),
+(1257064,'spell_pal_divine_purpose_spender_ex'),
+(391054, 'spell_pal_divine_purpose_spender_ex'),
+(415091, 'spell_pal_divine_purpose_spender_ex'),
+(290491, 'spell_pal_divine_purpose_spender_ex'),
+(336872, 'spell_pal_divine_purpose_spender_ex'),
+(157048, 'spell_pal_divine_purpose_spender_ex'),
+(174333, 'spell_pal_divine_purpose_spender_ex'),
+(213842, 'spell_pal_divine_purpose_spender_ex'),
+(213843, 'spell_pal_divine_purpose_spender_ex'),
+(224266, 'spell_pal_divine_purpose_spender_ex'),
+(276033, 'spell_pal_divine_purpose_spender_ex'),
+(461432, 'spell_pal_divine_purpose_spender_ex'),
+(461622, 'spell_pal_divine_purpose_spender_ex'),
+(2812,   'spell_pal_divine_purpose_spender_ex');
+
+-- Избавление Тира: старые скрипты (AfterCast на Гневе карателя/Крестовом походе + выбор цели
+-- на 200653) заменены — триггер теперь от активации Гнева карателя / Рыцаря мстителя, лечение
+-- ведёт аура 200652 (5 раненых сразу + 1/сек).
+DELETE FROM `spell_script_names` WHERE `ScriptName` IN (
+    'spell_pal_tyrs_deliverance_trigger_ex',
+    'spell_pal_tyrs_deliverance_select_ex',
+    'spell_pal_tyrs_deliverance_aw_ex',
+    'spell_pal_tyrs_deliverance_aura_ex',
+    'spell_pal_avenging_crusader_heal_ex');
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+(31884,  'spell_pal_tyrs_deliverance_aw_ex'),
+(454351, 'spell_pal_tyrs_deliverance_aw_ex'),
+(216331, 'spell_pal_tyrs_deliverance_aw_ex'),
+(231895, 'spell_pal_tyrs_deliverance_aw_ex'),
+(200652, 'spell_pal_tyrs_deliverance_aura_ex'),
+-- Рыцарь мститель (216331): лечение союзников от Крестового удара и Правосудия (все ветки)
+(35395,  'spell_pal_avenging_crusader_heal_ex'),
+(20271,  'spell_pal_avenging_crusader_heal_ex'),
+(275779, 'spell_pal_avenging_crusader_heal_ex'),
+(275773, 'spell_pal_avenging_crusader_heal_ex');

@@ -33,7 +33,11 @@
 // ============================================================================
 
 // === CUT HERE ===============================================================
-// PAL_REV5_20260928 (включает PAL_REV4, PAL_REV3, PAL_REV2)
+// PAL_REV10_20260928 (включает PAL_REV9, PAL_REV8, PAL_REV7, PAL_REV6, PAL_REV5, PAL_REV4, PAL_REV3, PAL_REV2)
+// 28.09.2026 (v10): Божественный замысел (часть 1), Рыцарь мститель и Избавление Тира (часть 5).
+// 28.09.2026 (v9, PAL_CRUSADER_RESET_20260928): Великий крестоносец — свой скрипт
+//   spell_pal_grand_crusader_reset_ex (привязки 85043 и 85416 в paladin_class_fixes_11.sql)
+//   ловит и наложение бафа прока, и сам прок без привязки к типу ауры → ResetCooldown(31935).
 
 #include "CellImpl.h"
 #include "GridNotifiers.h"
@@ -396,7 +400,7 @@ class spell_pal_empyrean_hammer_crit_ex : public SpellScript
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
-        if (!caster || !target || !IsHitCrit())
+        if (!caster || !target || !ExIsHitCrit(this))
             return;
 
         // Гнев нисхождения: 50% (E1) урона крита — соседям.
@@ -583,7 +587,7 @@ class spell_pal_hammer_and_anvil_ex : public SpellScript
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
-        if (!caster || !target || !IsHitCrit() || !caster->HasAura(SPELL_EX11_HAMMER_AND_ANVIL))
+        if (!caster || !target || !ExIsHitCrit(this) || !caster->HasAura(SPELL_EX11_HAMMER_AND_ANVIL))
             return;
         CastSpellExtraArgs args(EX11_TRIGGER);
         args.SetTriggeringSpell(GetSpell());
@@ -1475,12 +1479,17 @@ enum PaladinEx13Spells
 
 namespace
 {
-    // AddUnitTarget у Spell protected; указатель на член через наследника — легальный доступ.
+    // AddUnitTarget у Spell — protected. Взять адрес защищённого члена через наследника
+    // (&Ex13SpellTargetAccess::AddUnitTarget) GCC пропускает, а MSVC — нет (error C2248:
+    // cannot access protected member). Вызываем AddUnitTarget из обычного метода наследника
+    // (неявный this->AddUnitTarget) — такую форму принимают и MSVC, и GCC.
     struct Ex13SpellTargetAccess : Spell
     {
-        using Spell::AddUnitTarget;
+        void AddExtraTarget(Unit* target, uint32 effectMask)
+        {
+            AddUnitTarget(target, effectMask, true, true, nullptr);
+        }
     };
-    void (Spell::* const kEx13AddUnitTarget)(Unit*, uint32, bool, bool, Position const*) = &Ex13SpellTargetAccess::AddUnitTarget;
 
     thread_local bool gEx13HealBusy = false;
     std::mutex gEx13TemperedLock;
@@ -1613,7 +1622,7 @@ class spell_pal_blessed_champion_judgment_ex : public SpellScript
 
         Spell* spell = GetSpell();
         for (Unit* enemy : enemies)
-            (spell->*kEx13AddUnitTarget)(enemy, mask, true, true, nullptr);
+            static_cast<Ex13SpellTargetAccess*>(spell)->AddExtraTarget(enemy, mask);
     }
 
     void Register() override
@@ -1637,11 +1646,12 @@ class spell_pal_rush_of_light_ex : public AuraScript
         PreventDefaultAction();
         Unit* target = GetTarget();
         int32 const amount = std::max(1, int32(aurEff->GetAmount()));
-        target->CastSpell(target, SPELL_EX13_RUSH_OF_LIGHT_BUFF, CastSpellExtraArgsInit{
-            .TriggerFlags = TRIGGERED_FULL_MASK,
-            .TriggeringAura = aurEff,
-            .SpellValueOverrides = { { SPELLVALUE_BASE_POINT0, amount } }
-        });
+        // MSVC не компилирует вложенные braced-списки в designated-инициализаторе
+        // (SpellValueOverrides = { {mod,val} }) — собираем аргументы по шагам.
+        CastSpellExtraArgs args(TRIGGERED_FULL_MASK);
+        args.SetTriggeringAura(aurEff);
+        args.AddSpellMod(SPELLVALUE_BASE_POINT0, amount);
+        target->CastSpell(target, SPELL_EX13_RUSH_OF_LIGHT_BUFF, args);
     }
 
     void Register() override
@@ -1954,6 +1964,60 @@ class spell_pal_armory_of_light_ex : public AuraScript
     }
 };
 
+// 85043 / 85416 — Великий крестоносец (Защита): прок обязан ОБНУЛИТЬ КД Щита мстителя (31935).
+// В ядре сброс уже описан (spell_pal_grand_crusader), но хук там жёстко привязан к паре
+// "эффект 0 + аура SPELL_AURA_PROC_TRIGGER_SPELL": если в данных вашей сборки тип ауры
+// другой, хук молчит и КД не обнуляется. Здесь ловим оба места без привязки к типам:
+//   * наложение бафа прока 85416 (AfterEffectApply, EFFECT_FIRST_FOUND + SPELL_AURA_ANY);
+//   * сам прок пассивки 85043 (OnProc — тип ауры и номер эффекта не важны).
+// PAL_CRUSADER_RESET_20260928
+class spell_pal_grand_crusader_reset_ex : public AuraScript
+{
+    bool Validate(SpellInfo const* /*spellInfo*/) override
+    {
+        return ValidateSpellInfo({ SPELL_EX11_AVENGERS_SHIELD });
+    }
+
+    void ResetAvengersShield()
+    {
+        Player* paladin = GetTarget() ? GetTarget()->ToPlayer() : nullptr;
+        if (!paladin || !paladin->IsAlive())
+            return;
+
+        SpellHistory* history = paladin->GetSpellHistory();
+        history->ResetCooldown(SPELL_EX11_AVENGERS_SHIELD, true);
+        if (SpellInfo const* avengersShield = sSpellMgr->GetSpellInfo(SPELL_EX11_AVENGERS_SHIELD, DIFFICULTY_NONE))
+            if (avengersShield->ChargeCategoryId)
+                history->RestoreCharge(avengersShield->ChargeCategoryId);
+
+        static bool loggedReset = false;
+        if (!loggedReset)
+        {
+            TC_LOG_INFO("scripts", "Paladin: Великий крестоносец — прок обнулил КД Щита мстителя (сообщение один раз за запуск сервера)");
+            loggedReset = true;
+        }
+    }
+
+    // 85416 — баф прока: приходит ровно в момент сброса КД (в т.ч. при обновлении)
+    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        ResetAvengersShield();
+    }
+
+    // 85043 — пассивка таланта: работаем от самого прока
+    void HandleProc(ProcEventInfo& /*eventInfo*/)
+    {
+        ResetAvengersShield();
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_pal_grand_crusader_reset_ex::HandleApply, EFFECT_FIRST_FOUND, SPELL_AURA_ANY, AURA_EFFECT_HANDLE_REAL_OR_REAPPLY_MASK);
+        OnProc += AuraProcFn(spell_pal_grand_crusader_reset_ex::HandleProc);
+    }
+};
+
+
 void AddSC_paladin_spell_scripts_ex11()
 {
     RegisterSpellScript(spell_pal_sentinel_decay_ex);
@@ -2002,4 +2066,6 @@ void AddSC_paladin_spell_scripts_ex11()
     RegisterSpellScript(spell_pal_undying_embers_ex);
     RegisterSpellScript(spell_pal_will_of_the_dawn_ex);
     RegisterSpellScript(spell_pal_armory_of_light_ex);
+    // PAL_REV9: Великий крестоносец — обнуление КД Щита мстителя
+    RegisterSpellScript(spell_pal_grand_crusader_reset_ex);
 }
