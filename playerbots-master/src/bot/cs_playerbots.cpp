@@ -6,17 +6,43 @@
 #include "ChatCommand.h"
 #include "ChatCommandTags.h"
 #include "Config.h"
+#include "Creature.h"
+#include "DatabaseEnv.h"
+#include "DummyLog.h"
 #include "Language.h"
+#include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
 #include "RBAC.h"
 #include "ScriptMgr.h"
 #include "WorldSession.h"
 
+#include <algorithm>
+#include <cctype>
+#include <sstream>
+#include <vector>
+
 using namespace Trinity::ChatCommands;
 
 namespace
 {
+    uint32 ToU32(std::string const& s)
+    {
+        if (s.empty())
+            return 0;
+        for (char ch : s)
+            if (!std::isdigit(static_cast<unsigned char>(ch)))
+                return 0;
+        try { return uint32(std::stoul(s)); } catch (...) { return 0; }
+    }
+
+    std::string LowerStr(std::string s)
+    {
+        std::transform(s.begin(), s.end(), s.begin(),
+            [](unsigned char c) { return char(std::tolower(c)); });
+        return s;
+    }
+
     class playerbots_commandscript : public CommandScript
     {
     public:
@@ -31,9 +57,16 @@ namespace
                 { "rotation",    HandleRosterRotationCommand,    static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
             };
 
+            static ChatCommandTable playerbotsDummyCommandTable =
+            {
+                { "start",       HandleBotDummyStartCommand,     static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "stop",        HandleBotDummyStopCommand,      static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+            };
+
             static ChatCommandTable playerbotsCommandTable =
             {
                 { "add",         HandleBotAddCommand,            static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "create",      HandleBotCreateCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "list",        HandleBotListCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "ping",        HandleBotPingCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "remove",      HandleBotRemoveCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
@@ -42,6 +75,7 @@ namespace
                 { "stay",        HandleBotStayCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "book",        HandleBotBookCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "equip",       HandleBotEquipCommand,          static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "dummy",       playerbotsDummyCommandTable },
                 { "roster",      playerbotsRosterCommandTable },
             };
 
@@ -138,6 +172,280 @@ namespace
             }
             ai->EquipBestItems();
             handler->SendSysMessage("Экипировка пересчитана.");
+            return true;
+        }
+
+        // .playerbots create <account> class=paladin [race=N] [gender=m|f] [level=N]
+        //                     [spec=dps|heal|tank|имя|ID] [hero=templar] [item=ID[,ID]] [name=X]
+        static bool HandleBotCreateCommand(ChatHandler* handler, Tail args)
+        {
+            if (args.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots create <account> class=паладин|2 [race=N] [gender=m|f] [level=N] [spec=dps|heal|tank|имя|ID] [hero=templar] [item=ID[,ID...]] [name=Имя]");
+                handler->SendSysMessage("Пример: .playerbots create 9001 class=paladin level=80 spec=dps hero=templar item=2000");
+                return false;
+            }
+
+            BotCreateCriteria c;
+            std::string accountTok;
+            bool first = true;
+            std::istringstream is{ std::string(args) };
+            std::string tok;
+            while (is >> tok)
+            {
+                if (first)
+                {
+                    first = false;
+                    if (tok.find('=') == std::string::npos)
+                    {
+                        accountTok = tok;
+                        continue;
+                    }
+                }
+
+                auto eq = tok.find('=');
+                if (eq == std::string::npos)
+                {
+                    handler->PSendSysMessage("Неожиданный токен '{}': ожидались key=value", tok);
+                    return false;
+                }
+                std::string k = tok.substr(0, eq);
+                std::string v = tok.substr(eq + 1);
+
+                if (k == "class")
+                    c.classId = PlayerbotMgr::ParseClassToken(v);
+                else if (k == "race")
+                    c.raceId = ToU32(v);
+                else if (k == "level")
+                    c.level = std::max<uint32>(1, ToU32(v));
+                else if (k == "spec")
+                    c.spec = v;
+                else if (k == "hero")
+                    c.hero = v;
+                else if (k == "name")
+                    c.name = v;
+                else if (k == "item")
+                {
+                    std::istringstream items{ v };
+                    std::string one;
+                    while (std::getline(items, one, ','))
+                        if (uint32 id = ToU32(one))
+                            c.items.push_back(id);
+                        else if (!one.empty())
+                        {
+                            handler->PSendSysMessage("item: не число '{}'", one);
+                            return false;
+                        }
+                }
+                else if (k == "gender")
+                {
+                    std::string g = LowerStr(v);
+                    if (g == "m" || g == "male" || g == "0")
+                        c.gender = 0;
+                    else if (g == "f" || g == "female" || g == "1")
+                        c.gender = 1;
+                    else
+                    {
+                        handler->PSendSysMessage("gender: '{}'. Нужно m|f.", v);
+                        return false;
+                    }
+                }
+                else
+                {
+                    handler->PSendSysMessage("Неизвестный параметр '{}'", k);
+                    return false;
+                }
+            }
+
+            uint32 accountId = accountTok.empty() ? 0 : ToU32(accountTok);
+            if (!accountId)
+            {
+                handler->SendSysMessage("Нужен accountId первым аргументом (напр. 9001).");
+                return false;
+            }
+            if (!c.classId)
+            {
+                handler->SendSysMessage("Нужен class= (paladin/2/warrior/...).");
+                return false;
+            }
+
+            BotCreateResult r = sPlayerbotMgr.CreateCharacter(accountId, c);
+            if (!r.ok)
+            {
+                handler->PSendSysMessage("Ошибка: {}", r.error);
+                return false;
+            }
+            handler->PSendSysMessage("Создано: {} (guid {}, account {})", r.name, r.guid, accountId);
+            if (!r.error.empty())
+                handler->PSendSysMessage("Замечания: {}", r.error);
+            handler->PSendSysMessage("Дальше: .playerbots add {} ; бой: .playerbots dummy start {} <цель>", r.name, r.name);
+            return true;
+        }
+
+        // .playerbots dummy start <бот> [entry] [x y z]  — бот бьёт манекен, пишется лог
+        static bool HandleBotDummyStartCommand(ChatHandler* handler, Tail args)
+        {
+            if (args.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots dummy start <бот> [entry манекена] [x y z] [sweep]");
+                handler->SendSysMessage("Цель: твой выделенный юнит, иначе entry, иначе авто-поиск '%Dummy%' рядом с ботом.");
+                handler->SendSysMessage("sweep = QA-прогон: каждый боевой спелл попытка раз с логом SWEEP/CAST_FAIL.");
+                return false;
+            }
+
+            std::vector<std::string> t;
+            bool sweep = false;
+            {
+                std::istringstream is{ std::string(args) };
+                std::string w;
+                while (is >> w)
+                {
+                    if (w == "sweep")
+                        sweep = true;
+                    else
+                        t.push_back(w);
+                }
+            }
+            if (t.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots dummy start <бот> [entry] [x y z] [sweep]");
+                return false;
+            }
+
+            std::string const botName = t[0];
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                return false;
+            }
+            if (ai->IsDummyMode())
+            {
+                handler->SendSysMessage("Бот уже в режиме манекена (сначала .playerbots dummy stop).");
+                return false;
+            }
+            Player* bot = ai->GetBot();
+            if (!bot)
+            {
+                handler->SendSysMessage("Бот оффлайн.");
+                return false;
+            }
+
+            uint32 entry = 0;
+            Position dest;
+            bool hasDest = false;
+            size_t idx = 1;
+            if (t.size() == idx + 1)
+            {
+                entry = ToU32(t[idx]);
+                ++idx;
+            }
+            else if (t.size() == idx + 3 || t.size() == idx + 4)
+            {
+                if (t.size() == idx + 4)
+                {
+                    entry = ToU32(t[idx]);
+                    ++idx;
+                }
+                try
+                {
+                    dest.m_positionX = std::stof(t[idx]);
+                    dest.m_positionY = std::stof(t[idx + 1]);
+                    dest.m_positionZ = std::stof(t[idx + 2]);
+                }
+                catch (...)
+                {
+                    handler->SendSysMessage("Координаты x y z — числа с точкой.");
+                    return false;
+                }
+                hasDest = true;
+                idx += 3;
+            }
+            if (idx != t.size())
+            {
+                handler->SendSysMessage("Использование: .playerbots dummy start <бот> [entry] [x y z] [sweep]");
+                return false;
+            }
+
+            Creature* target = nullptr;
+            if (entry)
+            {
+                target = bot->FindNearestCreature(entry, 300.0f);
+                if (!target)
+                {
+                    handler->PSendSysMessage("creature entry {} не найден рядом с ботом (300 ярд).", entry);
+                    return false;
+                }
+            }
+            else
+            {
+                if (Unit* sel = handler->getSelectedUnit())
+                    target = sel->ToCreature();
+
+                if (!target)
+                {
+                    if (QueryResult qr = WorldDatabase.Query(
+                        "SELECT entry FROM creature_template "
+                        "WHERE name LIKE '%Dummy%' OR name LIKE '%Манекен%' OR name LIKE '%Training%' LIMIT 30"))
+                    {
+                        do
+                        {
+                            uint32 e = qr->Fetch()[0].GetUInt32();
+                            if ((target = bot->FindNearestCreature(e, 300.0f)))
+                                break;
+                        } while (qr->NextRow());
+                    }
+                }
+                if (!target)
+                {
+                    handler->SendSysMessage("Манекен не найден: выдели цель (или укажи entry).");
+                    return false;
+                }
+            }
+
+            std::string err;
+            if (!ai->StartDummy(target->GetGUID(), hasDest ? &dest : nullptr, err))
+            {
+                handler->PSendSysMessage("Ошибка: {}", err);
+                return false;
+            }
+            if (sweep)
+            {
+                ai->EnableDummySweep();
+                handler->SendSysMessage("QA-sweep включён: каждый боевой спелл — попытка раз (строки SWEEP/CAST_FAIL в логе).");
+            }
+            handler->PSendSysMessage("Бот {} бьёт «{}» (entry {}). Лог пишется; стоп: .playerbots dummy stop {}",
+                botName, target->GetName(), target->GetEntry(), botName);
+            if (hasDest)
+                handler->SendSysMessage("Сначала подбег к указанной точке, затем бой.");
+            return true;
+        }
+
+        // .playerbots dummy stop <бот>  — остановить бой, закрыть лог с SUMMARY
+        static bool HandleBotDummyStopCommand(ChatHandler* handler, Tail name)
+        {
+            if (name.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots dummy stop <бот>");
+                return false;
+            }
+            std::string const botName{name};
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                return false;
+            }
+            if (!ai->IsDummyMode())
+            {
+                handler->SendSysMessage("Бот не в режиме манекена.");
+                return false;
+            }
+            std::string path = ai->StopDummy("по команде");
+            if (!path.empty())
+                handler->PSendSysMessage("Лог закрыт: {}", path);
+            else
+                handler->SendSysMessage("Режим снят (файл лога не создавался).");
             return true;
         }
 
@@ -239,11 +547,13 @@ namespace
         void OnUpdate(uint32 diff) override
         {
             sPlayerbotMgr.UpdateAI(diff);
+            sPlayerbotDummyLog.Update(diff);    // поллинг аур для логов боя с манекеном
         }
     };
 
 void AddSC_playerbots()
 {
+    AddSC_playerbots_dummylog();                // UnitScript+PlayerScript: урон/хил/касты в лог
     static_cast<void>( new playerbots_commandscript() );
     new playerbots_worldscript();
 }

@@ -26,3 +26,9 @@ Playerbots.Rotation.Minutes = 5
 # (хук WorldScript::OnStartup в cs_playerbots.cpp):
 #   1 = после старта сервера выполняется менеджерский StartRoster()
 Playerbots.AutoStartRoster = 0
+
+# --------------------------------------------------------------------------- 
+# v6: лог боя с манекеном (.playerbots dummy start|stop), docs/08_CREATE_DUMMY_LOG.md
+# Папка относительно рабочего каталога worldserver; создаётся автоматически.
+# Файл: <Bot>_<YYYYMMDD-HHMMSS>.log — ауры/бафы, касты, урон, проки, SUMMARY.
+Playerbots.DummyLogDir = PlayerbotsLogs

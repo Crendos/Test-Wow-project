@@ -1,0 +1,188 @@
+# v6: создание персонажа, бой с манекеном, лог боя
+
+Три команды без входа в клиент:
+
+1. `.playerbots create` — сервер создаёт персонажа на указанном аккаунте по
+   критериям (класс/спек/геро-дерево/уровень/предметы/ник).
+2. `.playerbots dummy start|stop` — бот идёт к точке (опционально) и бьёт манекен,
+   ведя полный лог боя.
+3. `DummyLog` — файл лога: ауры/бафы, касты, урон (включая проки), хил, итог.
+
+Код: `src/bot/PlayerbotMgr.cpp` (CreateCharacter), `src/bot/PlayerbotAI.*`
+(режим dummy), `src/bot/DummyLog.*` (рекордер + ScriptMgr-хуки),
+`src/bot/cs_playerbots.cpp` (команды). SQL: `sql/world_playerbots_hero_talents.sql`
+(загрузить в **World DB**).
+
+---
+
+## 1. `.playerbots create`
+
+```
+.playerbots create <account> class=<класс> [race=N] [gender=m|f] [level=N]
+                   [spec=dps|heal|tank|имя|ID] [hero=<дерево>]
+                   [item=ID[,ID...]] [name=Имя]
+```
+
+Примеры:
+
+```
+.playerbots create 9001 class=paladin level=80 spec=dps hero=templar
+.playerbots create 9002 class=paladin level=80 spec=ret item=2000,item=2001 name=Qwk
+```
+
+| Параметр | Значение |
+|---|---|
+| `<account>` | ID аккаунта в **auth**. Персонаж привязывается к нему. Обычно — бот-диапазон `Playerbots.FreeAccountsStart/End` (9000…9499); вне диапазона команда предупредит. |
+| `class=` | `paladin`/`pala`/`2`… (warrior, hunter, rogue, priest, dk, shaman, mage, warlock, monk, druid, dh, evoker) или число. |
+| `race=` | `RACE_*` число. Пропущено → первая playable-раса, у которой есть комбинация с классом (для паладина будет human=1). |
+| `gender=` | `m`/`f`/`0`/`1` (по умолчанию `m`). |
+| `level=` | 1…`MaxPlayerLevel` (под кап сервера). **Уровень ставится через `GiveLevel` ПОСЛЕ выбора спека** — спеллы спека выучиваются автоматически. |
+| `spec=` | пусто → первый DPS-спек класса (паладин → Retribution 70); `dps`/`dd`, `heal`, `tank` (роль из ChrSpecialization.Role); имя спека по-английски (`retribution`, `holy`…); либо точный Spell/Spec ID (`70`). |
+| `hero=` | ключ дерева героических талантов. Сейчас см. §2. |
+| `item=` | ID предметов через запятую — кладутся в сумки лучшими слотами (`StoreNewItemInBestSlots`). Надеть: после входа бота `.playerbots equip <имя>`. |
+| `name=` | явный ник (проходит те же проверки, что и рандомный). Пусто → **случайный ник из 3–4 латинских букв** (первая заглавная), перебор до 80 свободных вариантов. |
+
+Что реально происходит (паттерн `CharacterHandler::HandlePlayerCreate`):
+
+- синхронная проверка аккаунта в auth (`LoginDatabase.Query`);
+- временная фейковая `WorldSession` аккаунта (`sock=nullptr`, `MarkAsPlayerBot`);
+- `Player::Create` с race/class/gender; **кастомизация не передаётся** —
+  пустой список валиден (на CREATE `ValidateAppearance` не вызывается),
+  поэтому внешний вид будет дефолтным для расы;
+- спек → `SetPrimarySpecialization` + `SetActiveTalentGroup(OrderIndex)`;
+- `GiveLevel(level)` → `LearnSpecializationSpells` (спеллы спека ≤ уровня);
+- `hero=` → `LearnSpell` каждого spell_id дерева;
+- `item=` → `StoreNewItemInBestSlots`;
+- **без** `AT_LOGIN_FIRST` (бот не проходит «первый вход»-флоу);
+- `SaveToDB(loginTrans, charTrans, create=true)` + **синхронный**
+  `DirectCommitTransaction` в обе БД (команда ждёт результата);
+- `AddCharacterCacheEntry` (ник виден в кэше/поиск) + `OnPlayerCreate`.
+
+Ограничения (осознанно): не проверяются лимиты персонажей на аккаунт и
+disabled race/class маски; кастомизация лица — дефолтная; таланты/талант-поинты
+не распределяются (ротации это не мешает — знание строится из спелбукка).
+
+Дальше: `.playerbots add <Имя>` — бот заходит тем же аккаунтом (это уже
+существующий путь, `docs/01`), `.playerbots equip <Имя>` — экипировка.
+
+---
+
+## 2. `hero=` и геро-таланты
+
+Ядро TrinityCore **не реализует** систему героических талантов (HeroTalents/Trait
+деревья для Midnight в core отсутствуют). Поэтому `hero=templar` работает так:
+
+- таблица **World DB** `playerbots_hero_talents(class, tree, spell_id)` —
+  загрузка в `sql/world_playerbots_hero_talents.sql`;
+- при создании все spell_id дерева вызываются `LearnSpell` — они попадают в
+  знания AI (`BuildKnowledgeFromSpellbook`), участвуют в ротации и учитываются
+  как обычные спеллы/кулдауны;
+- стартовый набор: **Hammer of Light = 429826** (Templar keystone-актива).
+  Остальные спеллы дерева дописывай сам: нашёл spell_id на wowhead → INSERT
+  той же строкой SQL (пример в самом файле);
+- эффекты «фишек» дерева (вызов Empyrean Hammers и т.п.) ожидать рано — это
+  spell-скрипты ядра, в TC master их нет. Роль `hero=` сейчас: правильный профиль
+  персонажа + расширение ротации.
+
+---
+
+## 3. `.playerbots dummy`
+
+```
+.playerbots dummy start <бот> [entry манекена] [x y z] [sweep]
+.playerbots dummy stop <бот>
+```
+
+Приоритет выбора цели в `start`:
+
+1. **твой выделенный юнит** (`.target`/кликом) — должен быть Creature рядом с ботом;
+2. `entry=N` — `FindNearestCreature(entry, 300)` от позиции бота;
+3. авто-поиск: `creature_template.name LIKE '%Dummy%' | '%Манекен%' | '%Training%'`
+   (первый найденный в 300 ярдах от бота).
+
+`[x y z]` — опциональная точка: сперва бот подбегает к ней (`MovePoint`, лимит
+60 сек), затем держит дистанцию у манекена и дрится. Пустая точка — сразу бой.
+
+Поведение: бот атакует (`Attack`), включает обычную боевую ротацию
+(`DoCombatAI`: бафы, спеллы по кулдауну, дебафы/DoT на цели, defensive при
+НПХ), при отдалении — `MoveFollow`. Режим имеет высший приоритет в `Update()`
+(обходит follow/plane). Манекен умер/пропал → режим сам завершается.
+
+`stop` → снимает режим, пишет `SUMMARY` и печатает путь файла.
+
+### QA-sweep (`sweep`)
+
+Боты позиционируются как **QA для вылавливания багов класса** — им важна
+полнота покрытия, а не красота ротации. Флаг `sweep` включает одиночный прогон:
+
+- берётся ВСЁ боевое знание (`Damage`/`DoT`/`Debuff`, приоритетный порядок);
+- каждый спелл пытается кастовать **один раз** независимо от условий
+  (без HP/бёрст-гейтов): в лог падает `SWEEP attempt … seq=i/M`,
+  при кулдауне — `SWEEP skip (cooldown)`, в конце — `SWEEP complete ok=… fail=…`;
+- успех подтверждается строкой `CAST` (хук `OnSpellCast`), отказ — `CAST_FAIL`;
+- после прогона бот переходит на обычную ротацию на остаток боя.
+
+Что смотреть в логе как QA: `CAST_FAIL` с ресурсом (`NO_POWER(ресурс)` —
+нехватка Holy Power у спендеров), `E<номер>` = неизвестный код отказа ядра
+(кандидат на баг/покрытие), спелл `CAST`, но без последующих строк `DMG`
+(каст прошёл, урона нет — возможный баг класса), `SUMMARY.cast_fails`.
+
+Предварительно бот должен быть онлайн: `.playerbots add <Имя>`, и обычно
+`.playerbots followme <Имя>` довести до места (или `dummy start … x y z`).
+
+---
+
+## 4. Лог боя (DummyLog)
+
+Ключ конфига: `Playerbots.DummyLogDir` (по умолчанию `PlayerbotsLogs/`,
+относительно рабочего каталога worldserver; папка создаётся сама).
+Файл: `<Bot>_<YYYYMMDD-HHMMSS>.log`.
+
+Формат: `T=<сек с начала> <ТИП> key=value …` (имена в кавычках).
+
+| Тип | Источник | Что даёт |
+|---|---|---|
+| `AURA + / - / ~` | поллинг `GetAppliedAuras()` каждые 300 мс (бот и цель) | появление/снятие/смена стаков каждой ауры: `spell=`, `name=`, `who=self\|target`, `buff\|debuff`, `stacks=`, `dur_ms=`, `caster=`. Бафы, висевшие до старта, тоже попадают (снапшот при старте). |
+| `CAST` | `PlayerScript::OnSpellCast` (`Spell::_cast`) | каждый **успешный** каст бота: spell id/имя, цель. |
+| `CAST_FAIL` | возврат `WorldObject::CastSpell` (`SpellCastResult`) | **отклонённый** каст: `result=N (ИМЯ)` — `NO_POWER`, `NOT_READY`, `OUT_OF_RANGE`, `STUNNED`… Неизвестные коды — `E<N>` (возможный баг/непокрытый случай). |
+| `SWEEP …` | режим `sweep` | `attempt`/`skip (cooldown)`/`complete` — отчёт QA-прогона спеллов. |
+| `DMG src=spell` | `UnitScript::ModifySpellDamageTaken` | урон способностью: spell id/имя, `amount`, жертва. |
+| `DMG src=melee` | `UnitScript::ModifyMeleeDamage` | белый урон. |
+| `DMG src=dot` | `UnitScript::ModifyPeriodicDamageAurasTick` | тик периодики (хук не несёт spell id — смотри параллельные `AURA` строки этой же ауры). |
+| `HEAL` | `UnitScript::OnHeal` | лечение ботом. |
+| `SUMMARY` | `stop` | `duration_s`, `total_dealt` (авторитетный итог из `OnDamage`), `casts`, **`cast_fails`**, `reason`. |
+
+**Проки.** Отдельного ScriptMgr-хука на проки нет. Проки видны в логе двумя
+способами: (а) строки `DMG src=spell` с spell id самого прока (не того, что
+жмякал бот), (б) `AURA +` на боте/цели от прок-баффа в момент срабатывания.
+Сверяй по `T=`-таймкодам.
+
+Записи идут в файл сразу (flush после каждой строки) — можно читать лог во
+время боя. Пока бот онлайн с активным режимом — ровно один открытый лог на бота.
+
+---
+
+## 5. Сквозной пример
+
+```
+# 0) разово: выполнить sql/world_playerbots_hero_talents.sql в World DB
+# 1) аккаунт 9001 уже существует в auth (диапазон ботов)
+.playerbots create 9001 class=paladin level=80 spec=dps hero=templar item=2000,item=2001
+# → «Создано: Xkq (guid 123, account 9001)»
+
+.playerbots add Xkq
+.playerbots equip Xkq
+.playerbots followme Xkq          # довести до зала с манекенами
+.playerbots dummy start Xkq        # (или с выделенным манекеном / entry=NNN / x y z)
+
+# ... бой ...
+
+.playerbots dummy stop Xkq
+# → «Лог закрыт: PlayerbotsLogs/Xkq_20260929-153000.log»
+```
+
+## 6. Новые ключи конфига
+
+| Ключ | По умолчанию | Смысл |
+|---|---|---|
+| `Playerbots.DummyLogDir` | `PlayerbotsLogs` | папка логов боя (в `worldserver.conf`, рядом с остальными `Playerbots.*`) |

@@ -54,11 +54,15 @@ cmake --build %BUILD% --config RelWithDebInfo --target worldserver -- /m
 
 ## Первичная инициализация данных (делается один раз)
 
-1. В world-БД выполнить `playerbots-master\sql\world_playerbots_rotation.sql`.
+1. В world-БД выполнить `playerbots-master\sql\world_playerbots_rotation.sql`
+   (плюс при необходимости `world_playerbots_class_knowledge.sql`,
+   `world_playerbots_boss_rules.sql`, `world_playerbots_hero_talents.sql` — v6,
+   для `.playerbots create hero=...`, см. docs/08).
    Например из того же prompt (если mysql.exe доступен):
    `mysql -u trinity -p world < %MOD%\sql\world_playerbots_rotation.sql`
 2. В worldserver.conf дописать ключи из conf/playerbots.conf.dist — минимум:
-   `Playerbots.Enabled = 1`.
+   `Playerbots.Enabled = 1` (для логов боя также `Playerbots.DummyLogDir`,
+   см. docs/08_CREATE_DUMMY_LOG.md).
 3. Завести 1..N бот-аккаунтов в auth.account (обычные, как игроков) и персонажей
    на них (classes командами .create/.level из консоли). Имена — латиница, до 12 знаков.
 4. Заполнить `world.playerbots_rotation` строками с guid/name/classId этих персонажей

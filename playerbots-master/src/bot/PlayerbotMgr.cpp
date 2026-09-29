@@ -5,20 +5,27 @@
 #include "PlayerbotMgr.h"
 #include "PlayerbotAI.h"
 #include "CharacterCache.h"
+#include "CharacterPackets.h"
 #include "Config.h"
+#include "DBCEnums.h"
+#include "DB2Stores.h"
 #include "DatabaseEnv.h"
 #include "Duration.h"
 #include "Log.h"
 #include "Map.h"
+#include "MotionMaster.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "Random.h"
+#include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "World.h"
 #include "WorldSession.h"
 #include "WorldSocket.h"
 
 #include <algorithm>
+#include <cctype>
 
 /* static */ PlayerbotMgr& PlayerbotMgr::Instance()
 {
@@ -215,7 +222,12 @@ PlayerbotMgr::Status PlayerbotMgr::RemoveBot(std::string const& botName, Player*
     // сначала AI (он ссылается на Player), затем выход персонажа.
     // LogoutPlayer(true) сам сохранит и уберёт объект из мира.
     if (entry.ai)
+    {
+        // v6: закрыть лог боя с SUMMARY, если бот выходит из режима манекена
+        if (entry.ai->IsDummyMode())
+            entry.ai->StopDummy("бот выходит");
         entry.ai->Destroy();
+    }
 
     if (entry.bot && entry.session)
     {
@@ -519,3 +531,324 @@ std::vector<BossRule> const* PlayerbotMgr::GetBossRules(uint32 bossEntry)
         TC_LOG_INFO("playerbots", "LoadPlayerBotCombatSpells: загружено {} групп спелов", spells.size());
     }
 }
+
+// ---------------------------------------------------------------- v6: создание персонажа
+
+namespace
+{
+    std::string ToLowerCopy(std::string s)
+    {
+        std::transform(s.begin(), s.end(), s.begin(),
+            [](unsigned char c) { return char(std::tolower(c)); });
+        return s;
+    }
+
+    bool IsDigits(std::string const& s)
+    {
+        return !s.empty() && std::all_of(s.begin(), s.end(),
+            [](unsigned char c) { return std::isdigit(c) != 0; });
+    }
+
+    // "" / "dps"|"dd" / "heal" / "tank" | имя спека en | числовой ID
+    ChrSpecializationEntry const* ResolveSpecEntry(uint32 classId, std::string const& spec)
+    {
+        std::string want = ToLowerCopy(spec);
+
+        if (IsDigits(want))
+        {
+            uint32 id = 0;
+            try { id = uint32(std::stoul(want)); } catch (...) { return nullptr; }
+            if (ChrSpecializationEntry const* e = sChrSpecializationStore.LookupEntry(id))
+                if (e->ClassID == classId)
+                    return e;
+            return nullptr;
+        }
+
+        ChrSpecializationRole role = ChrSpecializationRole::Dps;
+        bool roleFilter = true;
+        if (want == "heal" || want == "healer")
+            role = ChrSpecializationRole::Healer;
+        else if (want == "tank" || want == "prot" || want == "protection")
+            role = ChrSpecializationRole::Tank;
+        else if (!want.empty() && want != "dps" && want != "dd" && want != "damage")
+            roleFilter = false;    // это имя спека (en)
+
+        ChrSpecializationEntry const* best = nullptr;
+        for (ChrSpecializationEntry const& e : sChrSpecializationStore)
+        {
+            if (e.ClassID != classId)
+                continue;
+            if (roleFilter)
+            {
+                if (e.GetRole() != role)
+                    continue;
+            }
+            else
+            {
+                std::string nm = ToLowerCopy(std::string(e.Name[LOCALE_enUS] ? e.Name[LOCALE_enUS] : ""));
+                if (nm != want)
+                    continue;
+            }
+            if (!best || e.OrderIndex < best->OrderIndex)
+                best = &e;
+        }
+
+        if (best || roleFilter)
+            return best;
+
+        // имя не распознано — не угадываем, ошибка на месте
+        return nullptr;
+    }
+}
+
+/* static */ uint32 PlayerbotMgr::ParseClassToken(std::string token)
+{
+    token = ToLowerCopy(std::move(token));
+    if (IsDigits(token))
+    {
+        try { return uint32(std::stoul(token)); } catch (...) { return 0; }
+    }
+
+    struct ClassToken { char const* name; uint32 id; };
+    static constexpr ClassToken tokens[] =
+    {
+        { "warrior",      1 }, { "paladin", 2 }, { "hunter", 3 }, { "rogue",   4 },
+        { "priest",       5 }, { "death knight", 6 }, { "deathknight", 6 }, { "dk", 6 },
+        { "shaman",       7 }, { "mage",    8 }, { "warlock", 9 }, { "monk",   11 },
+        { "druid",       12 }, { "demon hunter", 13 }, { "demonhunter", 13 }, { "dh", 13 },
+        { "evoker",      14 },
+    };
+    for (ClassToken const& t : tokens)
+        if (token == t.name)
+            return t.id;
+    return 0;
+}
+
+void PlayerbotMgr::LoadHeroTalents()
+{
+    m_heroTalentsLoaded = true;
+    if (QueryResult result = WorldDatabase.Query(
+        "SELECT class, tree, spell_id FROM playerbots_hero_talents ORDER BY class, tree, spell_id"))
+    {
+        uint32 count = 0;
+        do
+        {
+            Field* f = result->Fetch();
+            std::string key = std::to_string(f[0].GetUInt32()) + ":" + ToLowerCopy(f[1].GetString());
+            m_heroTalents[key].push_back(f[2].GetUInt32());
+            ++count;
+        } while (result->NextRow());
+        TC_LOG_INFO("playerbots", "LoadHeroTalents: загружено {} спеллов геро-талантов ({} деревьев)",
+            count, m_heroTalents.size());
+    }
+    else
+        TC_LOG_INFO("playerbots", "LoadHeroTalents: таблица playerbots_hero_talents пуста/отсутствует — hero= ничего не выучит");
+}
+
+BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteria const& c)
+{
+    BotCreateResult res;
+
+    if (!accountId || !c.classId)
+    {
+        res.error = "нужен существующий accountId и класс";
+        return res;
+    }
+
+    // --- 1. аккаунт должен быть в auth ------------------------------------
+    QueryResult acc = LoginDatabase.Query(
+        ("SELECT id FROM account WHERE id = " + std::to_string(accountId)).c_str());
+    if (!acc)
+    {
+        res.error = "аккаунт " + std::to_string(accountId) + " не найден в auth";
+        return res;
+    }
+
+    // --- 2. race / class / gender -----------------------------------------
+    auto racePlayable = [](uint32 r) -> bool
+    {
+        ChrRacesEntry const* e = sChrRacesStore.LookupEntry(r);
+        return e && !e->GetFlags().HasFlag(ChrRacesFlag::NPCOnly);
+    };
+
+    uint32 race = c.raceId;
+    if (race)
+    {
+        if (!racePlayable(race) || !sObjectMgr->GetPlayerInfo(race, c.classId))
+        {
+            res.error = "недопустимая комбинация race=" + std::to_string(race)
+                + " class=" + std::to_string(c.classId);
+            return res;
+        }
+    }
+    else
+    {
+        for (uint32 r = 1; r <= 40 && !race; ++r)
+            if (racePlayable(r) && sObjectMgr->GetPlayerInfo(r, c.classId))
+                race = r;
+        if (!race)
+        {
+            res.error = "для класса " + std::to_string(c.classId) + " не нашлось playable-расы";
+            return res;
+        }
+        res.error += "race подобрана автоматически=" + std::to_string(race) + "; ";
+    }
+
+    uint8 gender = uint8(c.gender <= GENDER_FEMALE ? c.gender : GENDER_MALE);
+    uint32 level = std::max<uint32>(1, std::min<uint32>(c.level,
+        uint32(sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL))));
+
+    // --- 3. имя (или случайное 3-4 латинских) ------------------------------
+    auto validateName = [](std::string& n) -> std::string
+    {
+        if (!normalizePlayerName(n))
+            return "пустое/некорректное после normalize";
+        if (ObjectMgr::CheckPlayerName(n, sWorld->GetDefaultDbcLocale(), true) != CHAR_NAME_SUCCESS)
+            return "недопустимые символы или длина";
+        if (sObjectMgr->IsReservedName(n))
+            return "зарезервировано сервером";
+        if (sCharacterCache->GetCharacterCacheByName(n))
+            return "уже занято";
+        return std::string();
+    };
+
+    std::string name = c.name;
+    if (name.empty())
+    {
+        for (int attempt = 0; attempt < 80; ++attempt)
+        {
+            uint32 len = urand(3, 4);
+            std::string cand;
+            cand += char('A' + urand(0, 25));
+            for (uint32 i = 1; i < len; ++i)
+                cand += char('a' + urand(0, 25));
+            if (validateName(cand).empty())
+            {
+                name = cand;
+                break;
+            }
+        }
+        if (name.empty())
+        {
+            res.error = "не удалось подобрать свободное имя (80 попыток)";
+            return res;
+        }
+    }
+    else
+    {
+        std::string err = validateName(name);
+        if (!err.empty())
+        {
+            res.error = "имя '" + name + "': " + err;
+            return res;
+        }
+    }
+
+    // --- 4. временная фейковая сессия аккаунта (паттерн CreateBot) --------
+    WorldSession* session = new WorldSession(
+        accountId, std::string(name),
+        accountId,                                  // battlenetAccountId = gameAccountId (MVP)
+        std::string(),                              // battlenetAccountEmail
+        nullptr,                                    // sock = nullptr — бот-сессия
+        AccountTypes(SEC_PLAYER),
+        EXPANSION_LEVEL_CURRENT,
+        0,                                          // mute_time
+        std::string("BOT"),                         // os
+        Minutes::zero(),                            // timezoneOffset
+        0,                                          // build
+        ClientBuild::VariantId{},
+        LOCALE_enUS,
+        0,                                          // recruiter
+        false);
+    session->MarkAsPlayerBot();                     // тишина SendPacket (сокета и так нет)
+
+    // --- 5. Player + Create (паттерн CharacterHandler::HandlePlayerCreate) -
+    WorldPackets::Character::CharacterCreateInfo createInfo;
+    createInfo.Race  = uint8(race);
+    createInfo.Class = uint8(c.classId);
+    createInfo.Sex   = gender;
+    createInfo.Name  = name;
+    // Customizations пусты — валидно: ValidateAppearance на CREATE не вызывается
+
+    ObjectGuid::LowType guidLow = sObjectMgr->GetGenerator<HighGuid::Player>().Generate();
+    std::shared_ptr<Player> newChar(new Player(session), [](Player* p)
+    {
+        p->CleanupsBeforeDelete();
+        delete p;
+    });
+    newChar->GetMotionMaster()->Initialize();
+
+    if (!newChar->Create(guidLow, &createInfo))
+    {
+        res.error = "Player::Create отказал — проверь race/class/gender";
+        newChar.reset();
+        delete session;
+        return res;
+    }
+
+    // --- 6. спец ДО уровня (иначе LearnSpecializationSpells не сработает) --
+    ChrSpecializationEntry const* specEntry = ResolveSpecEntry(c.classId, c.spec);
+    if (!specEntry)
+    {
+        res.error = "спек не найден для класса: '" + c.spec + "'";
+        newChar.reset();
+        delete session;
+        return res;
+    }
+    newChar->SetPrimarySpecialization(specEntry->ID);
+    newChar->SetActiveTalentGroup(uint8(specEntry->OrderIndex >= 0 ? specEntry->OrderIndex : 0));
+
+    // --- 7. уровень: GiveLevel выучит спеллы спека <= уровня --------------
+    if (level > 1)
+        newChar->GiveLevel(uint8(level));
+
+    // --- 8. геро-таланты: списки spell_id из world.playerbots_hero_talents -
+    if (!c.hero.empty())
+    {
+        if (!m_heroTalentsLoaded)
+            LoadHeroTalents();
+        std::string key = std::to_string(c.classId) + ":" + ToLowerCopy(c.hero);
+        auto it = m_heroTalents.find(key);
+        if (it == m_heroTalents.end())
+            res.error += "геро-дерево '" + c.hero + "' не найдено в playerbots_hero_talents; ";
+        else
+            for (uint32 spellId : it->second)
+                newChar->LearnSpell(spellId, false);
+    }
+
+    // --- 9. предметы: в сумки; экипировка — .playerbots equip после входа --
+    for (uint32 itemId : c.items)
+        if (!newChar->StoreNewItemInBestSlots(itemId, 1, ItemContext::NONE))
+            res.error += "item " + std::to_string(itemId) + " не удалось уложить (нет itemtemplate/места); ";
+
+    // --- 10. сохранение: синхронный коммит (команда ждёт результата) -------
+    LoginDatabaseTransaction loginTrans = LoginDatabase.BeginTransaction();
+    CharacterDatabaseTransaction charTrans = CharacterDatabase.BeginTransaction();
+    newChar->SaveToDB(loginTrans, charTrans, true);
+    CharacterDatabase.DirectCommitTransaction(charTrans);
+    LoginDatabase.DirectCommitTransaction(loginTrans);
+
+    // --- 11. кэш имён + событие создания -----------------------------------
+    sCharacterCache->AddCharacterCacheEntry(newChar->GetGUID(), accountId, name,
+        gender, uint8(race), uint8(c.classId), uint8(newChar->GetLevel()), false);
+    sScriptMgr->OnPlayerCreate(newChar.get());
+
+    res.guid = uint32(newChar->GetGUID().GetCounter());
+    res.name = name;
+    res.ok = true;
+
+    newChar.reset();    // CleanupsBeforeDelete + delete (сессия ещё нужна — ниже)
+    delete session;
+
+    if (accountId < m_freeAccountStart || accountId > m_freeAccountEnd)
+        res.error += "внимание: accountId вне Playerbots.FreeAccountsStart/End ("
+            + std::to_string(m_freeAccountStart) + ".." + std::to_string(m_freeAccountEnd)
+            + "); ";
+
+    TC_LOG_INFO("playerbots",
+        "CreateCharacter: {} (guid {}, account {}) class={} race={} gender={} level={} spec={} hero={}",
+        res.name, res.guid, accountId, c.classId, race, uint32(gender), level,
+        specEntry->ID, c.hero.empty() ? "-" : c.hero);
+    return res;
+}
+

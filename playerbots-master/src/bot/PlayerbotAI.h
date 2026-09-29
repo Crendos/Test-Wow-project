@@ -1,5 +1,5 @@
 /*
- * PLAYERBOTS под TrinityCore master — v4 (активная ротация + системная синергия)
+ * PLAYERBOTS под TrinityCore master — v4..v6 (ротация, боссы, режим манекена)
  * Всё происходит в world-thread (tick из PlayerbotMgr::UpdateAI через WorldScript::OnUpdate).
  */
 #ifndef PLAYERBOT_AI_H
@@ -16,6 +16,7 @@ class Player;
 class Unit;
 class SpellInfo;
 class PlayerbotMgr;
+struct Position;
 
 class PlayerbotAI
 {
@@ -38,6 +39,18 @@ public:
     void EquipBestItems();                         // .playerbots equip — подбор из сумок
     std::vector<uint32> ListKnownSpelIDs() const;  // .playerbots book
 
+    // --- v6: режим боя с манекеном (.playerbots dummy start|stop) ---
+    // dest != nullptr — сначала подбежать к точке, затем драться с target.
+    // StartDummy сам включает DummyLog-запись; StopDummy пишет SUMMARY и возвращает путь к логу.
+    bool StartDummy(ObjectGuid targetGuid, Position const* dest, std::string& err);
+    std::string StopDummy(std::string const& reason);
+    bool IsDummyMode() const { return !m_dummyTargetGuid.IsEmpty(); }
+    Player* GetBot() const { return _bot; }
+
+    // QA-sweep: один прогон ВСЕХ боевых спеллов знания (Damage/DoT/Debuff) по одному
+    // разу с логом попыток и результатов; после — обычная ротация. Вызывать после StartDummy.
+    void EnableDummySweep();
+
     // для mgr: битва/gravel-филлер после длинного тикта
     void NotifyCombatEnter();
     bool HasManualOverride() const { return !m_knowledge.empty() && _manualKnowledge; }
@@ -57,6 +70,9 @@ private:
     void DoCombatAI(uint32 diff);
     void HandleFollowTick(uint32 diff);
     void HandlePlaneTick(uint32 diff);
+
+    // ---- v6: режим манекена ----
+    void UpdateDummy(uint32 diff);
 
     void DoFindTarget();
     Unit* FindProtectTarget();
@@ -116,6 +132,20 @@ private:
     uint32 m_planeEmoteTimer  = 0;
     uint32 m_planeWanderTimer = 0;
     uint32 m_planeChatTimer   = 0;
+
+    // --- v6: режим боя с манекеном ---
+    ObjectGuid m_dummyTargetGuid;      // пусто = режим выключен
+    bool   m_dummyHasDest   = false;   // есть точка подбега перед боем
+    float  m_dummyDestX = 0.0f, m_dummyDestY = 0.0f, m_dummyDestZ = 0.0f;
+    uint32 m_dummyWalkMs    = 0;       // лимит подбега к точке (антизависание)
+    uint32 m_dummyStepMs    = 0;       // троттлинг MovePoint/MoveFollow
+
+    // --- v6 QA: sweep-прогон боевых спеллов ---
+    bool   m_dummySweep      = false;
+    uint32 m_sweepIdx        = 0;
+    uint32 m_sweepOk         = 0;
+    uint32 m_sweepFail       = 0;
+    std::vector<uint32> m_sweepList;
 };
 
 #endif // PLAYERBOT_AI_H

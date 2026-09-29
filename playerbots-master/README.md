@@ -16,11 +16,15 @@
 - **v3 — классовое знание** ✅ — авто-билд знания из спелбукка бота, per-class таблица `playerbots_class_knowledge`, команда `.playerbots book`. `docs/05`.
 - **v4 — ротация + авто-экипировка** ✅ — настоящий GCD (`StartRecoveryTime`, мин 1500мс), каст-тайм останавливает движение, DoT/дебаффы поддерживаются по ауре цели (caster GUID), burst-кулдауны (Recovery≥60с) жмутся в первые 8 сек боя или при цели <30% HP, неудачные касты — в перкомбатный blacklist. Авто-шмот: `score = iLvl*10 + quality`, фильтр брони по классу (plate/mail/leather/cloth), `.playerbots equip <имя>`. `docs/06`.
 - **v5 — босс-механики (Midnight)** ✅ — движок правил `world.playerbots_boss_rules` (триггеры: каст/аура босса, аура на боте, HP; действия: interrupt, отбежать/разойтись/шаг в сторону, switch на add, defensive, dispel себя, форс-бурст). Контент: Murder Row → Kystia Manaheart (правила из ядерного босс-скрипта, spell-ID 1:1). `docs/07`.
+- **v6 — create + бой с манекеном + лог боя + QA-слой** ✅ — `.playerbots create <account> class=… race=… level=… spec=… hero=… item=… name=…` (серверное создание персонажа по критериям, ник рандом 3–4, TempSession-паттерн CharacterHandler, синхронное сохранение); `.playerbots dummy start|stop <бот> [entry] [x y z] [sweep]` (точка/entry/выделенный манекен, режим высшего приоритета в Update, **QA-sweep** — прогон всех боевых спеллов по разу); `DummyLog` — файловый лог всех аур/бафов (поллинг `GetAppliedAuras`), кастов, **отклонённых кастов `CAST_FAIL`** (возврат `SpellCastResult` из `CastSpell`), урона (`ModifySpellDamageTaken`/`ModifyMeleeDamage`/`ModifyPeriodicDamageAurasTick`/`OnDamage`), хила, проков и `SUMMARY` c `cast_fails`. Боты = QA для багов класса: фейлы не прячутся (без чёрного списка), всё видно в логе. `docs/08`.
 
 
 Roadmap v5+: точный GCD с хаст-коррекцией, стат-скоринг шмота по классам,
 босс-механики (engine правил + proof-of-concept на одном боссе), роуты/патрули,
 whisper-управление, компаньоны.
+
+(v6 готов: create персонажей по критериям, режим манекена с полным логом боя —
+`docs/08`; остальное из списка остаётся в планах.)
 
 
 ## Порядок внедрения (кратко, детали — в docs/)
@@ -55,9 +59,11 @@ whisper-управление, компаньоны.
 | `docs/04_V2_MOVEMENT.md` | v2: движение/follow |
 | `docs/05_KNOWLEDGE.md` | v3: классовое знание, SQL-таблицы |
 | `docs/06_V4_ROTATION_GEAR.md` | v4: ротационный движок, авто-экипировка, roadmap |
+| `docs/07_BOSSES_MIDNIGHT.md` | v5: босс-механики, таблица правил |
+| `docs/08_CREATE_DUMMY_LOG.md` | v6: создание персонажа, бой с манекеном, формат лога |
 | `patches/0001-core-integration.diff` | Реальный git-патч ядра master |
-| `sql/` | Схемы world-таблиц (`playerbots_rotation`, `playerbots_combat_spells`, `playerbots_class_knowledge`) |
-| `src/bot/PlayerbotMgr.*` | Менеджер ботов: вход/выход, учёт, тик, резолв знания |
+| `sql/` | Схемы world-таблиц (`playerbots_rotation`, `playerbots_combat_spells`, `playerbots_class_knowledge`, `playerbots_hero_talents`) |
+| `src/bot/DummyLog.*` | Рекордер лога боя: ScriptMgr-хуки урона/кастов, поллинг аур |
 | `src/bot/PlayerbotAI.*` + `Knowledge.h` | AI бота: follow, бой, ротация, авто-шмот |
 | `src/bot/cs_playerbots.cpp` | Команда `.playerbots` + WorldScript-тик |
 | `conf/playerbots.conf.dist` | Настройки (копировать в worldserver.conf) |

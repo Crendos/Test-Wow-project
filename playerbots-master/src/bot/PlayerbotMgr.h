@@ -27,6 +27,27 @@ struct PlayerBotEntry
     std::vector<uint32> combatSpells;
 };
 
+// v6: критерии создания персонажа командой .playerbots create
+struct BotCreateCriteria
+{
+    uint32 classId = 0;              // CLASS_* (1..14); 0 = ошибка
+    uint32 raceId = 0;               // RACE_*; 0 = авто-подбор валидной для класса
+    uint32 gender = 0;               // GENDER_MALE / GENDER_FEMALE
+    uint32 level = 1;
+    std::string spec;                // "", "dps"/"dd", "heal", "tank" | имя спека en | числовой ID
+    std::string hero;                // "" | ключ дерева (напр. "templar") — учит спеллы из world.playerbots_hero_talents
+    std::vector<uint32> items;       // itemtemplate id; склад в сумки, экипировка потом: .playerbots equip
+    std::string name;                // "" = случайный 3-4 латинских буквы
+};
+
+struct BotCreateResult
+{
+    bool ok = false;
+    std::string name;
+    uint32 guid = 0;
+    std::string error;               // если !ok — причина; иначе предупреждения
+};
+
 class PlayerbotMgr
 {
 public:
@@ -68,6 +89,10 @@ public:
     // v5: босс-механики — правила по creature-entry босса (world.playerbots_boss_rules)
     std::vector<BossRule> const* GetBossRules(uint32 bossEntry);
 
+    // v6: создание персонажа на аккаунте по критериям (.playerbots create)
+    BotCreateResult CreateCharacter(uint32 accountId, BotCreateCriteria const& criteria);
+    static uint32 ParseClassToken(std::string token);   // "paladin"/"pala"/"2" → CLASS_*
+
 private:
     PlayerbotMgr();
 
@@ -84,6 +109,11 @@ private:
     std::unordered_map<uint8 /*classId*/, std::vector<BotKnowledge>> m_classKnowledge;
     std::unordered_map<uint32 /*bossEntry*/, std::vector<BossRule>> m_bossRules;
     bool m_bossRulesLoaded = false;
+
+    // v6: геро-таланты — спеллы дерева из world.playerbots_hero_talents (лениво)
+    std::unordered_map<std::string /*"classId:tree"*/, std::vector<uint32>> m_heroTalents;
+    bool m_heroTalentsLoaded = false;
+    void LoadHeroTalents();
 
     bool     m_enabled = false;
     uint32   m_freeAccountStart = 0, m_freeAccountEnd = 0;

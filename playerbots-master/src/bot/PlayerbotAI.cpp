@@ -8,6 +8,7 @@
 #include "PlayerbotMgr.h"
 #include "PlayerbotAI.h"
 #include "Creature.h"
+#include "DummyLog.h"
 #include "GameTime.h"
 #include "Item.h"
 #include "Log.h"
@@ -235,7 +236,16 @@ bool PlayerbotAI::CastSpellAt(uint32 spellId, Unit* target)
             _bot->GetMotionMaster()->MoveIdle();
     }
 
-    _bot->CastSpell(CastSpellTargetArg(target), spellId, CastSpellExtraArgs(TRIGGERED_NONE));
+    // master: CastSpell ВОЗВРАЩАЕТ SpellCastResult — неудачу логируем (QA-слой) и
+    // ставим короткую паузу, чтобы не спамить фейлом каждый тик.
+    // Чёрный список НЕ заполняем: QA нужно видеть повторные попытки.
+    SpellCastResult castResult = _bot->CastSpell(CastSpellTargetArg(target), spellId, CastSpellExtraArgs(TRIGGERED_NONE));
+    if (castResult != SPELL_CAST_OK)
+    {
+        sPlayerbotDummyLog.HandleCastFail(_bot, spellId, int32(castResult), target);
+        m_recastTimerMs = 500;
+        return false;
+    }
 
     // v3 GCD-подобный интервал (на master: StartRecoveryTime — это фактический GCD-флажок)
     uint32 base = std::max<uint32>(info->StartRecoveryTime, 1500u);
@@ -245,8 +255,9 @@ bool PlayerbotAI::CastSpellAt(uint32 spellId, Unit* target)
 
 void PlayerbotAI::RegisterCastFail(uint32 /*spellId*/)
 {
-    // CastSpell сейчас void-report; в v5 сделаем вывод по GetCastSpellInfo->SpellCastResult
-    // и оставим эту функцию как готовый хук: m_castBlacklist.insert(spellId)
+    // Осознанно пусто: QA-инвариант — НЕ прятать фейлы в чёрный список.
+    // Причина каждого отклонённого каста пишется в DummyLog из CastSpellAt
+    // (HandleCastFail → строка CAST_FAIL result=...).
 }
 
 void PlayerbotAI::ClearCastBlacklist()
@@ -265,6 +276,8 @@ void PlayerbotAI::NotifyCombatEnter()
 
 void PlayerbotAI::EnsureSelfBuffs()
 {
+    if (m_recastTimerMs > 0)
+        return;
     if (_bot->GetCurrentSpell(CURRENT_GENERIC_SPELL) != nullptr)
         return;
 
@@ -283,6 +296,8 @@ void PlayerbotAI::EnsureSelfBuffs()
 
 bool PlayerbotAI::TryDefensive()
 {
+    if (m_recastTimerMs > 0)   // анти-спам фейлов (например, отклонённый каст)
+        return false;
     for (BotKnowledge const& k : m_knowledge)
     {
         if (k.kind != BotKnowledge::Kind::Defensive)
@@ -298,6 +313,8 @@ bool PlayerbotAI::TryDefensive()
 
 bool PlayerbotAI::TryHeal()
 {
+    if (m_recastTimerMs > 0)   // анти-спам фейлов
+        return false;
     Player* master = _masterGuid.IsEmpty() ? nullptr : ObjectAccessor::FindPlayer(_masterGuid);
 
     for (BotKnowledge const& k : m_knowledge)
@@ -338,7 +355,10 @@ bool PlayerbotAI::TryAttackSpell()
             continue;
         if (!SpellFits(k, target))
             continue;
-        return CastSpellAt(k.spellId, target);
+        if (CastSpellAt(k.spellId, target))
+            return true;
+        // каст отклонён (нет ресурса/условий) — идём дальше по приоритету;
+        // причина уже в логе через HandleCastFail
     }
     return false;
 }
@@ -365,6 +385,13 @@ void PlayerbotAI::Update(uint32 diff)
     {
         if (it->second > diff) { it->second -= diff; ++it; }
         else it = m_ruleCooldowns.erase(it);
+    }
+
+    // --- v6: режим боя с манекеном — главный приоритет, свои тики ---
+    if (IsDummyMode())
+    {
+        UpdateDummy(diff);
+        return;
     }
 
     Player* master = _masterGuid.IsEmpty() ? nullptr : ObjectAccessor::FindPlayer(_masterGuid);
@@ -713,6 +740,204 @@ void PlayerbotAI::BotSay(std::string const& msg)
 void PlayerbotAI::EmoteMe(uint32 emote)
 {
     _bot->HandleEmoteCommand(static_cast<Emote>(emote));
+}
+
+// ---------------------------------------------------------------- v6: бой с манекеном
+
+bool PlayerbotAI::StartDummy(ObjectGuid targetGuid, Position const* dest, std::string& err)
+{
+    if (targetGuid.IsEmpty())
+    {
+        err = "цель не указана";
+        return false;
+    }
+
+    Creature* dummy = _bot->GetMap() ? _bot->GetMap()->GetCreature(targetGuid) : nullptr;
+    if (!dummy)
+    {
+        err = "манекен не найден в мире бота (другая карта?)";
+        return false;
+    }
+    if (dummy->GetMapId() != _bot->GetMapId())
+    {
+        err = "манекен на другой карте";
+        return false;
+    }
+    if (!dummy->IsAlive())
+    {
+        err = "манекен мёртв";
+        return false;
+    }
+
+    m_dummyTargetGuid = targetGuid;
+    m_dummyHasDest    = dest != nullptr;
+    if (dest)
+    {
+        m_dummyDestX  = dest->m_positionX;
+        m_dummyDestY  = dest->m_positionY;
+        m_dummyDestZ  = dest->m_positionZ;
+        m_dummyWalkMs = 60000;      // до минуты на подбег к точке
+    }
+    else
+        m_dummyWalkMs = 0;
+    m_dummyStepMs = 0;
+    m_dummySweep = false;
+    m_sweepIdx = m_sweepOk = m_sweepFail = 0;
+    m_sweepList.clear();
+    ClearCastBlacklist();
+
+    // запись лога — симметрично со StopDummy
+    sPlayerbotDummyLog.StartRecording(_bot, dummy);
+    return true;
+}
+
+void PlayerbotAI::EnableDummySweep()
+{
+    if (!IsDummyMode())
+        return;
+
+    m_sweepList.clear();
+    for (BotKnowledge const& k : m_knowledge)
+        if (k.kind == BotKnowledge::Kind::Damage
+            || k.kind == BotKnowledge::Kind::DoT
+            || k.kind == BotKnowledge::Kind::Debuff)
+            m_sweepList.push_back(k.spellId);
+
+    m_sweepIdx = m_sweepOk = m_sweepFail = 0;
+    m_dummySweep = !m_sweepList.empty();
+
+    std::string note = m_dummySweep
+        ? "SWEEP start total=" + std::to_string(m_sweepList.size())
+        : "SWEEP start total=0 (боевых спеллов в знании нет)";
+    sPlayerbotDummyLog.Note(_bot, note);
+}
+
+std::string PlayerbotAI::StopDummy(std::string const& reason)
+{
+    if (!IsDummyMode())
+        return std::string();
+
+    // сперва финальный снапшот + SUMMARY в файл
+    std::string path = sPlayerbotDummyLog.StopRecording(_bot, reason);
+
+    // немедленно перестать бить манекена (дальше бот живёт обычным режимом AI)
+    if (Creature* d = _bot->GetMap() ? _bot->GetMap()->GetCreature(m_dummyTargetGuid) : nullptr)
+        if (_bot->GetVictim() == d)
+            _bot->AttackStop();
+
+    m_dummyTargetGuid.Clear();
+    m_dummyHasDest = false;
+    m_dummySweep = false;
+    m_sweepIdx = m_sweepOk = m_sweepFail = 0;
+    m_sweepList.clear();
+    m_combatTarget = nullptr;
+    _combatActive  = false;
+    m_bossEntry     = 0;
+    m_ruleCooldowns.clear();
+    ClearCastBlacklist();
+
+    if (!path.empty())
+        TC_LOG_INFO("playerbots", "dummy: {} остановлен ({}), лог {}", _bot->GetName(), reason, path);
+    return path;
+}
+
+void PlayerbotAI::UpdateDummy(uint32 diff)
+{
+    if (m_dummyStepMs > diff) m_dummyStepMs -= diff; else m_dummyStepMs = 0;
+
+    Creature* dummy = _bot->GetMap() ? _bot->GetMap()->GetCreature(m_dummyTargetGuid) : nullptr;
+    if (!dummy || !dummy->IsAlive())
+    {
+        StopDummy(!dummy ? "манекен пропал" : "манекен умер");
+        return;
+    }
+
+    // --- фаза 1: подбег к указанной точке ---
+    if (m_dummyHasDest)
+    {
+        if (_bot->GetDistance(m_dummyDestX, m_dummyDestY, m_dummyDestZ) < 2.5f)
+            m_dummyHasDest = false;
+        else
+        {
+            if (m_dummyWalkMs > diff)
+                m_dummyWalkMs -= diff;
+            else
+            {
+                m_dummyWalkMs = 0;
+                m_dummyHasDest = false;     // лимит вышел — дальше к манекену
+            }
+
+            if (m_dummyHasDest)
+            {
+                if (m_dummyStepMs == 0)
+                {
+                    _bot->GetMotionMaster()->MovePoint(0, m_dummyDestX, m_dummyDestY, m_dummyDestZ);
+                    m_dummyStepMs = 2000;
+                }
+                return;
+            }
+        }
+    }
+
+    // --- фаза 2: сближение с манекеном ---
+    if (_bot->GetDistance(dummy->GetPositionX(), dummy->GetPositionY(), dummy->GetPositionZ()) > 6.0f)
+    {
+        if (m_dummyStepMs == 0)
+        {
+            _bot->GetMotionMaster()->MoveFollow(dummy, 3.0f);
+            m_dummyStepMs = 2000;
+        }
+        if (_bot->GetVictim() != dummy)
+            _bot->Attack(dummy, true);
+        return;
+    }
+
+    // --- фаза 3: QA-sweep (прогон всех спеллов) или обычная ротация ---
+    if (_bot->GetVictim() != dummy)
+        _bot->Attack(dummy, true);
+    m_combatTarget = dummy;
+    _combatActive  = true;
+
+    if (m_dummySweep)
+    {
+        if (m_recastTimerMs > 0 || _bot->GetCurrentSpell(CURRENT_GENERIC_SPELL))
+            return;     // ждём слот под следующую попытку
+
+        // пропускаем спеллы на кулдауне (без расхода слота), первый готовый — пробуем
+        while (m_sweepIdx < uint32(m_sweepList.size()))
+        {
+            uint32 sid = m_sweepList[m_sweepIdx];
+            uint32 seq = ++m_sweepIdx;
+            if (!IsSpellReady(sid))
+            {
+                sPlayerbotDummyLog.Note(_bot,
+                    "SWEEP skip spell=" + std::to_string(sid)
+                    + " name=\"" + PlayerbotDummyLog::SpellName(sid) + '"'
+                    + " seq=" + std::to_string(seq) + "/" + std::to_string(m_sweepList.size())
+                    + " (cooldown)");
+                continue;
+            }
+
+            sPlayerbotDummyLog.Note(_bot,
+                "SWEEP attempt spell=" + std::to_string(sid)
+                + " name=\"" + PlayerbotDummyLog::SpellName(sid) + '"'
+                + " seq=" + std::to_string(seq) + "/" + std::to_string(m_sweepList.size()));
+            if (CastSpellAt(sid, dummy))
+                ++m_sweepOk;
+            else
+                ++m_sweepFail;  // детали — строка CAST_FAIL
+            return;             // результат одного прохода за тик (успех = GCD, фейл = 500мс)
+        }
+
+        // список пройден — свип закончен, дальше обычная ротация
+        sPlayerbotDummyLog.Note(_bot,
+            "SWEEP complete ok=" + std::to_string(m_sweepOk)
+            + " fail=" + std::to_string(m_sweepFail)
+            + " total=" + std::to_string(m_sweepList.size()));
+        m_dummySweep = false;
+    }
+
+    DoCombatAI(diff);
 }
 
 // ---------------------------------------------------------------- v5: босс-механики
