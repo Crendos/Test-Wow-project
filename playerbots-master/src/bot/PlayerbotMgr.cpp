@@ -27,6 +27,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <thread>
 
 /* static */ PlayerbotMgr& PlayerbotMgr::Instance()
 {
@@ -669,6 +671,8 @@ void PlayerbotMgr::LoadHeroTalents()
 BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteria const& c)
 {
     BotCreateResult res;
+    TC_LOG_INFO("playerbots", "CreateCharacter[{}]: start class={} level={}",
+        accountId, c.classId, uint32(c.level));
 
     if (!accountId || !c.classId)
     {
@@ -677,6 +681,8 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
     }
 
     // --- 1. аккаунт должен быть в auth (нет — создаём автоматически) ------
+    // NB: только ASYNC-вызовы + ограниченное ожидание: мир-поток не должен
+    // ждать MySQL (иначе FreezeDetector вешает worldserver при локе/обрыве).
     QueryResult acc = LoginDatabase.Query(
         ("SELECT id FROM account WHERE id = " + std::to_string(accountId)).c_str());
     if (!acc)
@@ -685,22 +691,29 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
         // логин PB<id> (боты в него не входят), salt/verifier нулевые —
         // при желании пароль задаётся позже GM-командой.
         std::string uname = "PB" + std::to_string(accountId);
-        LoginDatabase.DirectPExecute(
-            "INSERT INTO account (id, username, salt, verifier) VALUES ({}, '{}', UNHEX(REPEAT('00',32)), UNHEX(REPEAT('00',32)))",
-            accountId, uname);
-        acc = LoginDatabase.Query(
-            ("SELECT id FROM account WHERE id = " + std::to_string(accountId)).c_str());
+        std::string sql = "INSERT INTO account (id, username, salt, verifier) VALUES ("
+            + std::to_string(accountId) + ", '" + uname
+            + "', UNHEX(REPEAT('00',32)), UNHEX(REPEAT('00',32)))";
+        TC_LOG_INFO("playerbots", "CreateCharacter[{}]: аккаунт не найден — авто-создание (async)", accountId);
+        LoginDatabase.Execute(sql.c_str());
+        for (int i = 0; i < 20 && !acc; ++i)     // ≤1 с на видимость вставки
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            acc = LoginDatabase.Query(
+                ("SELECT id FROM account WHERE id = " + std::to_string(accountId)).c_str());
+        }
         if (!acc)
         {
             res.error = "аккаунт " + std::to_string(accountId)
                 + " не найден в auth и авто-создание не сработало "
-                "(id может быть занят другим игроком или username 'PB"
-                + std::to_string(accountId) + "' уже существует); ";
+                "(MySQL занят/недоступен либо id занят — смотри Server.log; "
+                "username 'PB" + std::to_string(accountId) + "' мог существовать); ";
             return res;
         }
         res.error += "аккаунт " + std::to_string(accountId)
             + " создан автоматически (login " + uname + ", пароль не задан); ";
     }
+    TC_LOG_INFO("playerbots", "CreateCharacter[{}]: аккаунт ok", accountId);
 
     // --- 2. race / class / gender -----------------------------------------
     auto racePlayable = [](uint32 r) -> bool
@@ -782,6 +795,8 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
         }
     }
 
+    TC_LOG_INFO("playerbots", "CreateCharacter[{}]: имя '{}' ok", accountId, name);
+
     // --- 4. временная фейковая сессия аккаунта (паттерн CreateBot) --------
     WorldSession* session = new WorldSession(
         accountId, std::string(name),
@@ -839,6 +854,8 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
     // --- 7. уровень: GiveLevel выучит спеллы спека <= уровня --------------
     if (level > 1)
         newChar->GiveLevel(uint8(level));
+    TC_LOG_INFO("playerbots", "CreateCharacter[{}]: спек id {}, уровень {} ok",
+        accountId, specEntry->ID, uint32(level));
 
     // --- 8. геро-таланты: списки spell_id из world.playerbots_hero_talents -
     if (!c.hero.empty())
@@ -873,16 +890,39 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
     }
 
     // --- 9. предметы: в сумки; экипировка — .playerbots equip после входа --
+    TC_LOG_INFO("playerbots", "CreateCharacter[{}]: hero='{}' ok", accountId, c.hero.empty() ? std::string("-") : c.hero);
     for (uint32 itemId : c.items)
         if (!newChar->StoreNewItemInBestSlots(itemId, 1, ItemContext::NONE))
             res.error += "item " + std::to_string(itemId) + " не удалось уложить (нет itemtemplate/места); ";
 
-    // --- 10. сохранение: синхронный коммит (команда ждёт результата) -------
+    // --- 10. сохранение: ASYNC-коммит + ограниченное ожидание --------------
+    // Прежний DirectCommitTransaction ждал MySQL на мир-потоке: при локе или
+    // обрыве соединения мир висел60 с → FreezeDetector → crash, а остаток
+    // пакета падал с "Could not fetch prepared statement" (вторично). Теперь
+    // коммит уходит в очередь, мир лишь опрашивает видимость строки ≤3 с.
     LoginDatabaseTransaction loginTrans = LoginDatabase.BeginTransaction();
     CharacterDatabaseTransaction charTrans = CharacterDatabase.BeginTransaction();
     newChar->SaveToDB(loginTrans, charTrans, true);
-    CharacterDatabase.DirectCommitTransaction(charTrans);
-    LoginDatabase.DirectCommitTransaction(loginTrans);
+    TC_LOG_INFO("playerbots", "CreateCharacter[{}]: коммит '{}' (async)", accountId, name);
+    CharacterDatabase.CommitTransaction(charTrans);
+    LoginDatabase.CommitTransaction(loginTrans);
+    std::string const guidStr = std::to_string(newChar->GetGUID().GetCounter());
+    bool committed = false;
+    for (int i = 0; i < 60 && !committed; ++i)   // ≤3 с на видимость
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if (CharacterDatabase.Query(("SELECT guid FROM characters WHERE guid = " + guidStr).c_str()))
+            committed = true;
+    }
+    if (!committed)
+    {
+        res.error += "персонаж НЕ закоммитился в characters за 3 с (MySQL занят/недоступен — смотри Server.log; "
+            "строка может появиться позже, но кэш имен не заполнен — перезайди/перезапусти сервер); ";
+        newChar.reset();
+        delete session;
+        return res;
+    }
+    TC_LOG_INFO("playerbots", "CreateCharacter[{}]: сохранён (guid {})", accountId, guidStr);
 
     // --- 11. кэш имён + событие создания -----------------------------------
     sCharacterCache->AddCharacterCacheEntry(newChar->GetGUID(), accountId, name,
