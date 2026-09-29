@@ -130,6 +130,8 @@ if ($cur -eq 0) {
     Write-Host "[3h]  v10: Замысел (бесплатная трата): $dpN ; Рыцарь мститель (лечение ОС/Правосудия): $acN ; Избавление Тира: $tyrN (ожидается True True True)"
     Write-Host "[3i]  v11: ревизия $rev11 ; Юрисдикция (+20 м Правосудию): $jurN ; Наставление Тириона: $tyrG (ожидается True True True)"
     if ($now -eq 11 -and $ms -eq 20 -and $atN -eq 1 -and $gdN -eq 2 -and $mech -and $safe -and $rev9 -and (-not $old7) -and ($adtN -eq 2) -and ($critN -eq 6) -and $critStruct -and $titN -and $resN -and $crusN -and $dpN -and $acN -and $tyrN -and $rev11 -and $jurN -and $tyrG) {
+        Write-Host ">>> ШАГ 1.1 ВЫПОЛНЕН (последняя версия)" -ForegroundColor Green
+    }
     else { Write-Host "[X] НЕ СХОДИТСЯ — пришлите этот вывод целиком" -ForegroundColor Red; Read-Host Enter; exit 1 }
 }
 
