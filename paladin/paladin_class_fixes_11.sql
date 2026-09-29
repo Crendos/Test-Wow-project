@@ -260,8 +260,9 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (461622, 'spell_pal_divine_purpose_spender_ex'),
 (2812,   'spell_pal_divine_purpose_spender_ex');
 
--- Избавление Тира: старые скрипты (на самом таланте 1241275 и на 200653) заменены —
--- триггер теперь от активации Гнева карателя / Рыцаря мстителя, лечение ведёт аура 200652.
+-- Избавление Тира: старые скрипты (AfterCast на Гневе карателя/Крестовом походе + выбор цели
+-- на 200653) заменены — триггер теперь от активации Гнева карателя / Рыцаря мстителя, лечение
+-- ведёт аура 200652 (5 раненых сразу + 1/сек).
 DELETE FROM `spell_script_names` WHERE `ScriptName` IN (
     'spell_pal_tyrs_deliverance_trigger_ex',
     'spell_pal_tyrs_deliverance_select_ex',
