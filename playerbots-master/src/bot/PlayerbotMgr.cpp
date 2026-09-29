@@ -830,7 +830,7 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
         std::string key = std::to_string(c.classId) + ":" + ToLowerCopy(c.hero);
         auto it = m_heroTalents.find(key);
         if (it == m_heroTalents.end())
-            res.error += "геро-дерево '" + c.hero + "' не найдено в playerbots_hero_talents; ";
+            res.error += "геро-дерево '" + c.hero + "' не найдено в playerbots_hero_talents (нужен sql/world_playerbots_hero_talents.sql в world-БД; таблица пуста или не создана); ";
         else
             for (uint32 spellId : it->second)
                 newChar->LearnSpell(spellId, false);

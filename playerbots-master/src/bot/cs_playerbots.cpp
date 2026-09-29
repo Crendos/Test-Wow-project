@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fmt/format.h>
 #include <sstream>
 #include <vector>
 
@@ -93,12 +94,14 @@ namespace
             if (name.empty())
             {
                 handler->SendSysMessage("Использование: .playerbots add <имя>");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             std::string const botName{name};
             if (sPlayerbotMgr.AddBot(botName, handler->GetPlayer(), SEC_PLAYER) != PlayerbotMgr::Status::OK)
             {
                 handler->SendSysMessage("Не удалось добавить бота.");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             handler->SendSysMessage("Бот принят.");
@@ -115,7 +118,7 @@ namespace
                 return true;
             }
             for (std::string const& n : bots)
-                handler->PSendSysMessage("{}{}", n, sPlayerbotMgr.IsBotQA(n) ? "  [QA]" : "");
+                handler->SendSysMessage(fmt::format("{}{}", n, sPlayerbotMgr.IsBotQA(n) ? "  [QA]" : ""));
             return true;
         }
 
@@ -125,12 +128,14 @@ namespace
             if (name.empty())
             {
                 handler->SendSysMessage("Использование: .playerbots followme <имя>");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             Player* master = handler->GetPlayer();
             if (!master)
             {
                 handler->SendSysMessage("Команда доступна только из игры (требуется мастер).");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             std::string const botName{name};
@@ -138,6 +143,7 @@ namespace
             if (!ai)
             {
                 handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             ai->SetMasterAndFollow(master);
@@ -153,6 +159,7 @@ namespace
             if (!ai)
             {
                 handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             ai->ClearFollow();
@@ -168,6 +175,7 @@ namespace
             if (!ai)
             {
                 handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             ai->EquipBestItems();
@@ -183,6 +191,7 @@ namespace
             {
                 handler->SendSysMessage("Использование: .playerbots create <account> class=паладин|2 [race=N] [gender=m|f] [level=N] [spec=dps|heal|tank|имя|ID] [hero=templar] [item=ID[,ID...]] [name=Имя]");
                 handler->SendSysMessage("Пример: .playerbots create 9001 class=paladin level=80 spec=dps hero=templar item=2000");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
 
@@ -206,7 +215,8 @@ namespace
                 auto eq = tok.find('=');
                 if (eq == std::string::npos)
                 {
-                    handler->PSendSysMessage("Неожиданный токен '{}': ожидались key=value", tok);
+                    handler->SendSysMessage(fmt::format("Неожиданный токен '{}': ожидались key=value", tok));
+                    handler->SetSentErrorMessage(true);
                     return false;
                 }
                 std::string k = tok.substr(0, eq);
@@ -233,7 +243,8 @@ namespace
                             c.items.push_back(id);
                         else if (!one.empty())
                         {
-                            handler->PSendSysMessage("item: не число '{}'", one);
+                            handler->SendSysMessage(fmt::format("item: не число '{}'", one));
+                            handler->SetSentErrorMessage(true);
                             return false;
                         }
                 }
@@ -246,13 +257,15 @@ namespace
                         c.gender = 1;
                     else
                     {
-                        handler->PSendSysMessage("gender: '{}'. Нужно m|f.", v);
+                        handler->SendSysMessage(fmt::format("gender: '{}'. Нужно m|f.", v));
+                        handler->SetSentErrorMessage(true);
                         return false;
                     }
                 }
                 else
                 {
-                    handler->PSendSysMessage("Неизвестный параметр '{}'", k);
+                    handler->SendSysMessage(fmt::format("Неизвестный параметр '{}'", k));
+                    handler->SetSentErrorMessage(true);
                     return false;
                 }
             }
@@ -261,27 +274,30 @@ namespace
             if (!accountId)
             {
                 handler->SendSysMessage("Нужен accountId первым аргументом (напр. 9001).");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             if (!c.classId)
             {
                 handler->SendSysMessage("Нужен class= (paladin/2/warrior/...).");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
 
             BotCreateResult r = sPlayerbotMgr.CreateCharacter(accountId, c);
             if (!r.ok)
             {
-                handler->PSendSysMessage("Ошибка: {}", r.error);
+                handler->SendSysMessage(fmt::format("Ошибка: {}", r.error));
+                handler->SetSentErrorMessage(true);
                 return false;
             }
-            handler->PSendSysMessage("Создано: {} (guid {}, account {})", r.name, r.guid, accountId);
-            handler->PSendSysMessage("Роль: {}", sPlayerbotMgr.IsQAAccount(accountId)
+            handler->SendSysMessage(fmt::format("Создано: {} (guid {}, account {})", r.name, r.guid, accountId));
+            handler->SendSysMessage(fmt::format("Роль: {}", sPlayerbotMgr.IsQAAccount(accountId)
                 ? "QA (sweep, CAST_FAIL, быстрые ретраи фейлов)"
-                : "игровой (обычная ротация, без QA-шума)");
+                : "игровой (обычная ротация, без QA-шума)"));
             if (!r.error.empty())
-                handler->PSendSysMessage("Замечания: {}", r.error);
-            handler->PSendSysMessage("Дальше: .playerbots add {} ; бой: .playerbots dummy start {} <цель>", r.name, r.name);
+                handler->SendSysMessage(fmt::format("Замечания: {}", r.error));
+            handler->SendSysMessage(fmt::format("Дальше: .playerbots add {} ; бой: .playerbots dummy start {} <цель>", r.name, r.name));
             return true;
         }
 
@@ -293,6 +309,7 @@ namespace
                 handler->SendSysMessage("Использование: .playerbots dummy start <бот> [entry манекена] [x y z] [sweep]");
                 handler->SendSysMessage("Цель: твой выделенный юнит, иначе entry, иначе авто-поиск '%Dummy%' рядом с ботом.");
                 handler->SendSysMessage("sweep = QA-прогон: каждый боевой спелл попытка раз с логом SWEEP/CAST_FAIL.");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
 
@@ -312,6 +329,7 @@ namespace
             if (t.empty())
             {
                 handler->SendSysMessage("Использование: .playerbots dummy start <бот> [entry] [x y z] [sweep]");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
 
@@ -320,17 +338,20 @@ namespace
             if (!ai)
             {
                 handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             if (ai->IsDummyMode())
             {
                 handler->SendSysMessage("Бот уже в режиме манекена (сначала .playerbots dummy stop).");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             Player* bot = ai->GetBot();
             if (!bot)
             {
                 handler->SendSysMessage("Бот оффлайн.");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
 
@@ -359,6 +380,7 @@ namespace
                 catch (...)
                 {
                     handler->SendSysMessage("Координаты x y z — числа с точкой.");
+                    handler->SetSentErrorMessage(true);
                     return false;
                 }
                 hasDest = true;
@@ -367,6 +389,7 @@ namespace
             if (idx != t.size())
             {
                 handler->SendSysMessage("Использование: .playerbots dummy start <бот> [entry] [x y z] [sweep]");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
 
@@ -376,7 +399,8 @@ namespace
                 target = bot->FindNearestCreature(entry, 300.0f);
                 if (!target)
                 {
-                    handler->PSendSysMessage("creature entry {} не найден рядом с ботом (300 ярд).", entry);
+                    handler->SendSysMessage(fmt::format("creature entry {} не найден рядом с ботом (300 ярд).", entry));
+                    handler->SetSentErrorMessage(true);
                     return false;
                 }
             }
@@ -402,6 +426,7 @@ namespace
                 if (!target)
                 {
                     handler->SendSysMessage("Манекен не найден: выдели цель (или укажи entry).");
+                    handler->SetSentErrorMessage(true);
                     return false;
                 }
             }
@@ -409,7 +434,8 @@ namespace
             std::string err;
             if (!ai->StartDummy(target->GetGUID(), hasDest ? &dest : nullptr, err))
             {
-                handler->PSendSysMessage("Ошибка: {}", err);
+                handler->SendSysMessage(fmt::format("Ошибка: {}", err));
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             if (sweep)
@@ -419,8 +445,8 @@ namespace
                 else
                     handler->SendSysMessage("sweep недоступен: это привилегия QA-ботов (аккаунт в Playerbots.QAAccountsStart/End, см. docs/08).");
             }
-            handler->PSendSysMessage("Бот {} бьёт «{}» (entry {}). Лог пишется; стоп: .playerbots dummy stop {}",
-                botName, target->GetName(), target->GetEntry(), botName);
+            handler->SendSysMessage(fmt::format("Бот {} бьёт «{}» (entry {}). Лог пишется; стоп: .playerbots dummy stop {}",
+                botName, target->GetName(), target->GetEntry(), botName));
             if (hasDest)
                 handler->SendSysMessage("Сначала подбег к указанной точке, затем бой.");
             return true;
@@ -432,6 +458,7 @@ namespace
             if (name.empty())
             {
                 handler->SendSysMessage("Использование: .playerbots dummy stop <бот>");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             std::string const botName{name};
@@ -439,24 +466,26 @@ namespace
             if (!ai)
             {
                 handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             if (!ai->IsDummyMode())
             {
                 handler->SendSysMessage("Бот не в режиме манекена.");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             std::string path = ai->StopDummy("по команде");
             if (!path.empty())
             {
-                handler->PSendSysMessage("Лог боя: {}", path);
+                handler->SendSysMessage(fmt::format("Лог боя: {}", path));
                 // QA-отчёт пишется рядом: тот же путь с расширением .qa.txt
                 std::string report = path;
                 if (report.size() >= 4 && report.compare(report.size() - 4, 4, ".log") == 0)
                     report.replace(report.size() - 4, 4, ".qa.txt");
                 else
                     report += ".qa.txt";
-                handler->PSendSysMessage("QA-отчёт (аномалии/баги): {}", report);
+                handler->SendSysMessage(fmt::format("QA-отчёт (аномалии/баги): {}", report));
             }
             else
                 handler->SendSysMessage("Режим снят (файл лога не создавался).");
@@ -471,10 +500,11 @@ namespace
             if (!ai)
             {
                 handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SetSentErrorMessage(true);
                 return false;
             }
             for (uint32 sid : ai->ListKnownSpelIDs())
-                handler->PSendSysMessage("spell {}", sid);
+                handler->SendSysMessage(fmt::format("spell {}", sid));
             return true;
         }
 
@@ -495,6 +525,7 @@ namespace
                 return true;
             }
             handler->SendSysMessage("Удалить не удалось: только своего бота можно убрать.");
+            handler->SetSentErrorMessage(true);
             return false;
         }
 
@@ -516,6 +547,7 @@ namespace
                 return true;
             }
             handler->SendSysMessage("Состав не запустился: проверь таблицу world.playerbots_rotation.");
+            handler->SetSentErrorMessage(true);
             return false;
         }
 
