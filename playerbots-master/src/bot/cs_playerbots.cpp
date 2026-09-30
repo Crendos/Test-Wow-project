@@ -685,9 +685,26 @@ namespace
         }
     };
 
+    // Вход в мир (PlayerScript::OnLogin шлётся для всех сессий, в т.ч. фейковых
+    // бот-сессий без сокета) — здесь подцепляем AI-обёртку бота.
+    // Без этого вызова entry.ai оставался пустым: .playerbots list имя показывал,
+    // а followme/dummy/equip/hero отвечали «Бот с таким именем не онлайн».
+    class playerbots_login_script : public PlayerScript
+    {
+    public:
+        playerbots_login_script() : PlayerScript("playerbots_login_script") { }
+
+        void OnLogin(Player* player, bool /*firstLogin*/) override
+        {
+            if (player && player->GetSession() && player->GetSession()->IsPlayerBot())
+                sPlayerbotMgr.HandlePlayerBotLoggedIn(player);
+        }
+    };
+
 void AddSC_playerbots()
 {
     AddSC_playerbots_dummylog();                // UnitScript+PlayerScript: урон/хил/касты в лог
     static_cast<void>( new playerbots_commandscript() );
     new playerbots_worldscript();
+    new playerbots_login_script();
 }

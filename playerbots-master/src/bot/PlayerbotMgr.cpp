@@ -212,6 +212,8 @@ void PlayerbotMgr::HandlePlayerBotLoggedIn(Player* player)
         return;
 
     PlayerBotEntry& entry = itr->second;
+    if (entry.bot == player && entry.ai)
+        return;                     // повторный OnLogin того же входа — уже подцеплены
     entry.bot = player;
 
     // заклинания этого бота (ленивая загрузка из world.playerbots_combat_spells)
@@ -273,13 +275,31 @@ void PlayerbotMgr::RemoveAll()
 
 PlayerbotAI* PlayerbotMgr::GetBotAI(std::string const& botName)
 {
-    ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName);
-    if (!guid)
-        return nullptr;
-    auto itr = m_bots.find(sCharacterCache->GetCharacterAccountIdByGuid(guid));
-    if (itr == m_bots.end())
-        return nullptr;
-    return itr->second.ai;
+    if (ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName))
+    {
+        auto itr = m_bots.find(sCharacterCache->GetCharacterAccountIdByGuid(guid));
+        if (itr != m_bots.end())
+            return itr->second.ai;
+    }
+    // fallback: кэш имён регистрозависим — сверяемся с онлайн-списком (entry.name)
+    auto ciEq = [](std::string const& a, std::string const& b)
+    {
+        if (a.size() != b.size())
+            return false;
+        for (size_t i = 0; i < a.size(); ++i)
+        {
+            char ca = a[i], cb = b[i];
+            if (ca >= 'a' && ca <= 'z') ca = char(ca - 'a' + 'A');
+            if (cb >= 'a' && cb <= 'z') cb = char(cb - 'a' + 'A');
+            if (ca != cb)
+                return false;
+        }
+        return true;
+    };
+    for (auto const& kv : m_bots)
+        if (ciEq(kv.second.name, botName))
+            return kv.second.ai;
+    return nullptr;
 }
 
 // ---------------------------------------------------------------- per-frame AI
