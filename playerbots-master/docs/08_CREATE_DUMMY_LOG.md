@@ -168,10 +168,18 @@ disabled race/class маски; кастомизация лица — дефол
 | Holy (хил) | `heal` | `herald`, `lightsmith` |
 | Protection (танк) | `tank` | `templar`, `lightsmith` |
 
+`hero=` принимает **несколько веток через запятую** (учит union обоих деревьев
+спека) и `all` (все ветки класса):
+
 ```
-.playerbots create 9501 class=paladin level=90 spec=dps  hero=templar
-.playerbots create 9502 class=paladin level=90 spec=heal  hero=herald
-.playerbots create 9503 class=paladin level=90 spec=tank  hero=lightsmith
+# обе ветки спека сразу:
+.playerbots create 9501 class=paladin level=90 spec=dps  hero=templar,herald
+.playerbots create 9502 class=paladin level=90 spec=heal  hero=herald,lightsmith
+.playerbots create 9503 class=paladin level=90 spec=tank  hero=templar,lightsmith
+
+# или дозаучить вторую ветку на УЖЕ созданном боте (пересборка знаний AI автоматом):
+.playerbots hero Xkq herald
+.playerbots hero Ykq all
 ```
 
 Опечатка в `hero=` → в ошибке перечисляются доступные для класса деревья.

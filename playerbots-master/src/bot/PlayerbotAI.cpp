@@ -398,6 +398,22 @@ std::vector<uint32> PlayerbotAI::ListKnownSpelIDs() const
     return out;
 }
 
+void PlayerbotAI::RebuildKnowledge()
+{
+    if (_manualKnowledge)
+        TC_LOG_WARN("playerbots",
+            "RebuildKnowledge[{}]: ручные знания заменяются авто-классификацией спеллбука "
+            "(дозаучивание hero-ветки); class_knowledge-таблица будет проигнорирована до перелогина",
+            _bot->GetName());
+    m_knowledge.clear();
+    _manualKnowledge = false;
+    BuildKnowledgeFromSpellbook();
+    std::sort(m_knowledge.begin(), m_knowledge.end(),
+        [](BotKnowledge const& a, BotKnowledge const& b) { return a.priority > b.priority; });
+    TC_LOG_INFO("playerbots", "RebuildKnowledge[{}]: знания пересобраны из спеллбука — {} правил (роль: {})",
+        _bot->GetName(), m_knowledge.size(), _qaMode ? "QA" : "игровой");
+}
+
 void PlayerbotAI::Update(uint32 diff)
 {
     if (!_bot->IsInWorld() || _bot->IsBeingTeleported())

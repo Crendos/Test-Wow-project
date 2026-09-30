@@ -69,6 +69,10 @@ public:
     void UpdateAI(uint32 diff);
     void HandlePlayerBotLoggedIn(Player* player);
     PlayerbotAI* GetBotAI(std::string const& botName);
+
+    // .playerbots hero <бот> <ветка[,ветка]|all> — дозаучить spells геро-деревьев на живом боте;
+    // после учёта пересобирает знания AI. Возвращает сводку для чата.
+    std::string LearnHeroTrees(Player* bot, std::string const& treesCsv);
     void BotSay(uint32 accountId, std::string const& text);
 
     void StartRoster();
@@ -119,6 +123,8 @@ private:
     std::unordered_map<std::string /*"classId:tree"*/, std::vector<uint32>> m_heroTalents;
     bool m_heroTalentsLoaded = false;
     void LoadHeroTalents();
+    // учёт spells одного/нескольких деревьев (csv + "all"); ошибки → err, возврат = сколько выучено
+    uint32 LearnHeroTreeSpells(Player* target, uint8 classId, std::string const& treesCsv, std::string& err);
 
     bool     m_enabled = false;
     uint32   m_freeAccountStart = 0, m_freeAccountEnd = 0;

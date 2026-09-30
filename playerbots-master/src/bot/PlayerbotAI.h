@@ -40,6 +40,7 @@ public:
     void EmoteMe(uint32 emote);
     void EquipBestItems();                         // .playerbots equip — подбор из сумок
     std::vector<uint32> ListKnownSpelIDs() const;  // .playerbots book
+    void RebuildKnowledge();                       // .playerbots hero — пересобрать знания из спеллбука
 
     // --- v6: режим боя с манекеном (.playerbots dummy start|stop) ---
     // dest != nullptr — сначала подбежать к точке, затем драться с target.

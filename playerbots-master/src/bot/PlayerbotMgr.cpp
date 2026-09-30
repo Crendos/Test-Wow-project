@@ -670,6 +670,95 @@ void PlayerbotMgr::LoadHeroTalents()
         TC_LOG_INFO("playerbots", "LoadHeroTalents: таблица playerbots_hero_talents пуста/отсутствует — hero= ничего не выучит");
 }
 
+uint32 PlayerbotMgr::LearnHeroTreeSpells(Player* target, uint8 classId, std::string const& treesCsv, std::string& err)
+{
+    if (!target)
+        return 0;
+    if (!m_heroTalentsLoaded)
+        LoadHeroTalents();
+
+    std::string const prefix = std::to_string(classId) + ":";
+    auto availableForClass = [this, &prefix]()
+    {
+        std::string avail;
+        for (auto const& kv : m_heroTalents)
+            if (kv.first.compare(0, prefix.size(), prefix) == 0)
+                avail += (avail.empty() ? "" : ", ") + kv.first.substr(prefix.size());
+        return avail;
+    };
+
+    // раскрытие списка: "all" → все деревья класса; иначе — csv через запятую
+    std::vector<std::string> trees;
+    {
+        std::string cur;
+        for (char ch : ToLowerCopy(treesCsv) + ',')
+        {
+            if (ch == ',')
+            {
+                if (!cur.empty())
+                    trees.push_back(cur);
+                cur.clear();
+            }
+            else
+                cur += ch;
+        }
+    }
+    if (std::find(trees.begin(), trees.end(), "all") != trees.end())
+    {
+        trees.clear();
+        for (auto const& kv : m_heroTalents)
+            if (kv.first.compare(0, prefix.size(), prefix) == 0)
+                trees.push_back(kv.first.substr(prefix.size()));
+        if (trees.empty())
+        {
+            err += "для класса " + std::to_string(classId)
+                + " в playerbots_hero_talents нет ни одного дерева — выполни sql/world_playerbots_hero_talents.sql; ";
+            return 0;
+        }
+    }
+
+    uint32 learned = 0;
+    for (std::string const& tree : trees)
+    {
+        auto it = m_heroTalents.find(prefix + tree);
+        if (it == m_heroTalents.end())
+        {
+            err += "геро-дерево '" + tree + "' не найдено в playerbots_hero_talents (нужен sql/world_playerbots_hero_talents.sql в world-БД); ";
+            std::string avail = availableForClass();
+            err += avail.empty()
+                ? ("для класса " + std::to_string(classId) + " в таблице нет ни одного дерева — дополни SQL; ")
+                : ("доступно для этого класса: " + avail + "; ");
+            continue;
+        }
+        for (uint32 spellId : it->second)
+        {
+            // жёсткость к версиям: спелл мог не попасть в DBC клиента — пропускаем с пометкой
+            if (sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE))
+            {
+                target->LearnSpell(spellId, false);
+                ++learned;
+            }
+            else
+                err += "hero spell " + std::to_string(spellId) + " отсутствует в DBC клиента (пропущен); ";
+        }
+    }
+    return learned;
+}
+
+std::string PlayerbotMgr::LearnHeroTrees(Player* bot, std::string const& treesCsv)
+{
+    if (!bot)
+        return "нет бота";
+    std::string err;
+    uint32 learned = LearnHeroTreeSpells(bot, bot->GetClass(), treesCsv, err);
+    if (PlayerbotAI* ai = GetBotAI(bot->GetName()))
+        ai->RebuildKnowledge();   // новые спеллы → в знания AI (и в sweep)
+    std::string res = "выучено spells: " + std::to_string(learned);
+    if (!err.empty())
+        res += "; " + err;
+    return res;
+}
+
 BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteria const& c)
 {
     BotCreateResult res;
@@ -975,37 +1064,10 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
         }
     }
 
-    // --- 8. геро-таланты: списки spell_id из world.playerbots_hero_talents -
+    // --- 8. геро-таланты: списки spell_id из world.playerbots_hero_talents ---
+    // hero= допускает несколько веток через запятую (hero=templar,herald) и "all" (все ветки класса)
     if (!c.hero.empty())
-    {
-        if (!m_heroTalentsLoaded)
-            LoadHeroTalents();
-        std::string key = std::to_string(c.classId) + ":" + ToLowerCopy(c.hero);
-        auto it = m_heroTalents.find(key);
-        if (it == m_heroTalents.end())
-        {
-            res.error += "геро-дерево '" + c.hero + "' не найдено в playerbots_hero_talents (нужен sql/world_playerbots_hero_talents.sql в world-БД; таблица пуста или дерево не внесено); ";
-            // подсказка: какие деревья ЕСТЬ для этого класса
-            std::string avail;
-            std::string prefix = std::to_string(c.classId) + ":";
-            for (auto const& kv : m_heroTalents)
-                if (kv.first.compare(0, prefix.size(), prefix) == 0)
-                    avail += (avail.empty() ? "" : ", ") + kv.first.substr(prefix.size());
-            res.error += avail.empty()
-                ? ("для класса " + std::to_string(c.classId) + " в таблице нет ни одного дерева — дополни SQL; ")
-                : ("доступно для этого класса: " + avail + "; ");
-        }
-        else
-            for (uint32 spellId : it->second)
-            {
-                // жёсткость к версиям: спелл мог не попасть в DBC клиента —
-                // пропускаем с пометкой, а не падаем
-                if (sSpellMgr->GetSpellInfo(spellId, DIFFICULTY_NONE))
-                    newChar->LearnSpell(spellId, false);
-                else
-                    res.error += "hero spell " + std::to_string(spellId) + " отсутствует в DBC клиента (пропущен); ";
-            }
-    }
+        LearnHeroTreeSpells(newChar.get(), uint8(c.classId), c.hero, res.error);
 
     // --- 9. предметы: в сумки; экипировка — .playerbots equip после входа --
     TC_LOG_INFO("playerbots", "CreateCharacter[{}]: hero='{}' ok", accountId, c.hero.empty() ? std::string("-") : c.hero);

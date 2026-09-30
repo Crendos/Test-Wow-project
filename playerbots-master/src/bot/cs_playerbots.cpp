@@ -75,6 +75,7 @@ namespace
                 { "followme",    HandleBotFollowMeCommand,       static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "stay",        HandleBotStayCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "book",        HandleBotBookCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "hero",        HandleBotHeroCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "equip",       HandleBotEquipCommand,          static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "dummy",       playerbotsDummyCommandTable },
                 { "roster",      playerbotsRosterCommandTable },
@@ -184,13 +185,14 @@ namespace
         }
 
         // .playerbots create <account> class=paladin [race=N] [gender=m|f] [level=N]
-        //                     [spec=dps|heal|tank|имя|ID] [hero=templar] [item=ID[,ID]] [name=X]
+        //                     [spec=dps|heal|tank|имя|ID] [hero=templar[,herald|all]] [item=ID[,ID]] [name=X]
         static bool HandleBotCreateCommand(ChatHandler* handler, Tail args)
         {
             if (args.empty())
             {
-                handler->SendSysMessage("Использование: .playerbots create <account> class=паладин|2 [race=N] [gender=m|f] [level=N] [spec=dps|heal|tank|имя|ID] [hero=templar] [item=ID[,ID...]] [name=Имя]");
-                handler->SendSysMessage("Пример: .playerbots create 9001 class=paladin level=80 spec=dps hero=templar item=2000");
+                handler->SendSysMessage("Использование: .playerbots create <account> class=паладин|2 [race=N] [gender=m|f] [level=N] [spec=dps|heal|tank|имя|ID] [hero=ветка[,ветка]|all] [item=ID[,ID...]] [name=Имя]");
+                handler->SendSysMessage("Пример: .playerbots create 9001 class=paladin level=80 spec=dps hero=templar,herald item=2000");
+                handler->SendSysMessage("hero: обе ветки спека паладина — Ret templar,herald | Holy herald,lightsmith | Prot templar,lightsmith (или all = все ветки класса)");
                 handler->SetSentErrorMessage(true);
                 return false;
             }
@@ -505,6 +507,30 @@ namespace
             }
             for (uint32 sid : ai->ListKnownSpelIDs())
                 handler->SendSysMessage(fmt::format("spell {}", sid));
+            return true;
+        }
+
+        // .playerbots hero <имя> <ветка[,ветка]|all>  — дозаучить ветки геро-талантов
+        // на УЖЕ существующем боте + пересобрать знания AI (новые спеллы появятся в sweep)
+        static bool HandleBotHeroCommand(ChatHandler* handler, Tail args)
+        {
+            std::istringstream is{ std::string(args) };
+            std::string botName, trees;
+            if (!(is >> botName) || !(is >> trees))
+            {
+                handler->SendSysMessage("Использование: .playerbots hero <имя> <ветка[,ветка]|all>");
+                handler->SendSysMessage("Пример: .playerbots hero Xkq herald   — дозаучить вторую ветку спека");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            handler->SendSysMessage(sPlayerbotMgr.LearnHeroTrees(ai->GetBot(), trees));
             return true;
         }
 
