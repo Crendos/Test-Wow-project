@@ -595,8 +595,10 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                         talGrants[eff.TriggerSpell].push_back(talent);
         }
 
-        if (QueryResult hres = WorldDatabase.Query(
-                "SELECT tree, spell_id FROM playerbots_hero_talents WHERE class = " + std::to_string(classId)))
+        // Query(const char*, …) — собираем строку отдельно и передаём c_str()
+        std::string heroSql =
+            "SELECT tree, spell_id FROM playerbots_hero_talents WHERE class = " + std::to_string(classId);
+        if (QueryResult hres = WorldDatabase.Query(heroSql.c_str()))
         {
             do
             {
@@ -801,9 +803,10 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
     //    Обычные игровые боты эти знания не читают и не применяют (гейт по роли аккаунта).
     if (qaRole)
     {
-        QueryResult mres = WorldDatabase.Query(
+        std::string mechSql =
             "SELECT spell_id, check_type, arg, window_ms, note FROM playerbots_mechanics"
-            " WHERE class_id = " + std::to_string(classId) + " ORDER BY spell_id, check_type");
+            " WHERE class_id = " + std::to_string(classId) + " ORDER BY spell_id, check_type";
+        QueryResult mres = WorldDatabase.Query(mechSql.c_str());
 
         if (!mres)
         {
