@@ -128,8 +128,9 @@ disabled race/class маски; кастомизация лица — дефол
 (кандидат на баг/покрытие), спелл `CAST`, но без последующих строк `DMG`
 (каст прошёл, урона нет — возможный баг класса), `SUMMARY.cast_fails`.
 
-Предварительно бот должен быть онлайн: `.playerbots add <Имя>`, и обычно
-`.playerbots followme <Имя>` довести до места (или `dummy start … x y z`).
+Предварительно бот должен быть онлайн: `.playerbots add <Имя>`, дальше
+`.playerbots summon <Имя>` (мгновенно к вам, даже с другой карты) либо
+`.playerbots followme <Имя>` довести пешком (или `dummy start … x y z`).
 
 ---
 
@@ -344,7 +345,7 @@ QA-боты этого класса начинают ловить его баг�
 
 .playerbots add Xkq
 .playerbots equip Xkq
-.playerbots followme Xkq          # довести до зала с манекенами
+.playerbots summon Xkq            # телепорт бота к себе (быстро); либо followme — пешком
 .playerbots dummy start Xkq        # (или с выделенным манекеном / entry=NNN / x y z)
 
 # ... бой ...

@@ -59,6 +59,7 @@ unit->SendMessageToSet(packet.Write(), true);
 |---|---|
 | `.playerbots followme <имя>` | бот привязывается к вам и следует |
 | `.playerbots stay <имя>` | отвязка, бот стоит |
+| `.playerbots summon <имя>` | бот телепортируется к вам (в т.ч. с другой карты; в `list` видны map и координаты) |
 | (без изменений) `.playerbots add/list/remove/removeall/ping + roster` | база MVP |
 
 ## Что НЕ входит в v2 (запланировано дальше)

@@ -74,6 +74,7 @@ namespace
                 { "removeall",   HandleBotRemoveAllCommand,      static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "followme",    HandleBotFollowMeCommand,       static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "stay",        HandleBotStayCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "summon",      HandleBotSummonCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "book",        HandleBotBookCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "hero",        HandleBotHeroCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "equip",       HandleBotEquipCommand,          static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
@@ -119,7 +120,68 @@ namespace
                 return true;
             }
             for (std::string const& n : bots)
-                handler->SendSysMessage(fmt::format("{}{}", n, sPlayerbotMgr.IsBotQA(n) ? "  [QA]" : ""));
+            {
+                std::string const suffix = sPlayerbotMgr.IsBotQA(n) ? "  [QA]" : "";
+                if (PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(n); ai && ai->GetBot())
+                {
+                    Player* b = ai->GetBot();
+                    handler->SendSysMessage(fmt::format("{}{}  map {}  ({:.0f} {:.0f} {:.0f})",
+                        n, suffix, b->GetMapId(), b->GetPositionX(), b->GetPositionY(), b->GetPositionZ()));
+                }
+                else
+                    handler->SendSysMessage(fmt::format("{}{}", n, suffix));
+            }
+            return true;
+        }
+
+        // .playerbots summon <имя>  — телепортировать бота к себе (в т.ч. с другой карты)
+        static bool HandleBotSummonCommand(ChatHandler* handler, Tail name)
+        {
+            if (name.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots summon <имя>");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            Player* master = handler->GetPlayer();
+            if (!master)
+            {
+                handler->SendSysMessage("Команда доступна только из игры (требуется игрок).");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            std::string const botName{name};
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            Player* bot = ai->GetBot();
+            if (!bot)
+            {
+                handler->SendSysMessage("Бот офлайн.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (bot == master)
+            {
+                handler->SendSysMessage("Это твой собственный персонаж.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            uint32 const fromMap = bot->GetMapId();
+            float const fx = bot->GetPositionX(), fy = bot->GetPositionY(), fz = bot->GetPositionZ();
+            if (!bot->TeleportTo(master->GetMapId(), master->GetPositionX(), master->GetPositionY(),
+                master->GetPositionZ(), master->GetOrientation()))
+            {
+                handler->SendSysMessage("TeleportTo не сработал — причина в консоли мира (LOG: playerbots / maps).");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            handler->SendSysMessage(fmt::format("Бот {} телепортирован к вам (был map {} {:.0f} {:.0f} {:.0f}).",
+                botName, fromMap, fx, fy, fz));
             return true;
         }
 
