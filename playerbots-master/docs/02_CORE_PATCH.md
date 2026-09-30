@@ -31,8 +31,11 @@
   `ProcessQueryCallbacks` + `updater.ProcessUnsafe()` + logout по `_logoutTime`
   (без сокетного редакта idle-kick'а, никогда не сработающего).
 - В конец файла добавлен `WorldSession::LoginPlayerBot(ObjectGuid guid)`:
-  проверка `IsLegitCharacterForAccount`, конструктор `LoginQueryHolder`,
-  `CharacterDatabase.DelayQueryHolder(holder)` → `AfterComplete` callbacк в
+  проверка владения персонажем по кэшу `sCharacterCache->GetCharacterAccountIdByGuid`
+  (фейковая бот-сессия не проходит `HandleCharEnum`, набор `_legitCharacters` у неё
+  пуст — `IsLegitCharacterForAccount()` для неё всегда ложь) + регистрация guid
+  в `_legitCharacters`, конструктор `LoginQueryHolder`,
+  `CharacterDatabase.DelayQueryHolder(holder)` → `AfterComplete` callback в
   `HandlePlayerLogin(holder)` — дословно повторяет `HandleContinuePlayerLogin`.
 
 ### `src/server/game/Handlers/CharacterHandler.cpp`

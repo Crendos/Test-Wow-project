@@ -347,7 +347,7 @@ index 2db54162..9e644d6d 100644
      ///- Before we process anything:
      /// If necessary, kick the player because the client didn't send anything for too long
      /// (or they've been idling in character select)
-@@ -1829,3 +1845,319 @@ void WorldSession::RegisterTimeSync(uint32 counter)
+@@ -1829,3 +1845,323 @@ void WorldSession::RegisterTimeSync(uint32 counter)
  {
      _pendingTimeSyncRequests[counter] = getMSTime();
  }
@@ -360,12 +360,16 @@ index 2db54162..9e644d6d 100644
 +        return;
 +
 +    m_playerLoading = guid;
-+    if (!IsLegitCharacterForAccount(guid))
++    // PLAYERBOTS: фейковая бот-сессия не проходит HandleCharEnum → _legitCharacters
++    // пуст, поэтому IsLegitCharacterForAccount() всегда ложь. Владение персонажем
++    // проверяем по кэшу (characters.account == accountId) и сами вносим guid в набор.
++    if (sCharacterCache->GetCharacterAccountIdByGuid(guid) != GetAccountId())
 +    {
-+        TC_LOG_ERROR("playerbots", "LoginPlayerBot: персонаж {} не принадлежит аккаунту {}", guid.ToString(), GetAccountId());
++        TC_LOG_ERROR("playerbots", "LoginPlayerBot: персонаж {} не принадлежит аккаунту {} (owner {})", guid.ToString(), GetAccountId(), sCharacterCache->GetCharacterAccountIdByGuid(guid));
 +        m_playerLoading.Clear();
 +        return;
 +    }
++    _legitCharacters.insert(guid);
 +
 +    std::shared_ptr<LoginQueryHolder> holder = std::make_shared<LoginQueryHolder>(GetAccountId(), m_playerLoading);
 +    if (!holder->Initialize())

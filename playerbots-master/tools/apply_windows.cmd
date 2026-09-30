@@ -76,8 +76,13 @@ if not errorlevel 1 (
     goto :patch_done
 )
 echo [ERROR] git apply failed. Manual steps:
-echo         1. git apply --reject "%MODDIR%\patches\0001-core-integration.diff"
-echo         2. Resolve .rej files using docs\02_CORE_PATCH.md as reference.
+echo         1. If WorldSession.cpp still contains the PREVIOUS patch version
+echo            with the old legit check IsLegitCharacterForAccount - restore
+echo            core files first, then re-run this script:
+echo              git -C "%SRC%" checkout -- src/server
+echo            only core files are restored; the module is re-copied after.
+echo         2. git apply --reject "%MODDIR%\patches\0001-core-integration.diff"
+echo         3. Resolve .rej files using docs\02_CORE_PATCH.md as reference.
 popd
 exit /b 1
 
