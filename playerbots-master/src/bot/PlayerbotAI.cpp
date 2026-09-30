@@ -230,6 +230,20 @@ bool PlayerbotAI::CastSpellAt(uint32 spellId, Unit* target)
     if (!info)
         return false;
 
+    // Слой 1 QA (авто): запоминаем ресурс ДО каста, если у спелла есть цена по DBC —
+    // после успешного каста зафиксируем фактическое списание (PWR в логе, событие 'P').
+    bool hasCost = false;
+    Powers pType = POWER_MANA;
+    int32 pBefore = 0;
+    for (SpellPowerEntry const* pe : info->PowerCosts)
+        if (pe && (pe->ManaCost > 0 || pe->PowerCostPct > 0.0f))
+        {
+            hasCost = true;
+            pType = static_cast<Powers>(pe->PowerType);
+            pBefore = _bot->GetPower(pType);
+            break;
+        }
+
     // каст-тайм: требует стояния. Если идём — остановимся
     if (info->CalcCastTime() > 0)
     {
@@ -260,6 +274,8 @@ bool PlayerbotAI::CastSpellAt(uint32 spellId, Unit* target)
     // v3 GCD-подобный интервал (на master: StartRecoveryTime — это фактический GCD-флажок)
     uint32 base = std::max<uint32>(info->StartRecoveryTime, 1500u);
     m_recastTimerMs = std::max<uint32>(base, 1000u);
+    if (hasCost)
+        sPlayerbotDummyLog.NotePowerSpent(_bot, spellId, pBefore - _bot->GetPower(pType));
     return true;
 }
 

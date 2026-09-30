@@ -9,10 +9,12 @@
 
 #include "Config.h"
 #include "Creature.h"
+#include "DatabaseEnv.h"   // WorldDatabase — таблица playerbots_mechanics (слой 2, только QA)
 #include "Log.h"
 #include "Map.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
+#include "PlayerbotMgr.h"  // sPlayerbotMgr.IsQAAccount — гейт слоя 2 (механики только для QA)
 #include "ScriptMgr.h"
 #include "SharedDefines.h"
 #include "Spell.h"
@@ -118,6 +120,15 @@ PlayerbotDummyLog::Record* PlayerbotDummyLog::Find(uint32 botCounter)
     return it == m_records.end() ? nullptr : &it->second;
 }
 
+void PlayerbotDummyLog::PushEv(Record& rec, char ev, uint32 spell, int32 v)
+{
+    if (rec.timeline.size() >= 20000)   // защита от раздувания на длинных сессиях
+        return;
+    uint32 t = uint32(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - rec.start).count());
+    rec.timeline.push_back({ t, ev, spell, v });
+}
+
 bool PlayerbotDummyLog::IsRecording(Player const* bot) const
 {
     return bot && m_records.count(bot->GetGUID().GetCounter()) != 0;
@@ -217,8 +228,10 @@ std::string PlayerbotDummyLog::StopRecording(Player* bot, std::string const& rea
         << " reason=\"" << reason << "\"";
     Write(rec, sum.str());
 
-    // QA-анализ сессии → отдельный файл <session>.qa.txt (рядом с логом)
-    std::string reportPath = WriteQaReport(rec, rec.path, reason, duration);
+    // QA-анализ сессии → отдельный файл <session>.qa.txt (рядом с логом).
+    // Слой 2 (playerbots_mechanics) — только для роли QA: гейт по аккаунту бота.
+    bool qaRole = bot->GetSession() && sPlayerbotMgr.IsQAAccount(bot->GetSession()->GetAccountId());
+    std::string reportPath = WriteQaReport(rec, rec.path, reason, duration, qaRole, bot->GetClass());
     if (!reportPath.empty())
         Write(rec, "QA_REPORT file=\"" + reportPath + '"');
 
@@ -271,9 +284,11 @@ void PlayerbotDummyLog::PollAuras(Record& rec, Player* bot)
         // появившиеся / изменившиеся стаки
         for (auto const& kv : cur)
         {
+            rec.auraSeen.insert(kv.first);      // слой 1: union всех когда-либо виденных аур
             auto it = snap.find(kv.first);
             if (it == snap.end())
             {
+                PushEv(rec, 'A', kv.second.spellId, 0);   // слой 2: появление ауры в таймлайне
                 int32 dur = -1;
                 // длительность нужна только в строке APPLY
                 for (auto const& a : unit->GetAppliedAuras())
@@ -358,6 +373,7 @@ void PlayerbotDummyLog::HandleSpellDamage(Unit const* attacker, Unit const* vict
     if (Record* rec = Find(attacker->GetGUID().GetCounter()))
     {
         rec->damaged.insert(spellId);
+        PushEv(*rec, 'D', spellId, amount);
         std::ostringstream os;
         os << "DMG src=spell spell=" << spellId
            << " name=\"" << SpellName(spellId) << '"'
@@ -419,6 +435,7 @@ void PlayerbotDummyLog::HandleCast(Player const* caster, Spell const* spell)
 
         ++rec->castCount;
         ++rec->casted[spellId];
+        PushEv(*rec, 'C', spellId, 0);
         std::ostringstream os;
         os << "CAST spell=" << spellId
            << " name=\"" << SpellName(spellId) << '"';
@@ -459,6 +476,7 @@ void PlayerbotDummyLog::HandleCastFail(Player const* caster, uint32 spellId, int
         ++rec->castFails;
         ++rec->failCount[spellId];
         rec->failResult[spellId] = result;
+        PushEv(*rec, 'F', spellId, result);
         std::ostringstream os;
         os << "CAST_FAIL spell=" << spellId
            << " name=\"" << SpellName(spellId) << '"'
@@ -488,10 +506,26 @@ void PlayerbotDummyLog::SetSweepSummary(Player const* bot, uint32 ok, uint32 fai
             + " total=" + std::to_string(total);
 }
 
+void PlayerbotDummyLog::NotePowerSpent(Player const* bot, uint32 spellId, int32 spent)
+{
+    if (!bot)
+        return;
+    if (Record* rec = Find(bot->GetGUID().GetCounter()))
+    {
+        PushEv(*rec, 'P', spellId, spent);
+        std::ostringstream os;
+        os << "PWR spell=" << spellId
+           << " name=\"" << SpellName(spellId) << '"'
+           << " spent=" << spent;
+        Write(*rec, os.str());
+    }
+}
+
 // ---------------------------------------------------------------- QA-отчёт
 
 std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string const& sessionPath,
-                                              std::string const& reason, float duration)
+                                              std::string const& reason, float duration,
+                                              bool qaRole, uint8 classId)
 {
     // путь: <Bot>_<ts>.log → <Bot>_<ts>.qa.txt
     std::string reportPath = sessionPath;
@@ -606,6 +640,259 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
     // 6) сводка sweep (если QA-прогон был)
     if (!rec.sweepSummary.empty())
         add("[INFO] " + rec.sweepSummary);
+
+    // 7) СЛОЙ 1 (авто из DBC): эффект ауры обещан, но аура не появлялась
+    for (auto const& kv : rec.casted)
+    {
+        if (flagged.count(kv.first))
+            continue;
+        SpellInfo const* si = sSpellMgr->GetSpellInfo(kv.first, DIFFICULTY_NONE);
+        if (!si)
+            continue;
+        bool hasAuraEffect = false;
+        for (SpellEffectInfo const& eff : si->GetEffects())
+            if (eff.Effect == SPELL_EFFECT_APPLY_AURA)
+            {
+                hasAuraEffect = true;
+                break;
+            }
+        if (!hasAuraEffect || rec.auraSeen.count(kv.first))
+            continue;
+        std::ostringstream os;
+        os << "[SUSPECT] aura_not_applied spell=" << kv.first
+           << " name=\"" << SpellName(kv.first) << '"'
+           << " casts=" << kv.second
+           << " — DBC обещает эффект ауры, но она не появлялась ни у бота, ни у цели"
+              " (или аура короче поллинга300 мс) — свери лог";
+        add(os.str());
+        flagged.insert(kv.first);
+        ++findings;
+    }
+
+    // 8) СЛОЙ 1 (авто из DBC): цена > 0, но списание ресурса не зафиксировано
+    {
+        std::unordered_map<uint32, int32> spentMap;
+        for (auto const& ev : rec.timeline)
+            if (ev.ev == 'P')
+                spentMap[ev.spell] += ev.v;
+
+        for (auto const& kv : rec.casted)
+        {
+            if (flagged.count(kv.first))
+                continue;
+            SpellInfo const* si = sSpellMgr->GetSpellInfo(kv.first, DIFFICULTY_NONE);
+            if (!si)
+                continue;
+            bool costed = false;
+            for (SpellPowerEntry const* pe : si->PowerCosts)
+                if (pe && (pe->ManaCost > 0 || pe->PowerCostPct > 0.0f))
+                {
+                    costed = true;
+                    break;
+                }
+            if (!costed)
+                continue;
+            int32 spent = 0;
+            auto it = spentMap.find(kv.first);
+            if (it != spentMap.end())
+                spent = it->second;
+            if (spent > 0)
+                continue;
+            std::ostringstream os;
+            os << "[SUSPECT] power_not_spent spell=" << kv.first
+               << " name=\"" << SpellName(kv.first) << '"'
+               << " casts=" << kv.second
+               << " — цена >0 по DBC, но списание не зафиксировано (см. строки PWR в логе):"
+                  " бесплатный прок или баг";
+            add(os.str());
+            flagged.insert(kv.first);
+            ++findings;
+        }
+    }
+
+    // 9) СЛОЙ 2: ручные знания о механиках класса (playerbots_mechanics) — ТОЛЬКО QA.
+    //    Обычные игровые боты эти знания не читают и не применяют (гейт по роли аккаунта).
+    if (qaRole)
+    {
+        QueryResult mres = WorldDatabase.Query(
+            "SELECT spell_id, check_type, arg, window_ms, note FROM playerbots_mechanics"
+            " WHERE class_id = " + std::to_string(classId) + " ORDER BY spell_id, check_type");
+
+        if (!mres)
+        {
+            std::ostringstream os;
+            os << "[INFO] mechanics_coverage class=" << uint32(classId)
+               << " — в playerbots_mechanics нет строк для этого класса:"
+                  " дополни sql/world_playerbots_mechanics.sql (после починки класса — знания под новые)";
+            add(os.str());
+            ++findings;
+        }
+        else
+        {
+            uint32 const durMs = uint32(duration * 1000.0f);
+            do
+            {
+                Field* f = mres->Fetch();
+                uint32  trig   = f[0].GetUInt32();
+                std::string check = f[1].GetString();
+                uint32  arg    = f[2].GetUInt32();
+                uint32  window = f[3].GetUInt32();
+                std::string note = f[4].GetString();
+
+                auto firstCastT = [&rec](uint32 spell) -> int64
+                {
+                    for (auto const& ev : rec.timeline)
+                        if (ev.ev == 'C' && ev.spell == spell)
+                            return int64(ev.tMs);
+                    return -1;
+                };
+
+                if (check == "power_cost")
+                {
+                    bool any = false, ok = false;
+                    int32 got = 0;
+                    for (auto const& ev : rec.timeline)
+                        if (ev.ev == 'P' && ev.spell == trig)
+                        {
+                            any = true;
+                            got = ev.v;
+                            if (uint32(ev.v) == arg)
+                            {
+                                ok = true;
+                                break;
+                            }
+                        }
+                    if (ok)
+                        continue;
+                    if (!any)
+                    {
+                        if (rec.casted.count(trig))
+                        {
+                            std::ostringstream os;
+                            os << "[INFO] mechanic_skipped check=power_cost spell=" << trig
+                               << " — нет данных о списании (каст был, PWR не записан)";
+                            add(os.str());
+                            ++findings;
+                        }
+                        continue;
+                    }
+                    std::ostringstream os;
+                    os << "[SUSPECT] mechanic_power_cost spell=" << trig
+                       << " name=\"" << SpellName(trig) << '"'
+                       << " expected=" << arg << " got=" << got
+                       << " — «" << note << "»: цена не сходится (бесплатный прок или баг)";
+                    add(os.str());
+                    ++findings;
+                    continue;
+                }
+
+                if (check != "proc_after" && check != "aura_after")
+                {
+                    std::ostringstream os;
+                    os << "[INFO] mechanic_unknown_type check=\"" << check << "\" spell=" << trig
+                       << " — тип не поддерживается этим ядром (обнови playerbots/cpp)";
+                    add(os.str());
+                    ++findings;
+                    continue;
+                }
+
+                int64 t0 = firstCastT(trig);
+                if (t0 < 0)
+                    continue;   // триггер не кастовался в сессии — нечего проверять
+                if (durMs < uint32(t0) + window)
+                {
+                    std::ostringstream os;
+                    os << "[INFO] mechanic_window_active check=" << check
+                       << " trigger=" << trig << " expected_spell=" << arg
+                       << " — окно " << window << " мс ещё не истекло внутри сессии, не проверено";
+                    add(os.str());
+                    ++findings;
+                    continue;
+                }
+
+                char want = (check == "aura_after") ? 'A' : 0;   // 0 = C или D
+                bool ok = false;
+                for (auto const& ev : rec.timeline)
+                {
+                    if (ev.tMs <= uint32(t0) || ev.tMs > uint32(t0) + window || ev.spell != arg)
+                        continue;
+                    if (want ? ev.ev == want : (ev.ev == 'C' || ev.ev == 'D'))
+                    {
+                        ok = true;
+                        break;
+                    }
+                }
+                if (ok)
+                    continue;
+
+                bool argCast = false;
+                for (auto const& ev : rec.timeline)
+                    if (ev.ev == 'C' && ev.spell == arg)
+                    {
+                        argCast = true;
+                        break;
+                    }
+                if (check == "aura_after")
+                {
+                    // триггер кастован, окно истекло, ауры арга не было: арг мог висеть и от
+                    // проков триггера — каст арга не требуется, доказательство исчерпано
+                    std::ostringstream os;
+                    os << "[BUG] mechanic_missing check=aura_after"
+                       << " trigger=" << trig
+                       << " expected_spell=" << arg
+                       << " window_ms=" << window
+                       << " — «" << note << "»: в окне после триггера аура не появилась:"
+                          " механика не реализована/не сработала";
+                    add(os.str());
+                    ++findings;
+                    continue;
+                }
+
+                // proc_after: sweep проходит один раз — нужна соразмерная улика
+                if (!argCast)
+                {
+                    std::ostringstream os;
+                    os << "[INFO] mechanic_skipped check=proc_after"
+                       << " trigger=" << trig << " expected_spell=" << arg
+                       << " — «" << note << "»: арг ни разу не кастовался, не проверено";
+                    add(os.str());
+                    ++findings;
+                    continue;
+                }
+
+                {   // арг кастовался, но не после триггера в окне: порядок sweep мог не совпасть.
+                    // BUG — только если ПОСЛЕ триггера пробовали и отказали.
+                    bool triedAndFailed = false;
+                    for (auto const& ev : rec.timeline)
+                        if (ev.ev == 'F' && ev.spell == arg &&
+                            ev.tMs > uint32(t0) && ev.tMs <= uint32(t0) + window)
+                        {
+                            triedAndFailed = true;
+                            break;
+                        }
+                    std::ostringstream os;
+                    if (!triedAndFailed)
+                    {
+                        os << "[INFO] mechanic_recheck check=proc_after trigger=" << trig
+                           << " expected_spell=" << arg
+                           << " — «" << note << "»: арг был только вне окна после триггера,"
+                              " повтори sweep (порядок кастов мог не совпасть)";
+                    }
+                    else
+                    {
+                        os << "[BUG] mechanic_missing check=proc_after"
+                           << " trigger=" << trig
+                           << " expected_spell=" << arg
+                           << " window_ms=" << window
+                           << " — «" << note << "»: после триггера арг пробовали и отказали"
+                              " — механика не реализована/не сработала";
+                    }
+                    add(os.str());
+                    ++findings;
+                }
+            } while (mres->NextRow());
+        }
+    }
 
     // статистика сессии
     {

@@ -243,6 +243,12 @@ SELECT id, username FROM account WHERE id BETWEEN 9500 AND 9599;
 | `[SUSPECT] cast_without_damage` | уронный спелл скастован ≥1 раз, ни одной строки `DMG` с его spellId | каст «в никуда»: баг класса, прок-замена или особенность — сверить с `.log` |
 | `[BUG] zero_total_damage` | `casts>0`, `total_dealt=0` | бой не нанёс урона вовсе |
 | `[INFO] repeated_failure` | ≥5 отказов одного спелла с известным кодом | систематический отказ |
+| `[SUSPECT] aura_not_applied` | спелл скастован, эффект `APPLY_AURA` есть в DBC, а аура не появлялась ни у бота, ни у цели | **слой 1 (авто):** DBC обещает ауру — её нет. Баг или аура короче поллинга (300 мс) — сверить `.log` |
+| `[SUSPECT] power_not_spent` | цена > 0 по DBC, суммарное списание 0 (строки `PWR`) | **слой 1 (авто):** бесплатный прок или баг цены |
+| `[SUSPECT] mechanic_power_cost` | строка `playerbots_mechanics power_cost` не сошлась с `PWR` | **слой 2 (только QA):** цена не как в знании |
+| `[BUG] mechanic_missing` | строка `proc_after`/`aura_after`: окно истекло, арг кастовался, но события в окне не было (для `proc_after` — после триггера пробовали и отказали) | **слой 2 (только QA):** механика не реализована/не сработала |
+| `[INFO] mechanic_skipped / mechanic_recheck / mechanic_window_active` | триггер/арг не кастовали, порядок sweep не совпал или окно не истекло | не доказательство — нужен повторный прогон |
+| `[INFO] mechanics_coverage` | для класса QA-бота нет строк в `playerbots_mechanics` | пробел покрытия: после починки класса добавь знания (§5.2) |
 | `[INFO] SWEEP …` | был QA-прогон | итог покрытия `ok/fail/total` |
 | `[STAT] …` | всегда | duration, total_dealt, casts, cast_fails |
 
@@ -256,6 +262,7 @@ SELECT id, username FROM account WHERE id BETWEEN 9500 AND 9599;
 | `AURA + / - / ~` | поллинг `GetAppliedAuras()` каждые 300 мс (бот и цель) | появление/снятие/смена стаков каждой ауры: `spell=`, `name=`, `who=self\|target`, `buff\|debuff`, `stacks=`, `dur_ms=`, `caster=`. Бафы, висевшие до старта, тоже попадают (снапшот при старте). |
 | `CAST` | `PlayerScript::OnSpellCast` (`Spell::_cast`) | каждый **успешный** каст бота: spell id/имя, цель. |
 | `CAST_FAIL` | возврат `WorldObject::CastSpell` (`SpellCastResult`) | **отклонённый** каст: `result=N (ИМЯ)` — `NO_POWER`, `NOT_READY`, `OUT_OF_RANGE`, `STUNNED`… Неизвестные коды — `E<N>` (возможный баг/непокрытый случай). |
+| `PWR` | `PlayerbotAI::CastSpellAt` (после успешного каста, если цена > 0) | фактическое списание ресурса: `spell=`, `name=`, `spent=` (0 = бесплатный прок или баг) — данные для проверок `power_not_spent`/`power_cost` (§5.2). |
 | `SWEEP …` | режим `sweep` | `attempt`/`skip (cooldown)`/`complete` — отчёт QA-прогона спеллов. |
 | `DMG src=spell` | `UnitScript::ModifySpellDamageTaken` | урон способностью: spell id/имя, `amount`, жертва. |
 | `DMG src=melee` | `UnitScript::ModifyMeleeDamage` | белый урон. |
@@ -271,6 +278,38 @@ SELECT id, username FROM account WHERE id BETWEEN 9500 AND 9599;
 
 Записи идут в файл сразу (flush после каждой строки) — можно читать лог во
 время боя. Пока бот онлайн с активным режимом — ровно один открытый лог на бота.
+
+#### §5.2 Два слоя знаний о механиках (QA-only)
+
+Отчёты `.qa.txt` проверяют не только общие инварианты (§5.1), но и знания
+«как должна работать способность/талант». Два слоя:
+
+**Слой 1 — авто-ожидания из DBC (никаких таблиц).** Для каждого скастованного
+спелла сверяем обещания `SpellInfo` с событиями сессии:
+эффект `APPLY_AURA` → аура обязана появиться (иначе `aura_not_applied`);
+цена > 0 → ресурс реально списан (строки `PWR`, иначе `power_not_spent`);
+эффект урона → уже существующая проверка `cast_without_damage`.
+
+**Слой 2 — таблица `playerbots_mechanics` (ручные знания).**
+Схема/тип/семантика колонок — в шапке `sql/world_playerbots_mechanics.sql`.
+Проверки: `proc_after`, `aura_after`, `power_cost` (см. таблицу §5.1).
+Исполнение: при закрытии сессии по таймлайну событий (`C/D/F/A/P`),
+окно `window_ms` обязано целиком укладываться в длительность сессии.
+
+**Гейт: оба слоя в `.qa.txt`, слой 2 читает только QA-роль.**
+Обычные игровые боты таблицу механик не читают и не применяют —
+гейт `IsQAAccount` в `PlayerbotDummyLog::WriteQaReport`
+(слой 1 — только отчёт, поведение ботов не меняет вовсе).
+
+**Как расширять на другие классы:** починил класс → вставил строки своего
+`class_id` в `sql/world_playerbots_mechanics.sql` (и при необходимости
+`world_playerbots_class_knowledge.sql`) → `INSERT IGNORE` в мировую БД →
+QA-боты этого класса начинают ловить его баги. Класс без строк виден в
+отчёте как `[INFO] mechanics_coverage class=N` — это план работ, а не ошибка.
+Сид: паладин (class_id=2) — Templar/Herald (см. сам SQL).
+Файлы: `sql/world_playerbots_mechanics.sql` (применить вручную в World DB),
+код — `src/bot/DummyLog.{h,cpp}` (запись событий + отчёт),
+`src/bot/PlayerbotAI.cpp` (`NotePowerSpent` в `CastSpellAt`).
 
 ---
 

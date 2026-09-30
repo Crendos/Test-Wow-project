@@ -14,6 +14,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 class Player;
 class Unit;
@@ -47,6 +48,10 @@ public:
 
     // сводка sweep для QA-отчёта (вызывается из PlayerbotAI::StopDummy до StopRecording)
     void SetSweepSummary(Player const* bot, uint32 ok, uint32 fail, uint32 total);
+
+    // слой 1 (авто): фактическое списание ресурса после успешного каста
+    // (вызывается из PlayerbotAI::CastSpellAt; spent=0 при цене>0 = прок/баг — см. PWR в логе)
+    void NotePowerSpent(Player const* bot, uint32 spellId, int32 spent);
 
     static std::string SpellName(uint32 spellId);
     static std::string CastResultName(int32 result);         // SpellCastResult → человекочитаемое имя
@@ -82,14 +87,26 @@ private:
         std::string sweepSummary;                               // "SWEEP ok=... fail=..." если был sweep
         std::unordered_map<uint32 /*spellId*/, AuraSnap> botAuras;
         std::unordered_map<uint32 /*spellId*/, AuraSnap> targetAuras;
+        // --- слои 1-2 QA (авто-ожидания из DBC + playerbots_mechanics) ---
+        std::unordered_set<uint32 /*spellId*/> auraSeen;   // все ауры, когда-либо виденные (self+target)
+        struct Ev
+        {
+            uint32 tMs;    // от старта записи
+            char   ev;     // C=cast, D=damage, F=cast_fail, A=aura_apply, P=power_spent
+            uint32 spell;
+            int32  v;      // amount / result / spent
+        };
+        std::vector<Ev> timeline;                            // для проверки окон механик (cap 20000)
     };
 
     Record* Find(uint32 botCounter);
     void PollAuras(Record& rec, Player* bot);
     void Write(Record& rec, std::string const& line);
-    // QA-отчёт: анализ агрегатов сессии → файл <session>.qa.txt; возвращает путь
+    void PushEv(Record& rec, char ev, uint32 spell, int32 v);   // событие в таймлайн (для механик)
+    // QA-отчёт: анализ агрегатов сессии → файл <session>.qa.txt; возвращает путь.
+    // qaRole — знания playerbots_mechanics читаются ТОЛЬКО для роли QA; classId — ключ слоя 2.
     std::string WriteQaReport(Record const& rec, std::string const& sessionPath,
-                              std::string const& reason, float duration);
+                              std::string const& reason, float duration, bool qaRole, uint8 classId);
 
     std::unordered_map<uint32 /*bot guid counter*/, Record> m_records;
     uint32 m_globalPollMs = 0;
