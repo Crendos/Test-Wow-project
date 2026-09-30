@@ -255,6 +255,19 @@ SELECT id, username FROM account WHERE id BETWEEN 9500 AND 9599;
 Шапка отчёта: бот, цель/entry, время, `reason` и ссылка на сессионный `.log`
 (там же полные строки `CAST`/`CAST_FAIL`/`DMG` с таймкодами для каждого пункта).
 
+**Атрибуция по талантам (только QA-отчёты).** Каждая находка со spell ID
+дополняется суффиксом ` | талант: <Имя> (<ID>) [hero: <дерево>]` — «под каким
+талантом это идёт», если талант влияет на спелл. Источники: (а) DBC
+`TraitDefinition` — талант-нода **даёт** спелл (SpellID/VisibleSpellID),
+**перекрывает** базовый (`OverridesSpellID`) либо его эффект **триггерит**
+другой спелл (`EffectTriggerSpell`); (б) таблица `playerbots_hero_talents`
+(`[hero: templar]` и т.п.). Если талант не влияет — суффикса нет. Примеры:
+
+```
+[SUSPECT] cast_without_damage spell=429826 name="Hammer of Light" casts=3 … | талант: Hammer of Light (429826) [hero: templar]
+[BUG] mechanic_missing check=aura_after trigger=431413 expected_spell=431413 … | талант: Sun Sear (431413) [hero: herald]
+```
+
 Формат: `T=<сек с начала> <ТИП> key=value …` (имена в кавычках).
 
 | Тип | Источник | Что даёт |

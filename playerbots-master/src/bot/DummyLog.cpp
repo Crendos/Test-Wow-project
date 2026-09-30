@@ -9,6 +9,7 @@
 
 #include "Config.h"
 #include "Creature.h"
+#include "DB2Stores.h"     // sTraitNodeEntryStore/sTraitDefinitionStore — атрибуция находок по талантам
 #include "DatabaseEnv.h"   // WorldDatabase — таблица playerbots_mechanics (слой 2, только QA)
 #include "Log.h"
 #include "Map.h"
@@ -31,6 +32,7 @@
 #include <iomanip>
 #include <sstream>
 #include <vector>
+#include <algorithm>
 
 namespace
 {
@@ -561,6 +563,85 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
         return false;
     };
 
+    // --- атрибуция по талантам (только для роли QA): «спелл → влияющий талант» ---
+    // Источники: (а) DBC TraitDefinition — талант-нода даёт/перекрывает/триггерит спелл;
+    // (б) наша таблица playerbots_hero_talents — принадлежность спелла геро-дереву.
+    // Строится один раз на отчёт; не-QA отчёты карту не строят (talentHint → пусто).
+    std::unordered_map<uint32, std::vector<uint32>> talDirect, talGrants, talOverrides;
+    std::unordered_map<uint32, std::string> heroTreeOf;
+    if (qaRole)
+    {
+        for (TraitNodeEntryEntry const* oe : sTraitNodeEntryStore)
+        {
+            if (!oe)
+                continue;
+            TraitDefinitionEntry const* def = sTraitDefinitionStore.LookupEntry(oe->TraitDefinitionID);
+            if (!def)
+                continue;
+            uint32 talent = def->SpellID > 0 ? uint32(def->SpellID)
+                           : (def->VisibleSpellID > 0 ? uint32(def->VisibleSpellID) : 0);
+            if (!talent)
+                continue;
+            if (def->SpellID > 0)
+                talDirect[uint32(def->SpellID)].push_back(talent);
+            if (def->VisibleSpellID > 0)
+                talDirect[uint32(def->VisibleSpellID)].push_back(talent);
+            if (def->OverridesSpellID > 0)
+                talOverrides[uint32(def->OverridesSpellID)].push_back(talent);
+            // талант-спелл, триггерящий/выдающий другой спелл (прок-фишки деревьев)
+            if (SpellInfo const* tsi = sSpellMgr->GetSpellInfo(talent, DIFFICULTY_NONE))
+                for (SpellEffectInfo const& eff : tsi->GetEffects())
+                    if (eff.TriggerSpell)
+                        talGrants[eff.TriggerSpell].push_back(talent);
+        }
+
+        if (QueryResult hres = WorldDatabase.Query(
+                "SELECT tree, spell_id FROM playerbots_hero_talents WHERE class = " + std::to_string(classId)))
+        {
+            do
+            {
+                Field* h = hres->Fetch();
+                heroTreeOf[h[1].GetUInt32()] = h[0].GetString();
+            } while (hres->NextRow());
+        }
+    }
+
+    auto talentHint = [&](uint32 sp) -> std::string
+    {
+        if (!qaRole || !sp)
+            return std::string();
+        std::vector<uint32> cands;
+        auto collect = [&cands](std::unordered_map<uint32, std::vector<uint32>> const& m, uint32 key)
+        {
+            auto it = m.find(key);
+            if (it == m.end())
+                return;
+            for (uint32 v : it->second)
+                if (std::find(cands.begin(), cands.end(), v) == cands.end())
+                    cands.push_back(v);
+        };
+        collect(talDirect, sp);
+        collect(talOverrides, sp);
+        collect(talGrants, sp);
+
+        auto hero = heroTreeOf.find(sp);
+        std::string heroSuffix = hero != heroTreeOf.end() ? " [hero: " + hero->second + "]" : std::string();
+        if (cands.empty())
+            return hero != heroTreeOf.end()
+                ? " | талант: герой-дерево " + hero->second + " (спелл " + std::to_string(sp) + ")"
+                : std::string();
+
+        std::string out = " | талант: ";
+        for (size_t i = 0; i < cands.size() && i < 3; ++i)
+        {
+            if (i)
+                out += ", ";
+            out += SpellName(cands[i]) + " (" + std::to_string(cands[i]) + ")";
+        }
+        out += heroSuffix;
+        return out;
+    };
+
     // 1) неизвестные коды отказа — главная находка QA (непокрытый случай/баг ядра)
     for (auto const& kv : rec.failCount)
     {
@@ -574,6 +655,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
            << " result=" << rn
            << " count=" << kv.second
            << " — код отказа не распознан: разобрать вручную (см. enum SpellCastResult)";
+        os << talentHint(kv.first);
         add(os.str());
         flagged.insert(kv.first);
         ++findings;
@@ -593,6 +675,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
            << " name=\"" << SpellName(kv.first) << '"'
            << " count=" << kv.second
            << " — спендер отклонён по ресурсу (Holy Power и пр.)";
+        os << talentHint(kv.first);
         add(os.str());
         flagged.insert(kv.first);
         ++findings;
@@ -610,6 +693,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
            << " name=\"" << SpellName(kv.first) << '"'
            << " casts=" << kv.second
            << " — касты прошли, урона с этим spellId нет: свери лог (возможен баг/прок-замена)";
+        os << talentHint(kv.first);
         add(os.str());
         flagged.insert(kv.first);
         ++findings;
@@ -632,6 +716,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
            << " name=\"" << SpellName(kv.first) << '"'
            << " result=" << CastResultName(lastResult(kv.first))
            << " count=" << kv.second;
+        os << talentHint(kv.first);
         add(os.str());
         flagged.insert(kv.first);
         ++findings;
@@ -664,6 +749,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
            << " casts=" << kv.second
            << " — DBC обещает эффект ауры, но она не появлялась ни у бота, ни у цели"
               " (или аура короче поллинга300 мс) — свери лог";
+        os << talentHint(kv.first);
         add(os.str());
         flagged.insert(kv.first);
         ++findings;
@@ -704,6 +790,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                << " casts=" << kv.second
                << " — цена >0 по DBC, но списание не зафиксировано (см. строки PWR в логе):"
                   " бесплатный прок или баг";
+            os << talentHint(kv.first);
             add(os.str());
             flagged.insert(kv.first);
             ++findings;
@@ -771,6 +858,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                             std::ostringstream os;
                             os << "[INFO] mechanic_skipped check=power_cost spell=" << trig
                                << " — нет данных о списании (каст был, PWR не записан)";
+                            os << talentHint(trig);
                             add(os.str());
                             ++findings;
                         }
@@ -781,6 +869,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                        << " name=\"" << SpellName(trig) << '"'
                        << " expected=" << arg << " got=" << got
                        << " — «" << note << "»: цена не сходится (бесплатный прок или баг)";
+                    os << talentHint(trig);
                     add(os.str());
                     ++findings;
                     continue;
@@ -791,6 +880,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                     std::ostringstream os;
                     os << "[INFO] mechanic_unknown_type check=\"" << check << "\" spell=" << trig
                        << " — тип не поддерживается этим ядром (обнови playerbots/cpp)";
+                    os << talentHint(trig);
                     add(os.str());
                     ++findings;
                     continue;
@@ -805,6 +895,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                     os << "[INFO] mechanic_window_active check=" << check
                        << " trigger=" << trig << " expected_spell=" << arg
                        << " — окно " << window << " мс ещё не истекло внутри сессии, не проверено";
+                    os << talentHint(arg);
                     add(os.str());
                     ++findings;
                     continue;
@@ -843,6 +934,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                        << " window_ms=" << window
                        << " — «" << note << "»: в окне после триггера аура не появилась:"
                           " механика не реализована/не сработала";
+                    os << talentHint(arg);
                     add(os.str());
                     ++findings;
                     continue;
@@ -855,6 +947,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                     os << "[INFO] mechanic_skipped check=proc_after"
                        << " trigger=" << trig << " expected_spell=" << arg
                        << " — «" << note << "»: арг ни разу не кастовался, не проверено";
+                    os << talentHint(arg);
                     add(os.str());
                     ++findings;
                     continue;
@@ -887,6 +980,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                            << " — «" << note << "»: после триггера арг пробовали и отказали"
                               " — механика не реализована/не сработала";
                     }
+                    os << talentHint(arg);
                     add(os.str());
                     ++findings;
                 }
