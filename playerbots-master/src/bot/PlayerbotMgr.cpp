@@ -275,7 +275,8 @@ void PlayerbotMgr::RemoveAll()
 
 PlayerbotAI* PlayerbotMgr::GetBotAI(std::string const& botName)
 {
-    if (ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName))
+    ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName);
+    if (!guid.IsEmpty())
     {
         auto itr = m_bots.find(sCharacterCache->GetCharacterAccountIdByGuid(guid));
         if (itr != m_bots.end())
