@@ -1148,6 +1148,7 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
     if (!committed)
     {
         res.error += "персонаж НЕ закоммитился в characters за 3 с (MySQL занят/недоступен — смотри Server.log; "
+            "если там [1062] Duplicate entry — хвосты после ручного удаления персонажа → tools/cleanup_orphans.sql; "
             "строка может появиться позже, но кэш имен не заполнен — перезайди/перезапусти сервер); ";
         newChar.reset();
         delete session;
