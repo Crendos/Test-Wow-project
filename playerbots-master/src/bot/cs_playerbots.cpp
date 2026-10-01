@@ -246,13 +246,13 @@ namespace
             return true;
         }
 
-        // .playerbots create <account> class=paladin [race=N] [gender=m|f] [level=N]
+        // .playerbots create <account> class=paladin [race=N] [side=ally|horde] [gender=m|f] [level=N]
         //                     [spec=dps|heal|tank|имя|ID] [hero=templar[,herald|all]] [item=ID[,ID]] [name=X]
         static bool HandleBotCreateCommand(ChatHandler* handler, Tail args)
         {
             if (args.empty())
             {
-                handler->SendSysMessage("Использование: .playerbots create <account> class=паладин|2 [race=N] [gender=m|f] [level=N] [spec=dps|heal|tank|имя|ID] [hero=ветка[,ветка]|all] [item=ID[,ID...]] [name=Имя]");
+                handler->SendSysMessage("Использование: .playerbots create <account> class=паладин|2 [race=N] [side=ally|horde] [gender=m|f] [level=N] [spec=dps|heal|tank|имя|ID] [hero=ветка[,ветка]|all] [item=ID[,ID...]] [name=Имя]");
                 handler->SendSysMessage("Пример: .playerbots create 9001 class=paladin level=80 spec=dps hero=templar,herald item=2000");
                 handler->SendSysMessage("hero: обе ветки спека паладина — Ret templar,herald | Holy herald,lightsmith | Prot templar,lightsmith (или all = все ветки класса)");
                 handler->SetSentErrorMessage(true);
@@ -289,7 +289,35 @@ namespace
                 if (k == "class")
                     c.classId = PlayerbotMgr::ParseClassToken(v);
                 else if (k == "race")
+                {
+                    if (!c.side.empty())
+                    {
+                        handler->SendSysMessage("race= и side= одновременно нельзя — выбери одно.");
+                        handler->SetSentErrorMessage(true);
+                        return false;
+                    }
                     c.raceId = ToU32(v);
+                }
+                else if (k == "side")
+                {
+                    if (c.raceId)
+                    {
+                        handler->SendSysMessage("race= и side= одновременно нельзя — выбери одно.");
+                        handler->SetSentErrorMessage(true);
+                        return false;
+                    }
+                    std::string s = LowerStr(v);
+                    if (s == "ally" || s == "alliance" || s == "a" || s == "альянс")
+                        c.side = "ally";
+                    else if (s == "horde" || s == "h" || s == "орда")
+                        c.side = "horde";
+                    else
+                    {
+                        handler->SendSysMessage(fmt::format("side: '{}'. Нужно ally|horde.", v));
+                        handler->SetSentErrorMessage(true);
+                        return false;
+                    }
+                }
                 else if (k == "level")
                     c.level = std::max<uint32>(1, ToU32(v));
                 else if (k == "spec")

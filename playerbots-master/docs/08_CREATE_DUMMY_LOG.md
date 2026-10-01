@@ -18,7 +18,7 @@
 ## 1. `.playerbots create`
 
 ```
-.playerbots create <account> class=<класс> [race=N] [gender=m|f] [level=N]
+.playerbots create <account> class=<класс> [race=N] [side=ally|horde] [gender=m|f] [level=N]
                    [spec=dps|heal|tank|имя|ID] [hero=<дерево>]
                    [item=ID[,ID...]] [name=Имя]
 ```
@@ -28,6 +28,7 @@
 ```
 .playerbots create 9001 class=paladin level=80 spec=dps hero=templar
 .playerbots create 9002 class=paladin level=80 spec=ret item=2000,item=2001 name=Qwk
+.playerbots create 9003 class=paladin level=90 spec=dps hero=templar side=horde
 ```
 
 | Параметр | Значение |
@@ -35,6 +36,7 @@
 | `<account>` | ID аккаунта в **auth**. Персонаж привязывается к нему. Обычно — бот-диапазон `Playerbots.FreeAccountsStart/End` (9000…9499); вне диапазона команда предупредит. |
 | `class=` | `paladin`/`pala`/`2`… (warrior, hunter, rogue, priest, dk, shaman, mage, warlock, monk, druid, dh, evoker) или число. |
 | `race=` | `RACE_*` число. Пропущено → первая playable-раса, у которой есть комбинация с классом (для паладина будет human=1). |
+| `side=` | `ally`/`alliance`/`a`/`альянс` либо `horde`/`h`/`орда` — выбор **стороны**: авто-подбор первой playable-расы стороны, валидной для класса (паладин: ally→human=1, horde→bloodelf=10). Нельзя вместе с `race=` (парсер откажет). |
 | `gender=` | `m`/`f`/`0`/`1` (по умолчанию `m`). |
 | `level=` | 1…`MaxPlayerLevel` (под кап сервера). **Уровень ставится через `GiveLevel` ПОСЛЕ выбора спека** — спеллы спека выучиваются автоматически. |
 | `spec=` | пусто → первый DPS-спек класса (паладин → Retribution 70); `dps`/`dd`, `heal`, `tank` (роль из ChrSpecialization.Role); имя спека по-английски (`retribution`, `holy`…); либо точный Spell/Spec ID (`70`). |

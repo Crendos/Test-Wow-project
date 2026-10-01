@@ -855,6 +855,25 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
             return res;
         }
     }
+    else if (!c.side.empty())
+    {
+        // side=ally|horde: первая раса списка, валидная для класса (GetPlayerInfo решает)
+        static uint32 const allyRaces[]  = { 1, 3, 4, 11, 22, 7, 34, 31, 27, 28, 30 };
+        static uint32 const hordeRaces[] = { 10, 6, 2, 5, 8, 9, 33, 25, 29, 32, 26 };
+        bool const horde = (c.side == "horde");
+        uint32 const* list = horde ? hordeRaces : allyRaces;
+        size_t const count = horde ? sizeof(hordeRaces) / sizeof(hordeRaces[0])
+                                   : sizeof(allyRaces) / sizeof(allyRaces[0]);
+        for (size_t i = 0; i < count && !race; ++i)
+            if (racePlayable(list[i]) && sObjectMgr->GetPlayerInfo(list[i], c.classId))
+                race = uint32(list[i]);
+        if (!race)
+        {
+            res.error = "side=" + c.side + ": нет playable-расы для класса " + std::to_string(c.classId);
+            return res;
+        }
+        res.error += "side=" + c.side + " → race=" + std::to_string(race) + "; ";
+    }
     else
     {
         for (uint32 r = 1; r <= 40 && !race; ++r)

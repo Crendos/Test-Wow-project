@@ -38,6 +38,7 @@ struct BotCreateCriteria
     std::string hero;                // "" | ключ дерева (напр. "templar") — учит спеллы из world.playerbots_hero_talents
     std::vector<uint32> items;       // itemtemplate id; склад в сумки, экипировка потом: .playerbots equip
     std::string name;                // "" = случайный 3-4 латинских буквы
+    std::string side;                // "" | "ally" | "horde" — сторона; авто-подбор расы класса (нельзя с race=)
 };
 
 struct BotCreateResult
