@@ -15,7 +15,7 @@ Playerbots.MaxCount = 100
 # Диапазон accountId, зарезервированных под бот-аккаунты (таблица auth.account.id).
 # Используется только для предупреждения в логе (жёсткой проверки нет — см. docs/02).
 Playerbots.FreeAccountsStart = 9000
-Playerbots.FreeAccountsEnd   = 9499
+Playerbots.FreeAccountsEnd   = 9599
 
 # v6.1: диапазон АККАУНТОВ под QA-ботов (отдельно от игровых 9000..9499).
 # QA-бот = бот, чей аккаунт попал сюда. Отличия от игровых ботов:

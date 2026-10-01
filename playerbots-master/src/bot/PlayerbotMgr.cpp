@@ -42,7 +42,7 @@ PlayerbotMgr::PlayerbotMgr()
 {
     m_enabled          = sConfigMgr->GetBoolDefault("Playerbots.Enabled", false);
     m_freeAccountStart = sConfigMgr->GetIntDefault("Playerbots.FreeAccountsStart", 9000);
-    m_freeAccountEnd   = sConfigMgr->GetIntDefault("Playerbots.FreeAccountsEnd", 9499);
+    m_freeAccountEnd   = sConfigMgr->GetIntDefault("Playerbots.FreeAccountsEnd", 9599);
     m_qaAccountStart   = sConfigMgr->GetIntDefault("Playerbots.QAAccountsStart", 9500);
     m_qaAccountEnd     = sConfigMgr->GetIntDefault("Playerbots.QAAccountsEnd", 9599);
     m_maxBots          = sConfigMgr->GetIntDefault("Playerbots.MaxCount", 100);

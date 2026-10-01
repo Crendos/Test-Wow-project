@@ -489,6 +489,47 @@ namespace
                 }
                 if (!target)
                 {
+                    // Резерв для консоли/QA: ближайший спавн манекена на КАРТЕ бота —
+                    // телепортируем бота к нему, выделять цель не нужно.
+                    std::string const sql =
+                        "SELECT c.entry, c.position_x, c.position_y, c.position_z FROM creature c "
+                        "JOIN creature_template t ON c.entry = t.entry WHERE c.map = " + std::to_string(bot->GetMapId()) +
+                        " AND (t.name LIKE '%Dummy%' OR t.name LIKE '%Манекен%' OR t.name LIKE '%Training%') LIMIT 400";
+                    if (QueryResult spawnQr = WorldDatabase.Query(sql.c_str()))
+                    {
+                        float bestD2 = 1e30f;
+                        uint32 bestEntry = 0;
+                        float bx = 0.f, by = 0.f, bz = 0.f;
+                        do
+                        {
+                            Field* f = spawnQr->Fetch();
+                            uint32 e = f[0].GetUInt32();
+                            float x = f[1].GetFloat(), y = f[2].GetFloat(), z = f[3].GetFloat();
+                            float dx = x - bot->GetPositionX(), dy = y - bot->GetPositionY();
+                            float d2 = dx * dx + dy * dy;
+                            if (d2 < bestD2)
+                            {
+                                bestD2 = d2;
+                                bestEntry = e;
+                                bx = x;
+                                by = y;
+                                bz = z;
+                            }
+                        } while (spawnQr->NextRow());
+
+                        if (bestEntry)
+                        {
+                            bot->TeleportTo(bot->GetMapId(), bx, by, bz + 1.0f, bot->GetOrientation());
+                            target = bot->FindNearestCreature(bestEntry, 100.0f);
+                            if (target)
+                                handler->SendSysMessage(fmt::format(
+                                    "Бот телепортирован к манекену ({:.0f} {:.0f} {:.0f} map {}).",
+                                    bx, by, bz, bot->GetMapId()));
+                        }
+                    }
+                }
+                if (!target)
+                {
                     handler->SendSysMessage("Манекен не найден: выдели цель (или укажи entry).");
                     handler->SetSentErrorMessage(true);
                     return false;
