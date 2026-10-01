@@ -492,8 +492,8 @@ namespace
                     // Резерв для консоли/QA: ближайший спавн манекена на КАРТЕ бота —
                     // телепортируем бота к нему, выделять цель не нужно.
                     std::string const sql =
-                        "SELECT c.entry, c.position_x, c.position_y, c.position_z FROM creature c "
-                        "JOIN creature_template t ON c.entry = t.entry WHERE c.map = " + std::to_string(bot->GetMapId()) +
+                        "SELECT c.id, c.position_x, c.position_y, c.position_z FROM creature c "
+                        "JOIN creature_template t ON c.id = t.entry WHERE c.map = " + std::to_string(bot->GetMapId()) +
                         " AND (t.name LIKE '%Dummy%' OR t.name LIKE '%Манекен%' OR t.name LIKE '%Training%') LIMIT 400";
                     if (QueryResult spawnQr = WorldDatabase.Query(sql.c_str()))
                     {
