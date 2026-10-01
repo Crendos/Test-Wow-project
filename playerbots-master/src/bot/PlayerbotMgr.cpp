@@ -831,6 +831,13 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
     }
     TC_LOG_INFO("playerbots", "CreateCharacter[{}]: аккаунт ok", accountId);
 
+    // FK auth.battlenet_item_appearances → battlenet_accounts(id): фейковый
+    // battlenetAccountId бот-сессии равен accountId, поэтому без строки здесь
+    // трансмог-сохранения бота падают с errno 1452 (async, бота не убивает, но шумно).
+    LoginDatabase.Execute(("INSERT IGNORE INTO battlenet_accounts (id, email, salt, verifier) VALUES ("
+        + std::to_string(accountId) + ", 'pb" + std::to_string(accountId)
+        + "@playerbots.local', UNHEX(REPEAT('00',32)), UNHEX(REPEAT('00',32)))").c_str());
+
     // --- 2. race / class / gender -----------------------------------------
     auto racePlayable = [](uint32 r) -> bool
     {
