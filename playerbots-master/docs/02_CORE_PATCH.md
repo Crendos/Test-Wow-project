@@ -37,6 +37,10 @@
   в `_legitCharacters`, конструктор `LoginQueryHolder`,
   `CharacterDatabase.DelayQueryHolder(holder)` → `AfterComplete` callback в
   `HandlePlayerLogin(holder)` — дословно повторяет `HandleContinuePlayerLogin`.
+  ⚠️ Callback обрабатывается только в `WorldSession::Update` → `ProcessQueryCallbacks`,
+  а тот вызывается лишь для сессий в `World::m_sessions` — поэтому модуль ОБЯЗАН звать
+  `sWorld->AddSession(session)` (см. `PlayerbotMgr::Login`): иначе бот молча не входит
+  («принят», `Online players: 0`, AI не цепляется).
 
 ### `src/server/game/Handlers/CharacterHandler.cpp`
 - Удалены `class LoginQueryHolder` и тело `LoginQueryHolder::Initialize()` (переехали выше).

@@ -195,8 +195,12 @@ PlayerbotMgr::Status PlayerbotMgr::Login(PlayerBotEntry& entry)
     if (!guid)
         return Status::NoPlayer;
 
-    // критичный порядок: пометить до того, как World::AddSession_ вытолкнет сессию в очередь
+    // критичный порядок: пометить до того, как World::AddSession_ вытолкнет сессию в очередь.
+    // AddSession ОБЯЗАТЕЛЕН: без регистрации в World::m_sessions никто не вызывает
+    // WorldSession::Update → ProcessQueryCallbacks, колбэк LoginPlayerBot молча не
+    // срабатывает и бот никогда не входит в мир («принят», но players:0 / не онлайн).
     entry.session->MarkAsPlayerBot();
+    sWorld->AddSession(entry.session);
     entry.session->LoginPlayerBot(guid);
 
     TC_LOG_INFO("playerbots", "Login: бот {} заходит (accountId {})", entry.name, entry.accountId);
