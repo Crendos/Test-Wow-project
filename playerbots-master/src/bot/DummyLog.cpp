@@ -290,12 +290,13 @@ void PlayerbotDummyLog::PollAuras(Record& rec, Player* bot)
             auto it = snap.find(kv.first);
             if (it == snap.end())
             {
-                PushEv(rec, 'A', kv.second.spellId, 0);   // слой 2: появление ауры в таймлайне
                 int32 dur = -1;
-                // длительность нужна только в строке APPLY
+                // длительность из данных — кладём в v события A (нужна для aura_duration)
                 for (auto const& a : unit->GetAppliedAuras())
                     if (a.second && a.second->GetBase() && a.second->GetBase()->GetId() == kv.first)
                     { dur = a.second->GetBase()->GetDuration(); break; }
+
+                PushEv(rec, 'A', kv.second.spellId, dur);   // v = ожидаемая длительность (мс), -1 = бесконечная
 
                 std::ostringstream os;
                 os << "AURA + spell=" << kv.second.spellId
@@ -323,6 +324,7 @@ void PlayerbotDummyLog::PollAuras(Record& rec, Player* bot)
         {
             if (cur.count(kv.first))
                 continue;
+            PushEv(rec, 'R', kv.second.spellId, 0);   // снятие ауры → измерение длительности (aura_duration)
             std::ostringstream os;
             os << "AURA - spell=" << kv.second.spellId
                << " name=\"" << kv.second.name << '"'
@@ -496,6 +498,14 @@ void PlayerbotDummyLog::Note(Player const* bot, std::string const& text)
         return;
     if (Record* rec = Find(bot->GetGUID().GetCounter()))
         Write(*rec, text);
+}
+
+void PlayerbotDummyLog::SetKnowledge(Player const* bot, std::vector<uint32> spells)
+{
+    if (!bot)
+        return;
+    if (Record* rec = Find(bot->GetGUID().GetCounter()))
+        rec->knowledge = std::move(spells);
 }
 
 void PlayerbotDummyLog::SetSweepSummary(Player const* bot, uint32 ok, uint32 fail, uint32 total)
@@ -865,6 +875,16 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                             add(os.str());
                             ++findings;
                         }
+                        else
+                        {
+                            std::ostringstream os;
+                            os << "[INFO] mechanic_not_cast check=power_cost trigger=" << trig
+                               << " name=\"" << SpellName(trig) << '"'
+                               << " — «" << note << "»: спелл не кастован в сессии — цена не проверена";
+                            os << talentHint(trig);
+                            add(os.str());
+                            ++findings;
+                        }
                         continue;
                     }
                     std::ostringstream os;
@@ -875,6 +895,98 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                     os << talentHint(trig);
                     add(os.str());
                     ++findings;
+                    continue;
+                }
+
+                if (check == "aura_duration")
+                {
+                    // spell_id = сама аура, arg = ожидаемая длительность (мс),
+                    // window_ms = допуск (поллинг аур каждые 300 мс → ± порог).
+                    int64 aT = -1;
+                    int32 dataDur = -1;
+                    for (auto const& ev : rec.timeline)
+                        if (ev.ev == 'A' && ev.spell == trig)
+                        {
+                            aT = ev.tMs;
+                            dataDur = ev.v;
+                            break;
+                        }
+
+                    if (aT < 0)
+                    {
+                        std::ostringstream os;
+                        os << "[INFO] mechanic_not_applied check=aura_duration spell=" << trig
+                           << " name=\"" << SpellName(trig) << '"'
+                           << " — «" << note << "»: аура не появлялась в сессии"
+                              " (талант не взят / триггер не кастован / механика не сработала)";
+                        os << talentHint(trig);
+                        add(os.str());
+                        ++findings;
+                        continue;
+                    }
+
+                    // (1) данные спелла против дизайна: в данных стоит dataDur, а должен arg
+                    if (dataDur > 0 && arg > 0 && int64(dataDur) + int64(window) < int64(arg))
+                    {
+                        std::ostringstream os;
+                        os << "[SUSPECT] mechanic_duration_data spell=" << trig
+                           << " name=\"" << SpellName(trig) << '"'
+                           << " data_ms=" << dataDur << " expected_ms=" << arg
+                           << " — «" << note << "»: в данных длительность меньше дизайной";
+                        os << talentHint(trig);
+                        add(os.str());
+                        ++findings;
+                    }
+
+                    // (2) наблюдаемое время жизни первого появления ауры
+                    int64 rT = -1;
+                    for (auto const& ev : rec.timeline)
+                        if (ev.ev == 'R' && ev.spell == trig && ev.tMs > uint32(aT))
+                        {
+                            rT = ev.tMs;
+                            break;
+                        }
+
+                    if (rT < 0)
+                    {
+                        int64 elapsed = int64(durMs) - aT;
+                        if (int64(arg) > 0 && elapsed + int64(window) < int64(arg))
+                        {
+                            std::ostringstream os;
+                            os << "[INFO] mechanic_duration_unfinished check=aura_duration spell=" << trig
+                               << " name=\"" << SpellName(trig) << '"'
+                               << " observed_ms=" << elapsed << " expected_ms=" << arg
+                               << " — «" << note << "»: аура не истекла внутри сессии — снятие не наблюдалось, не проверено";
+                            os << talentHint(trig);
+                            add(os.str());
+                            ++findings;
+                        }
+                        continue;
+                    }
+
+                    int64 actual = rT - aT;
+                    if (int64(arg) > 0 && actual + int64(window) < int64(arg))
+                    {
+                        std::ostringstream os;
+                        os << "[SUSPECT] mechanic_too_short check=aura_duration spell=" << trig
+                           << " name=\"" << SpellName(trig) << '"'
+                           << " actual_ms=" << actual << " expected_ms=" << arg
+                           << " — «" << note << "»: аура держалась короче дизайна — прок кривой или снята рано";
+                        os << talentHint(trig);
+                        add(os.str());
+                        ++findings;
+                    }
+                    else if (int64(arg) > 0 && actual > int64(arg) + int64(window))
+                    {
+                        std::ostringstream os;
+                        os << "[SUSPECT] mechanic_too_long check=aura_duration spell=" << trig
+                           << " name=\"" << SpellName(trig) << '"'
+                           << " actual_ms=" << actual << " expected_ms=" << arg
+                           << " — «" << note << "»: аура держалась дольше дизайна";
+                        os << talentHint(trig);
+                        add(os.str());
+                        ++findings;
+                    }
                     continue;
                 }
 
@@ -891,7 +1003,17 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
 
                 int64 t0 = firstCastT(trig);
                 if (t0 < 0)
-                    continue;   // триггер не кастовался в сессии — нечего проверять
+                {
+                    // ничего не «молчит»: строка механики без триггера получает вердикт
+                    std::ostringstream os;
+                    os << "[INFO] mechanic_not_cast check=" << check
+                       << " trigger=" << trig << " name=\"" << SpellName(trig) << '"'
+                       << " — «" << note << "»: триггер не кастован в сессии — механика НЕ проверена";
+                    os << talentHint(trig);
+                    add(os.str());
+                    ++findings;
+                    continue;
+                }
                 if (durMs < uint32(t0) + window)
                 {
                     std::ostringstream os;
@@ -988,6 +1110,32 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                     ++findings;
                 }
             } while (mres->NextRow());
+        }
+    }
+
+    // --- COVERAGE: каждый спелл знания QA-бота получает вердикт — ни один талант
+    //     не «молчит» без строки отчёта (проверен / не кастован) -----------------
+    if (qaRole && !rec.knowledge.empty())
+    {
+        for (uint32 sp : rec.knowledge)
+        {
+            uint32 casts = 0, fails = 0;
+            if (auto it = rec.casted.find(sp); it != rec.casted.end())
+                casts = it->second;
+            if (auto it = rec.failCount.find(sp); it != rec.failCount.end())
+                fails = it->second;
+            bool const dmg = rec.damaged.count(sp) != 0;
+
+            std::ostringstream os;
+            if (!casts)
+                os << "[COVERAGE] not_cast spell=" << sp << " name=\"" << SpellName(sp) << '"'
+                   << " fails=" << fails
+                   << " — не кастован за сессию (КД/ресурс/не попал в ротацию) — талант/спелл НЕ проверен, повтори sweep";
+            else
+                os << "[COVERAGE] checked spell=" << sp << " name=\"" << SpellName(sp) << '"'
+                   << " casts=" << casts << " fails=" << fails << " dmg=" << (dmg ? 1 : 0);
+            os << talentHint(sp);
+            add(os.str());
         }
     }
 

@@ -830,6 +830,14 @@ bool PlayerbotAI::StartDummy(ObjectGuid targetGuid, Position const* dest, std::s
 
     // запись лога — симметрично со StopDummy
     sPlayerbotDummyLog.StartRecording(_bot, dummy);
+    // COVERAGE: все спеллы знания → вердикты в .qa.txt (ничего не «молчит»)
+    {
+        std::vector<uint32> ids;
+        ids.reserve(m_knowledge.size());
+        for (BotKnowledge const& k : m_knowledge)
+            ids.push_back(k.spellId);
+        sPlayerbotDummyLog.SetKnowledge(_bot, std::move(ids));
+    }
     return true;
 }
 

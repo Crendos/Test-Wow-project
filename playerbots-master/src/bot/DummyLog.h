@@ -49,6 +49,10 @@ public:
     // сводка sweep для QA-отчёта (вызывается из PlayerbotAI::StopDummy до StopRecording)
     void SetSweepSummary(Player const* bot, uint32 ok, uint32 fail, uint32 total);
 
+    // COVERAGE: список спеллов знания для QA-отчёта — каждый талант/спелл получает
+    // вердикт в .qa.txt (проверен / не кастован), ничего не «молчит» без строки
+    void SetKnowledge(Player const* bot, std::vector<uint32> spells);
+
     // слой 1 (авто): фактическое списание ресурса после успешного каста
     // (вызывается из PlayerbotAI::CastSpellAt; spent=0 при цене>0 = прок/баг — см. PWR в логе)
     void NotePowerSpent(Player const* bot, uint32 spellId, int32 spent);
@@ -85,6 +89,7 @@ private:
         std::unordered_map<uint32 /*spellId*/, uint32> failCount;
         std::unordered_map<uint32 /*spellId*/, int32> failResult;// последний код отказа
         std::string sweepSummary;                               // "SWEEP ok=... fail=..." если был sweep
+        std::vector<uint32> knowledge;                          // COVERAGE: все спеллы знания (SetKnowledge)
         std::unordered_map<uint32 /*spellId*/, AuraSnap> botAuras;
         std::unordered_map<uint32 /*spellId*/, AuraSnap> targetAuras;
         // --- слои 1-2 QA (авто-ожидания из DBC + playerbots_mechanics) ---
@@ -92,7 +97,7 @@ private:
         struct Ev
         {
             uint32 tMs;    // от старта записи
-            char   ev;     // C=cast, D=damage, F=cast_fail, A=aura_apply, P=power_spent
+            char   ev;     // C=cast, D=damage, F=cast_fail, A=aura_apply (v=длительность из данных, мс), R=aura_remove, P=power_spent
             uint32 spell;
             int32  v;      // amount / result / spent
         };
