@@ -555,6 +555,7 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
 
     std::vector<std::string> lines;
     std::unordered_set<uint32> flagged;      // спелл уже попал в находку — не дублируем
+    std::unordered_set<uint32> durSeeded;    // спеллы с дизайн-проверкой aura_duration из сида (их вердикт авторитетен)
     uint32 findings = 0;
     auto add = [&lines](std::string s) { lines.push_back(std::move(s)); };
 
@@ -838,6 +839,8 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                 uint32  arg    = f[2].GetUInt32();
                 uint32  window = f[3].GetUInt32();
                 std::string note = f[4].GetString();
+                if (check == "aura_duration")
+                    durSeeded.insert(trig);
 
                 auto firstCastT = [&rec](uint32 spell) -> int64
                 {
@@ -1135,6 +1138,123 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
                 os << "[COVERAGE] checked spell=" << sp << " name=\"" << SpellName(sp) << '"'
                    << " casts=" << casts << " fails=" << fails << " dmg=" << (dmg ? 1 : 0);
             os << talentHint(sp);
+            add(os.str());
+        }
+    }
+
+    // --- АУДИТ АУР: КАЖДАЯ аура сессии сверяется с её СОБСТВЕННОЙ длительностью
+    //     из данных (DBC, событие A v=dataDur) — без сида и без внешних доков.
+    //     «Прок криво: 4 с вместо 15» ловится на любом спелле, которого коснулся
+    //     бот (весь класс, все спеки). Для спеллов с дизайн-строкой aura_duration
+    //     из сида вердикт даёт та строка — здесь они пропускаются. ---------------
+    if (qaRole)
+    {
+        uint32 const auditMs = uint32(duration * 1000.0f);
+        int64 const kTol = 1500;   // поллинг аур каждые 300 мс → запас ~5 циклов
+
+        struct AuraPair { int64 aT; int64 rT; int32 data; };
+        std::unordered_map<uint32, std::vector<AuraPair>> pairs;
+        for (Record::Ev const& ev : rec.timeline)
+        {
+            if (ev.ev == 'A')
+                pairs[ev.spell].push_back({ int64(ev.tMs), -1, ev.v });
+            else if (ev.ev == 'R')
+            {
+                auto itP = pairs.find(ev.spell);
+                if (itP == pairs.end())
+                    continue;
+                for (auto pit = itP->second.rbegin(); pit != itP->second.rend(); ++pit)
+                    if (pit->rT < 0)
+                    {
+                        pit->rT = int64(ev.tMs);
+                        break;
+                    }
+            }
+        }
+
+        for (auto const& [spell, vec] : pairs)
+        {
+            if (durSeeded.count(spell))
+                continue;
+
+            uint32 const applied = uint32(vec.size());
+            uint32 closed = 0, nShort = 0, nLong = 0, nOpen = 0;
+            int32 dataRef = -1;
+
+            for (AuraPair const& p : vec)
+            {
+                if (p.data > 0)
+                    dataRef = p.data;
+
+                if (p.rT >= 0)
+                {
+                    ++closed;
+                    if (p.data <= 0)
+                        continue;   // в данных аура бесконечна — сверять нес чем
+
+                    int64 const obs = p.rT - p.aT;
+                    if (obs + kTol < p.data)
+                    {
+                        ++nShort;
+                        std::ostringstream os;
+                        os << "[SUSPECT] aura_duration_short spell=" << spell
+                           << " name=\"" << SpellName(spell) << '"'
+                           << " observed_ms=" << obs << " data_ms=" << p.data
+                           << " — аура держалась короче собственных данных (прок кривой / снята раньше срока)";
+                        os << talentHint(spell);
+                        add(os.str());
+                        ++findings;
+                    }
+                    else if (obs > p.data + kTol)
+                    {
+                        ++nLong;
+                        std::ostringstream os;
+                        os << "[SUSPECT] aura_duration_long spell=" << spell
+                           << " name=\"" << SpellName(spell) << '"'
+                           << " observed_ms=" << obs << " data_ms=" << p.data
+                           << " — аура держалась дольше данных (рефреш? снятие не сработало)";
+                        os << talentHint(spell);
+                        add(os.str());
+                        ++findings;
+                    }
+                }
+                else
+                {
+                    ++nOpen;    // снятие не наблюдалось до конца сессии
+                    int64 const elapsed = int64(auditMs) - p.aT;
+                    if (p.data > 0 && elapsed > p.data + kTol)
+                    {
+                        std::ostringstream os;
+                        os << "[SUSPECT] aura_never_removed spell=" << spell
+                           << " name=\"" << SpellName(spell) << '"'
+                           << " observed_ms=" << elapsed << " data_ms=" << p.data
+                           << " — по данным срок истёк, а аура висит: снятие не сработало";
+                        os << talentHint(spell);
+                        add(os.str());
+                        ++findings;
+                    }
+                    else if (p.data > 0 && elapsed + kTol < p.data)
+                    {
+                        std::ostringstream os;
+                        os << "[INFO] aura_active_at_end spell=" << spell
+                           << " name=\"" << SpellName(spell) << '"'
+                           << " observed_ms=" << elapsed << " data_ms=" << p.data
+                           << " — сессия кончилась до истечения ауры: снятие не проверено (не баг)";
+                        os << talentHint(spell);
+                        add(os.str());
+                        ++findings;
+                    }
+                }
+            }
+
+            // каждая аура получает вердикт-строку — ничего не проходит молча
+            std::ostringstream os;
+            os << "[AURA] spell=" << spell << " name=\"" << SpellName(spell) << '"'
+               << " applied=" << applied << " closed=" << closed
+               << " data_ms=" << dataRef
+               << " short=" << nShort << " long=" << nLong << " open=" << nOpen
+               << " — аудит длительностей (данные vs наблюдение, допуск ±" << kTol << " мс)";
+            os << talentHint(spell);
             add(os.str());
         }
     }
