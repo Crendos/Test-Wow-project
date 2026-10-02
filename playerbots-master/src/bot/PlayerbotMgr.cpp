@@ -1003,9 +1003,12 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
     // Правила (пререквизиты, бюджет очков, взаимоисключения selection-нод)
     // валидирует сам TraitMgr: жадно добавляем ноды по одному (несколько
     // проходов, чтобы цепочки пререквизитов доросли), после каждого шага
-    // конфиг остаётся сервер-валидным. Спеллы нод персонаж выучит при входе
-    // (.playerbots add) — ApplyTraitConfig активного combat-конфига;
-    // при недоверии сервера есть штатный fallback на granted-ноды.
+    // конфиг остаётся сервер-валидным.
+    // ВАЖНО: сам TC учит спеллы нод ТОЛЬКО когда клиент коммитит конфиг
+    // (UpdateTraitConfig → ApplyTraitEntryChanges) — ни при сохранении конфига,
+    // ни при входе он их НЕ применяет. Поэтому сразу после CreateTraitConfig
+    // зовём ApplyTraitConfig(configId, true) → LearnSpell всех нод, иначе у
+    // бота талант-спеллы не выучены (талант-часть книги/ротации пуста).
     {
         WorldPackets::Traits::TraitConfig traitConfig;
         traitConfig.Type = TraitConfigType::Combat;
@@ -1100,9 +1103,13 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
         if (!cands.empty())
         {
             newChar->CreateTraitConfig(traitConfig);
+            // Применяем ноды → LearnSpell талант-спеллов (TC сам этого не делает
+            // без клиентского коммита конфига — см. комментарий к блоку 7b);
+            // спеллы сохранятся в character_spell той же транзакцией SaveToDB.
+            newChar->ApplyTraitConfig(traitConfig.ID, true);
             TC_LOG_INFO("playerbots",
-                "CreateCharacter[{}]: автоталанты — деревьев {}, кандидатов {}, в конфиге {} нод",
-                accountId, trees.size(), cands.size(), traitConfig.Entries.size());
+                "CreateCharacter[{}]: автоталанты — деревьев {}, кандидатов {}, в конфиге {} нод (ApplyTraitConfig id {})",
+                accountId, trees.size(), cands.size(), traitConfig.Entries.size(), traitConfig.ID);
             res.error += "автоталанты: нод в trait-билде "
                 + std::to_string(traitConfig.Entries.size()) + "; ";
         }

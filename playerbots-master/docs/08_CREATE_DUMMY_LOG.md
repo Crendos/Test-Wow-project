@@ -53,6 +53,9 @@
   поэтому внешний вид будет дефолтным для расы;
 - спек → `SetPrimarySpecialization` + `SetActiveTalentGroup(OrderIndex)`;
 - `GiveLevel(level)` → `LearnSpecializationSpells` (спеллы спека ≤ уровня);
+- автоталанты: жадная сборка конфига → `CreateTraitConfig` → **`ApplyTraitConfig(id, true)`**
+  (`LearnSpell` талант-спеллов всех нод — сам TC записанный конфиг без клиентского
+  коммита НЕ применяет) → сохраняется в `character_trait_config`/`character_trait_entry`;
 - `hero=` → `LearnSpell` каждого spell_id дерева;
 - `item=` → `StoreNewItemInBestSlots`;
 - **без** `AT_LOGIN_FIRST` (бот не проходит «первый вход»-флоу);
