@@ -35,7 +35,7 @@ public:
     void Update(uint32 diff);
 
     // входы из ScriptMgr-хуков (см. AddSC_playerbots_dummylog в DummyLog.cpp)
-    void HandleFinalDamage(Unit const* attacker, uint32 amount);                       // OnDamage — авторитетный итог
+    void HandleFinalDamage(Unit const* attacker, Unit const* victim, uint32 amount);  // OnDamage — авторитетный итог (+taken бота)
     void HandleSpellDamage(Unit const* attacker, Unit const* victim, uint32 spellId, int32 amount);
     void HandleMeleeDamage(Unit const* attacker, Unit const* victim, uint32 amount);
     void HandlePeriodicDamage(Unit const* attacker, Unit const* victim, uint32 amount);
@@ -90,6 +90,17 @@ private:
         std::unordered_map<uint32 /*spellId*/, int32> failResult;// последний код отказа
         std::string sweepSummary;                               // "SWEEP ok=... fail=..." если был sweep
         std::vector<uint32> knowledge;                          // COVERAGE: все спеллы знания (SetKnowledge)
+        // --- инвентарь сессии: УРОН/ХИЛ/ПРОКИ/АБСОРБЫ/РЕСУРСЫ по каждому спеллу ---
+        struct Agg { uint32 hits = 0; uint64 total = 0; };
+        std::unordered_map<uint32, Agg> dmgBySpell;             // spellId → урон (0 = melee/авто)
+        Agg  dotUnattr;                                         // периодика без однозначного spellId
+        std::unordered_map<uint32, Agg> healBySpell;            // spellId → хилы (HoT/каст ≤4 с)
+        Agg  healUnattr;                                        // хилы без привязки
+        std::unordered_map<uint32, int64> powerBySpell;         // сумма списанного ресурса
+        std::unordered_map<uint32, uint32> appliedCount;        // сколько раз аура появлялась
+        std::unordered_map<uint32, uint8>  auraPos;             // 1 = позитивная аура
+        std::unordered_map<uint32, uint8>  auraAbsorb;          // 1 = аура-щит (absorb)
+        uint64 totalTaken = 0;                                  // урон, полученный ботом
         std::unordered_map<uint32 /*spellId*/, AuraSnap> botAuras;
         std::unordered_map<uint32 /*spellId*/, AuraSnap> targetAuras;
         // --- слои 1-2 QA (авто-ожидания из DBC + playerbots_mechanics) ---

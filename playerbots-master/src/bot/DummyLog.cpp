@@ -58,10 +58,10 @@ namespace
     public:
         playerbots_combat_log_script() : UnitScript("playerbots_combat_log_script") { }
 
-        void OnDamage(Unit* attacker, Unit* /*victim*/, uint32& damage) override
+        void OnDamage(Unit* attacker, Unit* victim, uint32& damage) override
         {
-            if (attacker)
-                sPlayerbotDummyLog.HandleFinalDamage(attacker, damage);
+            if (attacker || victim)
+                sPlayerbotDummyLog.HandleFinalDamage(attacker, victim, damage);
         }
 
         void ModifyMeleeDamage(Unit* target, Unit* attacker, uint32& damage) override
@@ -297,6 +297,11 @@ void PlayerbotDummyLog::PollAuras(Record& rec, Player* bot)
                     { dur = a.second->GetBase()->GetDuration(); break; }
 
                 PushEv(rec, 'A', kv.second.spellId, dur);   // v = ожидаемая длительность (мс), -1 = бесконечная
+                ++rec.appliedCount[kv.first];
+                rec.auraPos[kv.first] = kv.second.positive ? 1 : 0;
+                if (SpellInfo const* asi = sSpellMgr->GetSpellInfo(kv.first, DIFFICULTY_NONE))
+                    if (asi->HasAura(SPELL_AURA_SCHOOL_ABSORB) || asi->HasAura(SPELL_AURA_MANA_SHIELD))
+                        rec.auraAbsorb[kv.first] = 1;
 
                 std::ostringstream os;
                 os << "AURA + spell=" << kv.second.spellId
@@ -362,12 +367,14 @@ void PlayerbotDummyLog::Update(uint32 diff)
 
 // ---------------------------------------------------------------- обработчики хуков
 
-void PlayerbotDummyLog::HandleFinalDamage(Unit const* attacker, uint32 amount)
+void PlayerbotDummyLog::HandleFinalDamage(Unit const* attacker, Unit const* victim, uint32 amount)
 {
-    if (!attacker)
-        return;
-    if (Record* rec = Find(attacker->GetGUID().GetCounter()))
-        rec->totalDealt += amount;
+    if (attacker)
+        if (Record* rec = Find(attacker->GetGUID().GetCounter()))
+            rec->totalDealt += amount;
+    if (victim && victim != attacker)
+        if (Record* rec = Find(victim->GetGUID().GetCounter()))
+            rec->totalTaken += amount;
 }
 
 void PlayerbotDummyLog::HandleSpellDamage(Unit const* attacker, Unit const* victim, uint32 spellId, int32 amount)
@@ -377,6 +384,8 @@ void PlayerbotDummyLog::HandleSpellDamage(Unit const* attacker, Unit const* vict
     if (Record* rec = Find(attacker->GetGUID().GetCounter()))
     {
         rec->damaged.insert(spellId);
+        ++rec->dmgBySpell[spellId].hits;
+        rec->dmgBySpell[spellId].total += uint32(amount);
         PushEv(*rec, 'D', spellId, amount);
         std::ostringstream os;
         os << "DMG src=spell spell=" << spellId
@@ -393,6 +402,8 @@ void PlayerbotDummyLog::HandleMeleeDamage(Unit const* attacker, Unit const* vict
         return;
     if (Record* rec = Find(attacker->GetGUID().GetCounter()))
     {
+        ++rec->dmgBySpell[0].hits;                 // melee → spell=0
+        rec->dmgBySpell[0].total += amount;
         std::ostringstream os;
         os << "DMG src=melee amount=" << amount
            << " victim=\"" << victim->GetName() << '"';
@@ -404,27 +415,118 @@ void PlayerbotDummyLog::HandlePeriodicDamage(Unit const* attacker, Unit const* v
 {
     if (!attacker || !victim || !amount)
         return;
-    // ScriptMgr-хук периодики не несёт spellId — корреляция через строки AURA той же ауры
-    if (Record* rec = Find(attacker->GetGUID().GetCounter()))
+    Record* rec = Find(attacker->GetGUID().GetCounter());
+    if (!rec)
+        return;
+
+    // атрибуция периодики: хук не несёт spellId → ищем на жертве нашу ЕДИНСТВЕННУЮ дот-ауру
+    uint32 spellId = 0;
+    int matched = 0;
+    for (auto const& av : victim->GetAppliedAuras())
     {
-        std::ostringstream os;
-        os << "DMG src=dot amount=" << amount
-           << " victim=\"" << victim->GetName() << '"';
-        Write(*rec, os.str());
+        Aura* a = av.second ? av.second->GetBase() : nullptr;
+        if (!a || !a->GetSpellInfo())
+            continue;
+        if (a->GetCasterGUID() != attacker->GetGUID())
+            continue;
+        if (!a->GetSpellInfo()->HasAura(SPELL_AURA_PERIODIC_DAMAGE))
+            continue;
+        if (++matched > 1)
+            break;
+        spellId = a->GetSpellInfo()->Id;
     }
+
+    if (matched == 1)
+    {
+        ++rec->dmgBySpell[spellId].hits;
+        rec->dmgBySpell[spellId].total += amount;
+    }
+    else
+    {
+        ++rec->dotUnattr.hits;
+        rec->dotUnattr.total += amount;
+    }
+
+    std::ostringstream os;
+    os << "DMG src=dot";
+    if (matched == 1)
+        os << " spell=" << spellId << " name=\"" << SpellName(spellId) << '"';
+    else
+        os << " unattr";
+    os << " amount=" << amount << " victim=\"" << victim->GetName() << '"';
+    Write(*rec, os.str());
 }
 
 void PlayerbotDummyLog::HandleHeal(Unit const* healer, Unit const* victim, uint32 amount)
 {
     if (!healer || !victim || !amount)
         return;
-    if (Record* rec = Find(healer->GetGUID().GetCounter()))
+    Record* rec = Find(healer->GetGUID().GetCounter());
+    if (!rec)
+        return;
+
+    // атрибуция хила: 1) уникальный HoT на цели от лечителя; 2) последний каст лечебного спелла ≤4 с
+    uint32 spellId = 0;
+    char via = '?';
+    int hotMatch = 0;
+    uint32 hotSpell = 0;
+    for (auto const& av : victim->GetAppliedAuras())
     {
-        std::ostringstream os;
-        os << "HEAL amount=" << amount
-           << " victim=\"" << victim->GetName() << '"';
-        Write(*rec, os.str());
+        Aura* a = av.second ? av.second->GetBase() : nullptr;
+        if (!a || !a->GetSpellInfo())
+            continue;
+        if (a->GetCasterGUID() != healer->GetGUID())
+            continue;
+        if (!a->GetSpellInfo()->HasAura(SPELL_AURA_PERIODIC_HEAL))
+            continue;
+        if (++hotMatch > 1)
+            break;
+        hotSpell = a->GetSpellInfo()->Id;
     }
+    if (hotMatch == 1)
+    {
+        spellId = hotSpell;
+        via = 'H';
+    }
+    else
+    {
+        int64 nowMs = int64(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - rec->start).count());
+        for (auto it = rec->timeline.rbegin(); it != rec->timeline.rend(); ++it)
+        {
+            if (it->ev != 'C')
+                continue;
+            if (nowMs - int64(it->tMs) > 4000)
+                break;   // timeline отсортирован по времени — дальше только старше окна
+            SpellInfo const* si = sSpellMgr->GetSpellInfo(it->spell, DIFFICULTY_NONE);
+            if (si && (si->HasEffect(SPELL_EFFECT_HEAL) || si->HasAura(SPELL_AURA_PERIODIC_HEAL)))
+            {
+                spellId = it->spell;
+                via = 'C';
+                break;
+            }
+        }
+    }
+
+    if (spellId)
+    {
+        ++rec->healBySpell[spellId].hits;
+        rec->healBySpell[spellId].total += amount;
+    }
+    else
+    {
+        ++rec->healUnattr.hits;
+        rec->healUnattr.total += amount;
+    }
+
+    std::ostringstream os;
+    os << "HEAL";
+    if (spellId)
+        os << " spell=" << spellId << " name=\"" << SpellName(spellId) << "\" via=" << via;
+    else
+        os << " unattr";
+    os << " amount=" << amount << " victim=\"" << victim->GetName() << '"';
+    Write(*rec, os.str());
 }
 
 void PlayerbotDummyLog::HandleCast(Player const* caster, Spell const* spell)
@@ -525,6 +627,7 @@ void PlayerbotDummyLog::NotePowerSpent(Player const* bot, uint32 spellId, int32 
     if (Record* rec = Find(bot->GetGUID().GetCounter()))
     {
         PushEv(*rec, 'P', spellId, spent);
+        rec->powerBySpell[spellId] += spent;
         std::ostringstream os;
         os << "PWR spell=" << spellId
            << " name=\"" << SpellName(spellId) << '"'
@@ -1248,13 +1351,117 @@ std::string PlayerbotDummyLog::WriteQaReport(Record const& rec, std::string cons
             }
 
             // каждая аура получает вердикт-строку — ничего не проходит молча
+            uint8 posV = 0;
+            if (auto pit2 = rec.auraPos.find(spell); pit2 != rec.auraPos.end())
+                posV = pit2->second;
             std::ostringstream os;
             os << "[AURA] spell=" << spell << " name=\"" << SpellName(spell) << '"'
+               << " pos=" << uint32(posV)
                << " applied=" << applied << " closed=" << closed
                << " data_ms=" << dataRef
                << " short=" << nShort << " long=" << nLong << " open=" << nOpen
                << " — аудит длительностей (данные vs наблюдение, допуск ±" << kTol << " мс)";
             os << talentHint(spell);
+            add(os.str());
+        }
+    }
+
+    // --- ИНВЕНТАРЬ СЕССИИ: УРОН/ХИЛ/СПОСОБНОСТИ/ПРОКИ/АБСОРБЫ/РЕСУРСЫ —
+    //     сводная строка на каждую способность + корзины без атрибуции ----------
+    if (qaRole)
+    {
+        // [SPELL] — метрики каждого спелла: касты, отказы, урон, хил, ресурс
+        std::unordered_set<uint32> keys;
+        for (auto const& kv : rec.casted) keys.insert(kv.first);
+        for (auto const& kv : rec.failCount) keys.insert(kv.first);
+        for (auto const& kv : rec.dmgBySpell) keys.insert(kv.first);
+        for (auto const& kv : rec.healBySpell) keys.insert(kv.first);
+        for (auto const& kv : rec.powerBySpell) keys.insert(kv.first);
+
+        for (uint32 sp : keys)
+        {
+            uint32 casts = 0, fails = 0;
+            if (auto it = rec.casted.find(sp); it != rec.casted.end())
+                casts = it->second;
+            if (auto it = rec.failCount.find(sp); it != rec.failCount.end())
+                fails = it->second;
+            uint32 dmgH = 0; uint64 dmgT = 0;
+            if (auto it = rec.dmgBySpell.find(sp); it != rec.dmgBySpell.end())
+            { dmgH = it->second.hits; dmgT = it->second.total; }
+            uint32 healH = 0; uint64 healT = 0;
+            if (auto it = rec.healBySpell.find(sp); it != rec.healBySpell.end())
+            { healH = it->second.hits; healT = it->second.total; }
+            int64 power = 0;
+            if (auto it = rec.powerBySpell.find(sp); it != rec.powerBySpell.end())
+                power = it->second;
+
+            std::ostringstream os;
+            os << "[SPELL] spell=" << sp
+               << " name=\"" << (sp ? SpellName(sp) : std::string("melee/авто")) << '"'
+               << " casts=" << casts << " fails=" << fails;
+            if (fails)
+                os << " last_fail=" << CastResultName(lastResult(sp));
+            os << " dmg=" << dmgH << "/" << dmgT
+               << " heal=" << healH << "/" << healT
+               << " power=" << power;
+            os << talentHint(sp);
+            add(os.str());
+        }
+
+        // корзины без атрибуции — всё равно видны в отчёте
+        if (rec.dotUnattr.hits)
+        {
+            std::ostringstream os;
+            os << "[DMG] src=dot unattr hits=" << rec.dotUnattr.hits
+               << " total=" << rec.dotUnattr.total
+               << " — периодика без однозначного spellId (несколько дотов/аура не найдена)";
+            add(os.str());
+        }
+        if (rec.healUnattr.hits)
+        {
+            std::ostringstream os;
+            os << "[HEAL] src=unattr hits=" << rec.healUnattr.hits
+               << " total=" << rec.healUnattr.total
+               << " — хилы без привязки (нет своего HoT и каст лечебного спелла вне окна 4 с)";
+            add(os.str());
+        }
+        if (rec.totalTaken)
+        {
+            std::ostringstream os;
+            os << "[DMG] taken=" << rec.totalTaken
+               << " — урон, полученный ботом (ядро уже учло блоки/поглощения/резист)";
+            add(os.str());
+        }
+
+        // [PROC] — ауры, появлявшиеся БЕЗ прямого каста в сессии (прок/эффект/статика)
+        for (auto const& kv : rec.appliedCount)
+        {
+            if (rec.casted.count(kv.first))
+                continue;
+            uint8 pos = 0;
+            if (auto it = rec.auraPos.find(kv.first); it != rec.auraPos.end())
+                pos = it->second;
+            std::ostringstream os;
+            os << "[PROC] spell=" << kv.first << " name=\"" << SpellName(kv.first) << '"'
+               << " applied=" << kv.second
+               << " kind=" << (pos ? "buff" : "debuff")
+               << " — аура появлялась без прямого каста (прок/эффект/статика)";
+            os << talentHint(kv.first);
+            add(os.str());
+        }
+
+        // [ABSORB] — ауры-щиты: факт/время жизни. Сумму поглощения ScriptMgr не отдаёт
+        // (нужен хук ядра) — сообщаем честно.
+        for (auto const& kv : rec.auraAbsorb)
+        {
+            uint32 applied = 0;
+            if (auto it = rec.appliedCount.find(kv.first); it != rec.appliedCount.end())
+                applied = it->second;
+            std::ostringstream os;
+            os << "[ABSORB] spell=" << kv.first << " name=\"" << SpellName(kv.first) << '"'
+               << " applied=" << applied
+               << " — аура-щит наблюдалась (сумма поглощения без хука ядра недоступна)";
+            os << talentHint(kv.first);
             add(os.str());
         }
     }
