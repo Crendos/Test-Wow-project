@@ -1052,6 +1052,7 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
         accountId, specEntry->ID, uint32(level));
 
     // --- 7b. автоталанты: максимизируем trait-конфиг спека -----------------
+    bool traitBuildOk = false;   // создали ли конфиг талантов (для пост-коммит проверки)
     // Правила (пререквизиты, бюджет очков, взаимоисключения selection-нод)
     // валидирует сам TraitMgr: жадно добавляем ноды по одному (несколько
     // проходов, чтобы цепочки пререквизитов доросли), после каждого шага
@@ -1159,6 +1160,7 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
             // без клиентского коммита конфига — см. комментарий к блоку 7b);
             // спеллы сохранятся в character_spell той же транзакцией SaveToDB.
             newChar->ApplyTraitConfig(traitConfig.ID, true);
+            traitBuildOk = true;
             TC_LOG_INFO("playerbots",
                 "CreateCharacter[{}]: автоталанты — деревьев {}, кандидатов {}, в конфиге {} нод (ApplyTraitConfig id {})",
                 accountId, trees.size(), cands.size(), traitConfig.Entries.size(), traitConfig.ID);
@@ -1214,6 +1216,33 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
         return res;
     }
     TC_LOG_INFO("playerbots", "CreateCharacter[{}]: сохранён (guid {})", accountId, guidStr);
+
+    // Пост-коммит проверка талантов/спеллов — прямо в лог, без Navicat:
+    // UI талантов читает character_trait_config/character_trait_entry по guid,
+    // книга — character_spell. Пустые таблицы = «бот не выбрал ни одного таланта».
+    {
+        auto countIn = [&](char const* table) -> uint64
+        {
+            uint64 n = 0;
+            if (QueryResult q = CharacterDatabase.Query(
+                    (std::string("SELECT COUNT(*) FROM ") + table + " WHERE guid = " + guidStr).c_str()))
+                if (Field* f = q->Fetch())
+                    n = f->GetUInt64();
+            return n;
+        };
+        uint64 const nCfg = countIn("character_trait_config");
+        uint64 const nEnt = countIn("character_trait_entry");
+        uint64 const nSp  = countIn("character_spell");
+        TC_LOG_INFO("playerbots",
+            "CreateCharacter[{}]: проверка после коммита: trait_config={} trait_entry={} character_spell={}",
+            accountId, nCfg, nEnt, nSp);
+        if (traitBuildOk && !nCfg)
+            res.error += "ВНИМАНИЕ: character_trait_config не сохранился — в UI таланты будут пустыми (смотри Server.log); ";
+        if (traitBuildOk && nCfg && !nEnt)
+            res.error += "ВНИМАНИЕ: character_trait_entry пуст — конфиг без выбранных нод; ";
+        if (traitBuildOk && !nSp)
+            res.error += "ВНИМАНИЕ: character_spell пуст — талант-спеллы не учились; ";
+    }
 
     // --- 11. кэш имён + событие создания -----------------------------------
     sCharacterCache->AddCharacterCacheEntry(newChar->GetGUID(), accountId, name,
