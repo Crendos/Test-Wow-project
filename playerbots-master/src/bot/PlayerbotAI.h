@@ -145,6 +145,7 @@ private:
     float  m_dummyDestX = 0.0f, m_dummyDestY = 0.0f, m_dummyDestZ = 0.0f;
     uint32 m_dummyWalkMs    = 0;       // лимит подбега к точке (антизависание)
     uint32 m_dummyStepMs    = 0;       // троттлинг MovePoint/MoveFollow
+    bool   m_dummyAtkWarned = false;   // «атака не принялась» уже сообщалась (раз за сессию)
 
     // --- v6 QA: sweep-прогон боевых спеллов ---
     bool   m_dummySweep      = false;

@@ -824,6 +824,7 @@ bool PlayerbotAI::StartDummy(ObjectGuid targetGuid, Position const* dest, std::s
         m_dummyWalkMs = 0;
     m_dummyStepMs = 0;
     m_dummySweep = false;
+    m_dummyAtkWarned = false;
     m_sweepIdx = m_sweepOk = m_sweepFail = 0;
     m_sweepList.clear();
     ClearCastBlacklist();
@@ -961,7 +962,20 @@ void PlayerbotAI::UpdateDummy(uint32 diff)
 
     // --- фаза 3: QA-sweep (прогон всех спеллов) или обычная ротация ---
     if (_bot->GetVictim() != dummy)
+    {
         _bot->Attack(dummy, true);
+        if (_bot->GetVictim() != dummy && !m_dummyAtkWarned)
+        {
+            // Training Dummy с чужой фракцией/флагами не атакуется — раньше это
+            // выглядело как «бот просто стоит»: теперь один раз в лог падает причина
+            m_dummyAtkWarned = true;
+            std::string const why = std::string("DUMMY attack_rejected entry=")
+                + std::to_string(dummy->GetEntry()) + " name=\"" + dummy->GetName()
+                + "\" — манекен не принимает атаку (фракция/флаги — IsNPCFlag/неатакуем для этой стороны)";
+            sPlayerbotDummyLog.Note(_bot, why);
+            TC_LOG_ERROR("playerbots", "dummy: {} — {}", _bot->GetName(), why);
+        }
+    }
     m_combatTarget = dummy;
     _combatActive  = true;
 

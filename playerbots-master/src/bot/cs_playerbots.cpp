@@ -237,7 +237,7 @@ namespace
             PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
             if (!ai)
             {
-                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SendSysMessage("Бот с таким именем не онлайн. Сначала: .playerbots add <имя> — бот добавляется в мир отдельно от create (после неудачного create персонажа может не быть в characters — проверь .playerbots list).");
                 handler->SetSentErrorMessage(true);
                 return false;
             }
@@ -429,7 +429,7 @@ namespace
             PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
             if (!ai)
             {
-                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SendSysMessage("Бот с таким именем не онлайн. Сначала: .playerbots add <имя> — без add персонаж не в мире (после неудачного create его может не быть в characters).");
                 handler->SetSentErrorMessage(true);
                 return false;
             }
