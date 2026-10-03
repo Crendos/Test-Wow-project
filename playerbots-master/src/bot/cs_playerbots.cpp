@@ -78,6 +78,7 @@ namespace
                 { "book",        HandleBotBookCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "hero",        HandleBotHeroCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "equip",       HandleBotEquipCommand,          static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "talents",     HandleBotTalentsCommand,       static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "dummy",       playerbotsDummyCommandTable },
                 { "roster",      playerbotsRosterCommandTable },
             };
@@ -237,12 +238,76 @@ namespace
             PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
             if (!ai)
             {
-                handler->SendSysMessage("Бот с таким именем не онлайн. Сначала: .playerbots add <имя> — бот добавляется в мир отдельно от create (после неудачного create персонажа может не быть в characters — проверь .playerbots list).");
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SendSysMessage(sPlayerbotMgr.DiagnoseBot(botName));
                 handler->SetSentErrorMessage(true);
                 return false;
             }
             ai->EquipBestItems();
             handler->SendSysMessage("Экипировка пересчитана.");
+            return true;
+        }
+
+        // .playerbots talents <имя>  — применить ЗАПИСАННЫЙ конфиг талантов к живому боту
+        // (character_trait_entry существует, но ApplyTraitConfig при create не выполнялся —
+        //  бот «не выбрал ни одного таланта» и стоит без способностей; пересоздание не нужно)
+        static bool HandleBotTalentsCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            if (botName.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots talents <имя>");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SendSysMessage(sPlayerbotMgr.DiagnoseBot(botName));
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            Player* bot = ai->GetBot();
+            if (!bot)
+            {
+                handler->SendSysMessage("Бот оффлайн.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            std::string const guidStr = std::to_string(bot->GetGUID().GetCounter());
+            QueryResult qr = CharacterDatabase.Query(
+                ("SELECT traitConfigId, COUNT(*) FROM character_trait_entry WHERE guid = " + guidStr
+                 + " GROUP BY traitConfigId ORDER BY COUNT(*) DESC LIMIT 1").c_str());
+            if (!qr)
+            {
+                handler->SendSysMessage("В character_trait_entry нет ни одного конфига для guid=" + guidStr
+                    + " — конфиг талантов не записывался: пересоздай бота (новый create пишет конфиг сам).");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            Field* f = qr->Fetch();
+            int32 const cfgId = f[0].GetInt32();
+            uint32 const nodes = f[1].GetUInt32();
+
+            if (!bot->GetTraitConfig(cfgId))
+            {
+                handler->SendSysMessage(fmt::format(
+                    "Конфиг {} не загружен в память персонажа при входе (_LoadTraits) — перезайди ботом и повтори.", cfgId));
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            bot->ApplyTraitConfig(cfgId, true);     // LearnSpell каждой ноды (HasSpell-идемпотентно)
+            bot->SaveToDB(false);                   // сохранить флаги талант-спеллов (паттерн RemoveBot)
+            ai->RebuildKnowledge();                 // новые спеллы → знания AI/sweep
+
+            handler->SendSysMessage(fmt::format(
+                "ApplyTraitConfig {} применён (нод в конфиге {}): талант-спеллы учатся, character_spell дополняется, знание AI пересобрано.",
+                cfgId, nodes));
+            handler->SendSysMessage("Проверка: .playerbots book " + botName
+                + " ; SQL character_spell по guid вырастет; UI талантов показывает записи конфига.");
             return true;
         }
 
@@ -429,7 +494,8 @@ namespace
             PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
             if (!ai)
             {
-                handler->SendSysMessage("Бот с таким именем не онлайн. Сначала: .playerbots add <имя> — без add персонаж не в мире (после неудачного create его может не быть в characters).");
+                handler->SendSysMessage("Бот с таким именем не онлайн.");
+                handler->SendSysMessage(sPlayerbotMgr.DiagnoseBot(botName));
                 handler->SetSentErrorMessage(true);
                 return false;
             }

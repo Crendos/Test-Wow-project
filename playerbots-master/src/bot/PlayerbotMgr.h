@@ -71,6 +71,14 @@ public:
     void HandlePlayerBotLoggedIn(Player* player);
     PlayerbotAI* GetBotAI(std::string const& botName);
 
+    // Почему GetBotAI вернул null: персонажа нет в кэше / не добавлен в мир /
+    // сессия не доехала. Строка для чата — никаких безликих «не онлайн».
+    std::string DiagnoseBot(std::string const& botName);
+
+    // подключить PlayerbotAI к входящему боту (из OnLogin И лениво из GetBotAI,
+    // если бот в мире, а хук не сработал)
+    void AttachAI(PlayerBotEntry& entry, Player* player);
+
     // .playerbots hero <бот> <ветка[,ветка]|all> — дозаучить spells геро-деревьев на живом боте;
     // после учёта пересобирает знания AI. Возвращает сводку для чата.
     std::string LearnHeroTrees(Player* bot, std::string const& treesCsv);

@@ -219,18 +219,26 @@ void PlayerbotMgr::HandlePlayerBotLoggedIn(Player* player)
     if (entry.bot == player && entry.ai)
         return;                     // повторный OnLogin того же входа — уже подцеплены
     entry.bot = player;
+    AttachAI(entry, player);
+    TC_LOG_INFO("playerbots", "HandlePlayerBotLoggedIn: {} в мире (guid {})", entry.name, player->GetGUID().ToString());
+}
 
+void PlayerbotMgr::AttachAI(PlayerBotEntry& entry, Player* player)
+{
     // заклинания этого бота (ленивая загрузка из world.playerbots_combat_spells)
     if (m_combatSpells.empty())
         LoadPlayerBotCombatSpells(m_combatSpells);
     if (m_combatSpells.empty())
         LoadPlayerBotCombatSpells(m_combatSpells);
 
+    if (entry.ai)
+    {
+        entry.ai->Destroy();        // ре-аттач (релогин/подключение) — старую обёртку не течём
+        entry.ai = nullptr;
+    }
     // v6.1: роль бота определяется диапазоном аккаунта (Playerbots.QAAccountsStart/End)
     entry.ai = new PlayerbotAI(player, ResolveKnowledge(entry.name, player->GetClass()),
         IsQAAccount(player->GetSession()->GetAccountId()));
-
-    TC_LOG_INFO("playerbots", "HandlePlayerBotLoggedIn: {} в мире (guid {})", entry.name, player->GetGUID().ToString());
 }
 
 // ---------------------------------------------------------------- logout
@@ -279,12 +287,21 @@ void PlayerbotMgr::RemoveAll()
 
 PlayerbotAI* PlayerbotMgr::GetBotAI(std::string const& botName)
 {
+    auto lazyAttach = [this](PlayerBotEntry& e) -> PlayerbotAI*
+    {
+        // «персонаж в мире, а AI не подключён» — OnLogin не сработал/обгонялся:
+        // подключаем на месте, иначе все команды падают в безликое «не онлайн»
+        if (!e.ai && e.bot && e.bot->IsInWorld())
+            AttachAI(e, e.bot);
+        return e.ai;
+    };
+
     ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName);
     if (!guid.IsEmpty())
     {
         auto itr = m_bots.find(sCharacterCache->GetCharacterAccountIdByGuid(guid));
         if (itr != m_bots.end())
-            return itr->second.ai;
+            return lazyAttach(itr->second);
     }
     // fallback: кэш имён регистрозависим — сверяемся с онлайн-списком (entry.name)
     auto ciEq = [](std::string const& a, std::string const& b)
@@ -301,10 +318,27 @@ PlayerbotAI* PlayerbotMgr::GetBotAI(std::string const& botName)
         }
         return true;
     };
-    for (auto const& kv : m_bots)
+    for (auto& kv : m_bots)
         if (ciEq(kv.second.name, botName))
-            return kv.second.ai;
+            return lazyAttach(kv.second);
     return nullptr;
+}
+
+std::string PlayerbotMgr::DiagnoseBot(std::string const& botName)
+{
+    ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName);
+    if (guid.IsEmpty())
+        return "диагноз: персонаж '" + botName + "' не найден в кэше имён — нет в characters "
+               "(create падал? проверь SQL по characters) либо кэш не заполнен — перезапусти сервер";
+    auto itr = m_bots.find(sCharacterCache->GetCharacterAccountIdByGuid(guid));
+    if (itr == m_bots.end())
+        return "диагноз: персонаж '" + botName + "' (guid " + std::to_string(guid.GetCounter())
+            + ") есть в БД, но НЕ добавлен в мир — сначала .playerbots add " + botName;
+    PlayerBotEntry const& e = itr->second;
+    if (!e.bot || !e.bot->IsInWorld())
+        return "диагноз: '" + botName + "' добавлен, но персонаж не в мире (вход не завершился?) — "
+               "смотри Server.log (HandlePlayerBotLoggedIn) и повтори .playerbots add " + botName;
+    return "диагноз: '" + botName + "' в мире, AI подключён — не должно было дойти до отказа (напиши как повторилось)";
 }
 
 // ---------------------------------------------------------------- per-frame AI
