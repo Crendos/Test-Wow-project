@@ -836,10 +836,15 @@ namespace
         }
     };
 
+// MidnightBotAI (LrdPsychoChains WOW-HUB, GPLv3) — их .mbot/.mb команды + менеджер,
+// встроены в наш модуль СЛИЯНИЕМ: обе системы команд работают одновременно.
+void AddSC_midnight_bot_ai();
+
 void AddSC_playerbots()
 {
     AddSC_playerbots_dummylog();                // UnitScript+PlayerScript: урон/хил/касты в лог
     static_cast<void>( new playerbots_commandscript() );
     new playerbots_worldscript();
     new playerbots_login_script();
+    AddSC_midnight_bot_ai();                    // .mbot/.mb: create/spawn/roles/stats/loot/boost...
 }
