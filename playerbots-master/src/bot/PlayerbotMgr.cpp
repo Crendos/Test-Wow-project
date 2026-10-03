@@ -4,6 +4,7 @@
  */
 #include "PlayerbotMgr.h"
 #include "PlayerbotAI.h"
+#include "MidnightBotMgr.h"    // слияние: адоптированных их движком ведёт их Update
 #include "CharacterCache.h"
 #include "CharacterPackets.h"
 #include "Config.h"
@@ -273,6 +274,9 @@ PlayerbotMgr::Status PlayerbotMgr::RemoveBot(std::string const& botName, Player*
         entry.session->LogoutPlayer(true);
     }
 
+    // слияние: убрать бота из активного ростера MidnightBotAI (если адоптировался)
+    sMidnightBotMgr->ForgetBot(entry.name);
+
     // сама сессия удалится при следующем проходе World::UpdateSessions,
     // когда IsPlayerBot() сессии даст LogoutPlayer=true и Update() вернет false
     TC_LOG_INFO("playerbots", "RemoveBot: {} удален (accountId {})", botName, accountId);
@@ -356,6 +360,11 @@ void PlayerbotMgr::UpdateAI(uint32 diff)
 
         // сессия ещё в очереди / на логине — бот промолчит этот тик
         if (!e.bot->IsInWorld() || e.bot->IsBeingTeleported())
+            continue;
+
+        // адоптированные их движком (MidnightBotAI: роль/фоллоу/бой) — их Update ведёт
+        // поведение, наш тик молчит; команды при этом работают через общий entry.ai
+        if (sMidnightBotMgr->IsBotActive(e.name))
             continue;
 
         e.ai->Update(diff);

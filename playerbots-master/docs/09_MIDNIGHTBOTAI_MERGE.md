@@ -9,18 +9,39 @@
 Лицензия их кода — **GPLv3** (совместимо с TrinityCore); атрибуция сохраняется в
 заголовках файлов `MidnightBotAI.cpp`, `MidnightBotMgr.cpp`, `MidnightBotMgr.h`.
 
-## Принцип слияния
+## Принцип слияния (v2 — их команды ЗАМЕНЕНЫ нашими)
 
-Обе системы работают **одновременно** в одном сервере:
+Их `.mbot`/`.mb` **не регистрируются** (`new MidnightBotAICommandScript()` выключен в
+`AddSC_midnight_bot_ai()`). Их уникальный функционал доступен под нашим именем:
 
-| Система | Команды | Роль |
+| Наша команда | Эквивалент `.mbot` | Что делает |
 |---|---|---|
-| Наша (playerbots) | `.playerbots create/add/equip/dummy/talents/hero/book/...` | QA-боты: DummyLog, sweep, COVERAGE, механики, герой-дерева |
-| Их (MidnightBotAI) | `.mbot …` = `.mb …` (алиасы) | Игровые компаньоны: роли, агро, метры, лоут, буст, автоталенты |
+| `.playerbots stats` | `stats` | метры урона/хила (работает и из консоли) |
+| `.playerbots role <имя> <tank\|healer\|dps\|none>` | `role` | роль их движка |
+| `.playerbots assist <имя> [on\|off]` | `assist` | ассист |
+| `.playerbots attack <имя>` | `attack` | атака выделенной цели |
+| `.playerbots boost <имя> [ур]` / `boostall` | `boost` | уровень+гир+автоталанты |
+| `.playerbots party <имя>\|all` | `party` | вступление в группу владельца |
+| `.playerbots loot [show\|method …\|threshold …]` | `loot` | правила добычи группы |
+| `.playerbots resurrect <имя>` | `resurrect` | подъём |
+| `.playerbots learn [имя]` | `learn` | досказание спеллов роли |
+| (наши) `create/add/remove/list/summon/followme/stay/equip/book/hero/talents/dummy` | `create/add/remove/list/summon/follow/stay/…` | уже были нашими |
+
+Не переносились (диагностика/редкое): `where/vis/debug/lead/come/enable/disable` —
+их аналоги: `.playerbots list/ping`, Server.log.
+
+**Адопция:** первый вызов gameplay-команды на нашем боте вызывает
+`MidnightBotMgr::AdoptBot` — бот входит в их активный ростер (с владельцем = тот, кто
+выполнил команду). Правила:
+
+- **QA-боты не адоптируются** (движок не подключается — QA остаётся на нашем dummy/sweep);
+- бот в режиме манекена — сначала `dummy stop`;
+- адоптированный бот **исключается из нашего тика AI** (`PlayerbotMgr::UpdateAI` проверяет
+  `IsBotActive`) — поведение ведёт их Update; наши команды работают через общий entry.ai;
+- `.playerbots remove` вызывает `ForgetBot` — бот уходит и из их ростера.
 
 Регистрация: `AddSC_playerbots()` вызывает `AddSC_midnight_bot_ai()` — их
-`WorldScript`/`UnitScript`/`CommandScript` независимы от наших (разные классы,
-разные хуки, коллизий нет; их хелперы — в анонимных неймспейсах).
+`WorldScript`/`UnitScript` (движок+метрики) остаются, `CommandScript` — выключен.
 
 ## Файлы
 

@@ -1002,5 +1002,7 @@ void AddSC_midnight_bot_ai()
 {
     new MidnightBotAIWorldScript();
     new MidnightBotAIUnitScript();
-    new MidnightBotAICommandScript();
+    // Слияние с playerbots (docs/09): их .mbot/.mb ЗАМЕНЕНЫ нашими .playerbots —
+    // CommandScript не регистрируется, движок (WorldScript+UnitScript) работает.
+    // new MidnightBotAICommandScript();
 }

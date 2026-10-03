@@ -2635,6 +2635,57 @@ bool MidnightBotMgr::IsBotActive(std::string const& name) const
     });
 }
 
+bool MidnightBotMgr::AdoptBot(Player* bot, ObjectGuid ownerGuid, std::string& err)
+{
+    if (!bot)
+    {
+        err = "нет персонажа";
+        return false;
+    }
+    if (!IsEnabled())
+    {
+        err = "MidnightBotAI отключён (MidnightBotAI.Enable = 0)";
+        return false;
+    }
+
+    std::string const characterName = bot->GetName();
+    uint32 const guid = uint32(bot->GetGUID().GetCounter());
+    ObjectGuid const playerGuid = bot->GetGUID();
+    uint32 const accountId = bot->GetSession() ? bot->GetSession()->GetAccountId() : 0;
+    bool const hasOwner = !ownerGuid.IsEmpty();
+
+    {
+        std::lock_guard<std::mutex> lock(rosterMutex);
+        auto const it = std::find_if(activeBots.begin(), activeBots.end(), [&](BotRef const& b)
+        {
+            return b.playerGuid == playerGuid || b.name == characterName;
+        });
+        if (it != activeBots.end())
+            return true;    // уже активен — идемпотентно
+
+        // тот же формат, что SpawnBot: inWorld/queued выставит их Update
+        activeBots.push_back(BotRef{ guid, characterName, playerGuid, accountId, bot->GetSession(),
+                                     false, false, ownerGuid, hasOwner, hasOwner, BotRole::None });
+        activeBots.back().spacingAngle = SpacingAngleForGuid(guid);
+        activeBots.back().spacingDist = SpacingDistForGuid(guid);
+        if (hasOwner)
+            SaveBotOwnerLocked(guid, ownerGuid);
+    }
+
+    LogAi(playerGuid, characterName + ": adopted by .playerbots (движок MidnightBotAI подключён)");
+    TC_LOG_INFO("scripts.MidnightBotAI", "AdoptBot: '{}' (guid {}) adopted{}", characterName, guid, hasOwner ? " with owner" : "");
+    return true;
+}
+
+void MidnightBotMgr::ForgetBot(std::string const& name)
+{
+    std::lock_guard<std::mutex> lock(rosterMutex);
+    activeBots.erase(std::remove_if(activeBots.begin(), activeBots.end(), [&name](BotRef const& b)
+    {
+        return b.name == name;
+    }), activeBots.end());
+}
+
 bool MidnightBotMgr::IsBotInRoster(std::string const& name) const
 {
     std::lock_guard<std::mutex> lock(rosterMutex);

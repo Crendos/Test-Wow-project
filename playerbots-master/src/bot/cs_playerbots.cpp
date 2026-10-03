@@ -10,6 +10,7 @@
 #include "DatabaseEnv.h"
 #include "DummyLog.h"
 #include "Language.h"
+#include "MidnightBotMgr.h"    // их движок: команды-замены .mbot/.mb (слияние, docs/09)
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
@@ -79,6 +80,16 @@ namespace
                 { "hero",        HandleBotHeroCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "equip",       HandleBotEquipCommand,          static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "talents",     HandleBotTalentsCommand,       static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "stats",       HandleBotStatsCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "role",        HandleBotRoleCommand,          static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "assist",      HandleBotAssistCommand,        static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "attack",      HandleBotAttackCommand,        static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "boost",       HandleBotBoostCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "boostall",    HandleBotBoostAllCommand,      static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "party",       HandleBotPartyCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "loot",        HandleBotLootCommand,          static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "resurrect",   HandleBotResurrectCommand,     static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "learn",       HandleBotLearnCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "dummy",       playerbotsDummyCommandTable },
                 { "roster",      playerbotsRosterCommandTable },
             };
@@ -308,6 +319,399 @@ namespace
                 cfgId, nodes));
             handler->SendSysMessage("Проверка: .playerbots book " + botName
                 + " ; SQL character_spell по guid вырастет; UI талантов показывает записи конфига.");
+            return true;
+        }
+
+        // ==== Команды, ЗАМЕНЯЮЩИЕ их .mbot/.mb (движок MidnightBotAI под нашим именем) ====
+
+        // Общий путь: наш онлайн-бот → однократная адоптация в их ростер → их метод.
+        // QA-боты и боты в режиме манекена не адоптируются: QA остаётся на нашем AI.
+        static Player* ResolveMbotBot(ChatHandler* handler, std::string const& botName, std::string& err)
+        {
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                err = "нет онлайн — " + sPlayerbotMgr.DiagnoseBot(botName);
+                return nullptr;
+            }
+            Player* bot = ai->GetBot();
+            if (!bot)
+            {
+                err = "бот оффлайн";
+                return nullptr;
+            }
+            if (sMidnightBotMgr->IsBotActive(botName))
+                return bot;
+            if (bot->GetSession() && sPlayerbotMgr.IsQAAccount(bot->GetSession()->GetAccountId()))
+            {
+                err = "это QA-бот: их движок не подключается (используй наш .playerbots dummy/sweep)";
+                return nullptr;
+            }
+            if (ai->IsDummyMode())
+            {
+                err = "бот в режиме манекена — сначала .playerbots dummy stop";
+                return nullptr;
+            }
+            ObjectGuid owner = handler->GetPlayer() ? handler->GetPlayer()->GetGUID() : ObjectGuid();
+            if (!sMidnightBotMgr->AdoptBot(bot, owner, err))
+                return nullptr;
+            return bot;
+        }
+
+        // .playerbots stats — метры урона/хила (аналог .mbot stats; работает и из консоли)
+        static bool HandleBotStatsCommand(ChatHandler* handler)
+        {
+            handler->SendSysMessage("[MC] --- Bot damage/heal (60s) ---");
+            std::vector<std::string> lines = sMidnightBotMgr->DamageReportLines();
+            if (lines.empty())
+            {
+                handler->SendSysMessage("[MC] no active bots");
+                return true;
+            }
+            for (std::string const& line : lines)
+                handler->SendSysMessage(line);
+            return true;
+        }
+
+        // .playerbots role <имя> <tank|healer|dps|none> — роль их движка (аналог .mbot role)
+        static bool HandleBotRoleCommand(ChatHandler* handler, Tail args)
+        {
+            std::istringstream is{std::string(args)};
+            std::string botName, roleText;
+            is >> botName >> roleText;
+            if (botName.empty() || roleText.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots role <имя> <tank|healer|dps|none>");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            std::string const rt = LowerStr(roleText);
+            BotRole role = BotRole::None;
+            if (rt == "tank") role = BotRole::Tank;
+            else if (rt == "heal" || rt == "healer") role = BotRole::Healer;
+            else if (rt == "dps" || rt == "dd" || rt == "damage") role = BotRole::Dps;
+            else if (rt != "none")
+            {
+                handler->SendSysMessage("Роль '%s' неизвестна (tank/healer/dps/none).", roleText.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            std::string err;
+            if (!ResolveMbotBot(handler, botName, err))
+            {
+                handler->SendSysMessage("role: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (!sMidnightBotMgr->SetBotRole(botName, role, err))
+            {
+                handler->SendSysMessage("role: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            handler->SendSysMessage("%s: роль '%s' применена (движок MidnightBotAI).", botName.c_str(), roleText.c_str());
+            return true;
+        }
+
+        // .playerbots assist <имя> [on|off] — ассист их движка (аналог .mbot assist)
+        static bool HandleBotAssistCommand(ChatHandler* handler, Tail args)
+        {
+            std::istringstream is{std::string(args)};
+            std::string botName, token;
+            is >> botName >> token;
+            if (botName.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots assist <имя> [on|off]");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            bool enable = true;
+            std::string const t = LowerStr(token);
+            if (t == "off") enable = false;
+            else if (!token.empty() && t != "on")
+            {
+                handler->SendSysMessage("Использование: .playerbots assist <имя> [on|off]");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            std::string err;
+            if (!ResolveMbotBot(handler, botName, err))
+            {
+                handler->SendSysMessage("assist: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (!sMidnightBotMgr->SetBotAssist(botName, enable, handler->GetPlayer(), err))
+            {
+                handler->SendSysMessage("assist: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            handler->SendSysMessage("%s: assist %s.", botName.c_str(), enable ? "on" : "off");
+            return true;
+        }
+
+        // .playerbots attack <имя> — атаковать твою выделенную цель (аналог .mbot attack)
+        static bool HandleBotAttackCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            if (botName.empty())
+            {
+                handler->SendSysMessage("Использование: выдели цель и: .playerbots attack <имя>");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            Player* player = handler->GetPlayer();
+            if (!player)
+            {
+                handler->SendSysMessage("attack: только из игры (нужна выделенная цель).");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            Unit* target = player->GetSelectedUnit();
+            if (!target)
+            {
+                handler->SendSysMessage("attack: нет выделенной цели.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            std::string err;
+            if (!ResolveMbotBot(handler, botName, err))
+            {
+                handler->SendSysMessage("attack: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (!sMidnightBotMgr->BotAttackTarget(botName, player, target, err))
+            {
+                handler->SendSysMessage("attack: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            handler->SendSysMessage("%s атакует '%s'.", botName.c_str(), target->GetName());
+            return true;
+        }
+
+        // .playerbots boost <имя> [ур.] — уровень+гир+таланты их движком (аналог .mbot boost)
+        static bool HandleBotBoostCommand(ChatHandler* handler, Tail args)
+        {
+            std::istringstream is{std::string(args)};
+            std::string botName, levelTok;
+            is >> botName >> levelTok;
+            if (botName.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots boost <имя> [уровень]");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            Player* player = handler->GetPlayer();
+            uint8 targetLevel = (player && player->GetLevel() >= 1) ? uint8(player->GetLevel()) : 10;
+            if (!levelTok.empty())
+            {
+                uint32 lvl = ToU32(levelTok);
+                if (!lvl)
+                {
+                    handler->SendSysMessage("boost: уровень — число (levelTok '%s').", levelTok.c_str());
+                    handler->SetSentErrorMessage(true);
+                    return false;
+                }
+                targetLevel = uint8(std::min<uint32>(lvl, 255));
+            }
+            std::string err;
+            if (!ResolveMbotBot(handler, botName, err))
+            {
+                handler->SendSysMessage("boost: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (!sMidnightBotMgr->BoostBot(botName, player, targetLevel, err))
+            {
+                handler->SendSysMessage("boost: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            handler->SendSysMessage("%s: boosted to level %u.", botName.c_str(), uint32(targetLevel));
+            return true;
+        }
+
+        // .playerbots boostall — все АКТИВНЫЕ их боты (аналог .mbot boostall)
+        static bool HandleBotBoostAllCommand(ChatHandler* handler)
+        {
+            Player* player = handler->GetPlayer();
+            uint8 targetLevel = (player && player->GetLevel() >= 1) ? uint8(player->GetLevel()) : 10;
+            std::vector<std::string> names = sMidnightBotMgr->ActiveBotNames();
+            if (names.empty())
+            {
+                handler->SendSysMessage("boost: no active bots (сначала роль/stats-команды активируют бота)");
+                return true;
+            }
+            uint32 ok = 0, failed = 0;
+            std::string firstErr;
+            for (std::string const& botName : names)
+            {
+                std::string err;
+                if (sMidnightBotMgr->BoostBot(botName, player, targetLevel, err))
+                    ++ok;
+                else
+                {
+                    ++failed;
+                    if (firstErr.empty()) firstErr = err;
+                }
+            }
+            if (failed)
+                handler->PSendSysMessage("boost: %u ok, %u failed - %s", ok, failed, firstErr.c_str());
+            else
+                handler->PSendSysMessage("all: boosted to level %u (%u bots)", uint32(targetLevel), ok);
+            return true;
+        }
+
+        // .playerbots party <имя>|all — в группу владельца (аналог .mbot party)
+        static bool HandleBotPartyCommand(ChatHandler* handler, Tail name)
+        {
+            Player* player = handler->GetPlayer();
+            if (!player)
+            {
+                handler->SendSysMessage("party: только из игры (боты вступают в твою группу).");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            std::string const token{name};
+            if (token.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots party <имя>|all");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (LowerStr(token) == "all")
+            {
+                uint32 added = 0, already = 0, failed = 0;
+                sMidnightBotMgr->PartyAllBots(player, added, already, failed);
+                handler->PSendSysMessage("party all: +%u, уже в группе %u, ошибок %u", added, already, failed);
+                return true;
+            }
+            std::string err;
+            if (!ResolveMbotBot(handler, token, err))
+            {
+                handler->SendSysMessage("party: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (!sMidnightBotMgr->AddBotToGroup(token, player, err))
+            {
+                handler->SendSysMessage("party: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            handler->SendSysMessage("%s вступил в твою группу.", token.c_str());
+            return true;
+        }
+
+        // .playerbots loot [show|method <m>|threshold <q>] — правила добычи (аналог .mbot loot)
+        static bool HandleBotLootCommand(ChatHandler* handler, Tail args)
+        {
+            Player* player = handler->GetPlayer();
+            if (!player)
+            {
+                handler->SendSysMessage("loot: только из игры (правила твоей группы).");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            std::istringstream is{std::string(args)};
+            std::string first, second;
+            is >> first >> second;
+            std::string err;
+            if (first.empty() || LowerStr(first) == "show")
+            {
+                std::string out;
+                if (!sMidnightBotMgr->LootShow(player, out, err))
+                    handler->PSendSysMessage("loot: %s", err.c_str());
+                else
+                    handler->PSendSysMessage("%s", out.c_str());
+                return true;
+            }
+            if (LowerStr(first) == "threshold")
+            {
+                if (second.empty())
+                {
+                    handler->SendSysMessage("Использование: .playerbots loot threshold <poor|common|uncommon|rare|epic|legendary>");
+                    handler->SetSentErrorMessage(true);
+                    return false;
+                }
+                if (!sMidnightBotMgr->LootSetThreshold(player, second, err))
+                    handler->PSendSysMessage("loot: %s", err.c_str());
+                else
+                    handler->PSendSysMessage("loot threshold set to %s.", second.c_str());
+                return true;
+            }
+            if (!sMidnightBotMgr->LootSetMethod(player, LowerStr(first), err))
+                handler->PSendSysMessage("loot: %s", err.c_str());
+            else
+                handler->PSendSysMessage("loot method set to %s.", LowerStr(first).c_str());
+            return true;
+        }
+
+        // .playerbots resurrect <имя> — поднять (аналог .mbot resurrect)
+        static bool HandleBotResurrectCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            if (botName.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots resurrect <имя>");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            std::string err;
+            if (!ResolveMbotBot(handler, botName, err))
+            {
+                handler->SendSysMessage("resurrect: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (!sMidnightBotMgr->ResurrectBot(botName, err))
+            {
+                handler->SendSysMessage("resurrect: %s", err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            handler->SendSysMessage("%s: resurrected.", botName.c_str());
+            return true;
+        }
+
+        // .playerbots learn [имя] — досказать недостающие спеллы роли (аналог .mbot learn)
+        static bool HandleBotLearnCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            if (!botName.empty())
+            {
+                std::string err;
+                if (!ResolveMbotBot(handler, botName, err))
+                {
+                    handler->SendSysMessage("learn: %s", err.c_str());
+                    handler->SetSentErrorMessage(true);
+                    return false;
+                }
+                uint32 learned = sMidnightBotMgr->LearnBotSpells(botName, err);
+                if (!err.empty())
+                    handler->PSendSysMessage("%s: learn failed - %s", botName.c_str(), err.c_str());
+                else
+                    handler->PSendSysMessage("%s: learned %u spell(s)", botName.c_str(), learned);
+                return true;
+            }
+            std::vector<std::string> names = sMidnightBotMgr->ActiveBotNames();
+            if (names.empty())
+            {
+                handler->SendSysMessage("all: learned 0 spell(s) - no active bots");
+                return true;
+            }
+            uint32 total = 0;
+            for (std::string const& n : names)
+            {
+                std::string err;
+                total += sMidnightBotMgr->LearnBotSpells(n, err);
+            }
+            handler->PSendSysMessage("all: learned %u spell(s)", total);
             return true;
         }
 

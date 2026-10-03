@@ -158,6 +158,11 @@ public:
     std::vector<std::string> ListBots() const;
     size_t Count() const;
     bool IsBotActive(std::string const& name) const;
+    // Слияние с playerbots: принять УЖЕ вошедшего бота (.playerbots add) в активный
+    // ростер — роли/метры/буст их движка начинают видеть персонажа. Идемпотентно.
+    bool AdoptBot(Player* bot, ObjectGuid ownerGuid, std::string& err);
+    // Убрать из активного ростера (вызывается из нашего .playerbots remove)
+    void ForgetBot(std::string const& name);
     bool IsBotInRoster(std::string const& name) const;
     std::vector<std::string> ActiveBotNames() const;
 
