@@ -966,6 +966,58 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
     // Customizations пусты — валидно: ValidateAppearance на CREATE не вызывается
 
     ObjectGuid::LowType guidLow = sObjectMgr->GetGenerator<HighGuid::Player>().Generate();
+
+    // Идемпотентность create: LearnSpell (GiveLevel/автоталанты/геро) пишет
+    // character_spell НЕМЕДЛЕННО — вне SaveToDB-транзакции блока 10. Если tx
+    // предыдущей попытки откатилась, хвосты переживают её, а генератор guid
+    // после рестарта снова выдаёт тот же max+1 → [1062] Duplicate entry на
+    // первом же LearnSpell и create падает навсегда. Чистим сироты нашего guid.
+    {
+        std::string const g = std::to_string(guidLow);
+        bool tails = false;
+        if (QueryResult nq = CharacterDatabase.Query(("SELECT COUNT(*) FROM character_spell WHERE guid = " + g).c_str()))
+            if (Field* f = nq->Fetch())
+                tails = f->GetUInt64() > 0;
+        if (tails)
+        {
+            QueryResult alive = CharacterDatabase.Query(("SELECT guid FROM characters WHERE guid = " + g).c_str());
+            if (!alive)
+            {
+                TC_LOG_INFO("playerbots",
+                    "CreateCharacter[{}]: guid {} — хвосты предыдущей неудачной попытки, чищу сироты по всем таблицам с колонкой guid",
+                    accountId, g);
+                if (QueryResult tabs = CharacterDatabase.Query(
+                    "SELECT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()"
+                    " AND COLUMN_NAME = 'guid' AND TABLE_NAME <> 'characters'"))
+                {
+                    do
+                    {
+                        if (Field* tf = tabs->Fetch())
+                        {
+                            std::string const t = tf[0].GetString();
+                            CharacterDatabase.Execute(("DELETE FROM `" + t + "` WHERE guid = " + g).c_str());
+                        }
+                    } while (tabs->NextRow());
+                }
+                // ждём, пока character_spell реально опустеет (DELETE уходят async),
+                // иначе следующий LearnSpell в этой же попытке снова поймает [1062]
+                for (int i = 0; i < 20 && tails; ++i)
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    QueryResult nq2 = CharacterDatabase.Query(("SELECT COUNT(*) FROM character_spell WHERE guid = " + g).c_str());
+                    tails = false;
+                    if (nq2)
+                        if (Field* f = nq2->Fetch())
+                            tails = f->GetUInt64() > 0;
+                }
+                if (tails)
+                    TC_LOG_ERROR("playerbots",
+                        "CreateCharacter[{}]: guid {} — хвосты character_spell не сошли за 1 с (лок?) — create может снова поймать [1062]",
+                        accountId, g);
+            }
+        }
+    }
+
     std::shared_ptr<Player> newChar(new Player(session), [](Player* p)
     {
         p->CleanupsBeforeDelete();
