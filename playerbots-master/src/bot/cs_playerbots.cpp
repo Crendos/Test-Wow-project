@@ -392,7 +392,7 @@ namespace
             else if (rt == "dps" || rt == "dd" || rt == "damage") role = BotRole::Dps;
             else if (rt != "none")
             {
-                handler->SendSysMessage("Роль '%s' неизвестна (tank/healer/dps/none).", roleText.c_str());
+                handler->PSendSysMessage("Роль '%s' неизвестна (tank/healer/dps/none).", roleText.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
@@ -400,17 +400,17 @@ namespace
             std::string err;
             if (!ResolveMbotBot(handler, botName, err))
             {
-                handler->SendSysMessage("role: %s", err.c_str());
+                handler->PSendSysMessage("role: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
             if (!sMidnightBotMgr->SetBotRole(botName, role, err))
             {
-                handler->SendSysMessage("role: %s", err.c_str());
+                handler->PSendSysMessage("role: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
-            handler->SendSysMessage("%s: роль '%s' применена (движок MidnightBotAI).", botName.c_str(), roleText.c_str());
+            handler->PSendSysMessage("%s: роль '%s' применена (движок MidnightBotAI).", botName.c_str(), roleText.c_str());
             return true;
         }
 
@@ -439,17 +439,17 @@ namespace
             std::string err;
             if (!ResolveMbotBot(handler, botName, err))
             {
-                handler->SendSysMessage("assist: %s", err.c_str());
+                handler->PSendSysMessage("assist: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
             if (!sMidnightBotMgr->SetBotAssist(botName, enable, handler->GetPlayer(), err))
             {
-                handler->SendSysMessage("assist: %s", err.c_str());
+                handler->PSendSysMessage("assist: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
-            handler->SendSysMessage("%s: assist %s.", botName.c_str(), enable ? "on" : "off");
+            handler->PSendSysMessage("%s: assist %s.", botName.c_str(), enable ? "on" : "off");
             return true;
         }
 
@@ -480,17 +480,17 @@ namespace
             std::string err;
             if (!ResolveMbotBot(handler, botName, err))
             {
-                handler->SendSysMessage("attack: %s", err.c_str());
+                handler->PSendSysMessage("attack: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
             if (!sMidnightBotMgr->BotAttackTarget(botName, player, target, err))
             {
-                handler->SendSysMessage("attack: %s", err.c_str());
+                handler->PSendSysMessage("attack: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
-            handler->SendSysMessage("%s атакует '%s'.", botName.c_str(), target->GetName());
+            handler->PSendSysMessage("%s атакует '%s'.", botName.c_str(), target->GetName());
             return true;
         }
 
@@ -513,7 +513,7 @@ namespace
                 uint32 lvl = ToU32(levelTok);
                 if (!lvl)
                 {
-                    handler->SendSysMessage("boost: уровень — число (levelTok '%s').", levelTok.c_str());
+                    handler->PSendSysMessage("boost: уровень — число (levelTok '%s').", levelTok.c_str());
                     handler->SetSentErrorMessage(true);
                     return false;
                 }
@@ -522,17 +522,17 @@ namespace
             std::string err;
             if (!ResolveMbotBot(handler, botName, err))
             {
-                handler->SendSysMessage("boost: %s", err.c_str());
+                handler->PSendSysMessage("boost: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
             if (!sMidnightBotMgr->BoostBot(botName, player, targetLevel, err))
             {
-                handler->SendSysMessage("boost: %s", err.c_str());
+                handler->PSendSysMessage("boost: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
-            handler->SendSysMessage("%s: boosted to level %u.", botName.c_str(), uint32(targetLevel));
+            handler->PSendSysMessage("%s: boosted to level %u.", botName.c_str(), uint32(targetLevel));
             return true;
         }
 
@@ -594,17 +594,17 @@ namespace
             std::string err;
             if (!ResolveMbotBot(handler, token, err))
             {
-                handler->SendSysMessage("party: %s", err.c_str());
+                handler->PSendSysMessage("party: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
             if (!sMidnightBotMgr->AddBotToGroup(token, player, err))
             {
-                handler->SendSysMessage("party: %s", err.c_str());
+                handler->PSendSysMessage("party: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
-            handler->SendSysMessage("%s вступил в твою группу.", token.c_str());
+            handler->PSendSysMessage("%s вступил в твою группу.", token.c_str());
             return true;
         }
 
@@ -665,17 +665,17 @@ namespace
             std::string err;
             if (!ResolveMbotBot(handler, botName, err))
             {
-                handler->SendSysMessage("resurrect: %s", err.c_str());
+                handler->PSendSysMessage("resurrect: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
             if (!sMidnightBotMgr->ResurrectBot(botName, err))
             {
-                handler->SendSysMessage("resurrect: %s", err.c_str());
+                handler->PSendSysMessage("resurrect: %s", err.c_str());
                 handler->SetSentErrorMessage(true);
                 return false;
             }
-            handler->SendSysMessage("%s: resurrected.", botName.c_str());
+            handler->PSendSysMessage("%s: resurrected.", botName.c_str());
             return true;
         }
 
@@ -688,7 +688,7 @@ namespace
                 std::string err;
                 if (!ResolveMbotBot(handler, botName, err))
                 {
-                    handler->SendSysMessage("learn: %s", err.c_str());
+                    handler->PSendSysMessage("learn: %s", err.c_str());
                     handler->SetSentErrorMessage(true);
                     return false;
                 }

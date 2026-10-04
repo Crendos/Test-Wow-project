@@ -135,7 +135,7 @@ constexpr uint32 VictimGraceMs = 5000;      // keep a fresh victim even before c
             std::shared_ptr<WorldSocket>(), security, expansion, muteTime, std::move(os), Minutes(timezoneOffset), clientBuild,
             ClientBuild::VariantId{ ClientBuild::Platform::Win_x64, ClientBuild::Arch::x64, ClientBuild::Type::Retail },
             LocaleConstant(locale), recruiter, false);
-        session->SetBot(true);
+        session->MarkAsPlayerBot();
         return session;
     }
 
@@ -1559,7 +1559,7 @@ constexpr uint32 VictimGraceMs = 5000;      // keep a fresh victim even before c
         // Group::Create already assigns the leader (Group.cpp:141-149), this is a safety net
         // for groups that somehow ended up with a bot leader.
         if (Player* leader = ObjectAccessor::FindConnectedPlayer(group->GetLeaderGUID()))
-            if (leader != owner && leader->GetSession() && leader->GetSession()->IsBot() && group->IsMember(owner->GetGUID()))
+            if (leader != owner && leader->GetSession() && leader->GetSession()->IsPlayerBot() && group->IsMember(owner->GetGUID()))
             {
                 group->ChangeLeader(owner->GetGUID());
                 group->SendUpdate();
@@ -2444,10 +2444,12 @@ bool MidnightBotMgr::SpawnBot(std::string const& name, std::string& err, ObjectG
         std::shared_ptr<WorldSocket>(), security, expansion, muteTime, std::move(os), Minutes(timezoneOffset), clientBuild,
         ClientBuild::VariantId{ ClientBuild::Platform::Win_x64, ClientBuild::Arch::x64, ClientBuild::Type::Retail },
         LocaleConstant(locale), recruiter, false);
-    session->SetBot(true);
+    session->MarkAsPlayerBot();
 
     ObjectGuid playerGuid = ObjectGuid::Create<HighGuid::Player>(guid);
-    if (!session->HandleBotLogin(playerGuid))
+    // PLAYERBOTS: наш API — void LoginPlayerBot(); ошибка логина = m_playerLoading не выставлен
+    session->LoginPlayerBot(playerGuid);
+    if (!session->PlayerLoading())
     {
         delete session;
         err = "character login failed, check server log for details";
@@ -2608,7 +2610,8 @@ bool MidnightBotMgr::DespawnBot(std::string const& name, std::string& err)
 
     activeBots.erase(itr);
 
-    session->SetBot(false);
+    // PLAYERBOTS: наш API — флаг IsPlayerBot НЕ сбрасываем: WorldSession::Update
+    // по нему завершает жизнь бот-сессии (без сокета); unregistered удаляется ниже.
 
     if (!registered)
     {
@@ -2736,7 +2739,7 @@ void MidnightBotMgr::NotifyBotDamage(Unit* attacker, Unit* victim, uint32 damage
         return;
 
     Player* bot = attacker->ToPlayer();
-    if (!bot || !bot->GetSession() || !bot->GetSession()->IsBot())
+    if (!bot || !bot->GetSession() || !bot->GetSession()->IsPlayerBot())
         return;
 
     std::string source = "melee";
@@ -4289,7 +4292,7 @@ bool MidnightBotMgr::TakeGroupLead(std::string const& name, Player* issuer, uint
         if (!member || member == issuer)
             continue;
 
-        if (!(member->GetSession() && member->GetSession()->IsBot()))
+        if (!(member->GetSession() && member->GetSession()->IsPlayerBot()))
         {
             err = "group contains other players";
             return false;
