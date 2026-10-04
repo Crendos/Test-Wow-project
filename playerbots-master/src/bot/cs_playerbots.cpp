@@ -246,6 +246,12 @@ namespace
         static bool HandleBotEquipCommand(ChatHandler* handler, Tail name)
         {
             std::string const botName{name};
+            if (botName.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots equip <имя> — бот должен быть онлайн (сначала .playerbots add <имя>); пример: .playerbots equip Idg");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
             PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
             if (!ai)
             {
@@ -314,9 +320,16 @@ namespace
             bot->SaveToDB(false);                   // сохранить флаги талант-спеллов (паттерн RemoveBot)
             ai->RebuildKnowledge();                 // новые спеллы → знания AI/sweep
 
+            // Диагностика «применил, но талантов нет»: при входе бота _LoadTraits мог снести
+            // записи конфига (ValidateConfig != Ok → Entries.clear) — тогда Apply идёт по
+            // усечённому списку памяти, а не по 142 нодам из БД.
+            uint32 const memEntries = bot->GetTraitConfig(cfgId)->Entries.size();
             handler->SendSysMessage(fmt::format(
-                "ApplyTraitConfig {} применён (нод в конфиге {}): талант-спеллы учатся, character_spell дополняется, знание AI пересобрано.",
-                cfgId, nodes));
+                "ApplyTraitConfig {} применён: нод в character_trait_entry (БД) = {}, entries в ПАМЯТИ персонажа = {}{}",
+                cfgId, nodes, memEntries,
+                memEntries + 3 < nodes
+                    ? " — валидатор _LoadTraits снёс битые ноды при входе (каскад prerequisites/conditions); спеллы Apply учатся только по оставшимся → пересоздай бота свежим create"
+                    : ""));
             handler->SendSysMessage("Проверка: .playerbots book " + botName
                 + " ; SQL character_spell по guid вырастет; UI талантов показывает записи конфига.");
             return true;
