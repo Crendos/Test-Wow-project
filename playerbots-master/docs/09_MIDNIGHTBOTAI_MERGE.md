@@ -69,7 +69,9 @@ cmake --build build --config Release -j 8
 ## Конфиг
 
 Скопировать `conf/MidnightBotAI.conf.dist` в каталог `worldserver.conf.d/`
-(worldserver подхватывает `*.conf` автоматически) либо слить ключи в worldserver.conf.
+**с именем `MidnightBotAI.conf`** (worldserver подхватывает только `*.conf`, файлы
+`.dist` игнорирует — без этого в логе будут warning'и `Missing name MidnightBotAI.*`)
+либо слить ключи в worldserver.conf.
 
 Дефолты безопасны для сосуществования:
 

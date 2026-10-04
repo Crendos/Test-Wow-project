@@ -1742,7 +1742,12 @@ void MidnightBotMgr::LoadConfig()
 void MidnightBotMgr::LoadRoster()
 {
     CharacterDatabase.DirectExecute("CREATE TABLE IF NOT EXISTS midnight_bot_roster (guid INT UNSIGNED NOT NULL PRIMARY KEY, name VARCHAR(64) NOT NULL)");
-    CharacterDatabase.DirectExecute("ALTER TABLE midnight_bot_roster ADD COLUMN IF NOT EXISTS owner_guid BIGINT UNSIGNED NOT NULL DEFAULT 0");
+    // MySQL не понимает "ADD COLUMN IF NOT EXISTS" (MariaDB-синтаксис): 1064 →
+    // MySQLConnection._HandleQueryErrno дёргает ABORT() и роняет сервер.
+    // Проверяем наличие колонки через information_schema (работает и на MySQL, и на MariaDB).
+    if (QueryResult colCheck = CharacterDatabase.Query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'midnight_bot_roster' AND COLUMN_NAME = 'owner_guid'"))
+        if (colCheck->Fetch()->GetUInt64() == 0)
+            CharacterDatabase.DirectExecute("ALTER TABLE midnight_bot_roster ADD COLUMN owner_guid BIGINT UNSIGNED NOT NULL DEFAULT 0");
 
     bool hasOwnerColumn = true;
     QueryResult result = CharacterDatabase.Query("SELECT guid, name, owner_guid FROM midnight_bot_roster");
