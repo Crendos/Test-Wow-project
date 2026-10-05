@@ -81,6 +81,15 @@ bool PlayerbotMgr::IsQAAccount(uint32 accountId) const
         && accountId <= m_qaAccountEnd;
 }
 
+bool PlayerbotMgr::IsBotAccount(uint32 accountId) const
+{
+    if (IsQAAccount(accountId))
+        return true;
+    return m_freeAccountStart != 0
+        && accountId >= m_freeAccountStart
+        && accountId <= m_freeAccountEnd;
+}
+
 bool PlayerbotMgr::IsBotQA(std::string const& botName) const
 {
     ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName);

@@ -109,6 +109,9 @@ public:
     // v6.1: роли ботов. QA-бот = аккаунт в диапазоне Playerbots.QAAccountsStart/End.
     // QA: sweep, лог CAST_FAIL, быстрые ретраи фейлов. Игровые: обычная ротация.
     bool IsQAAccount(uint32 accountId) const;
+    // бот-аккаунт вообще: QA-диапазон ИЛИ игровые FreeAccounts (create предупреждает, если
+    // аккаунт вне обоих) — используется .playerbots delete для защиты живых игроков
+    bool IsBotAccount(uint32 accountId) const;
     bool IsBotQA(std::string const& botName) const;      // имя → аккаунт → роль
 
 private:

@@ -73,6 +73,7 @@ namespace
                 { "ping",        HandleBotPingCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "remove",      HandleBotRemoveCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "removeall",   HandleBotRemoveAllCommand,      static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "delete",      HandleBotDeleteCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "followme",    HandleBotFollowMeCommand,       static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "stay",        HandleBotStayCommand,           static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "summon",      HandleBotSummonCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
@@ -1175,6 +1176,114 @@ namespace
             sPlayerbotMgr.RemoveAll();
             handler->SendSysMessage("Все боты сняты.");
             return true;
+        }
+
+        // .playerbots delete <имя> [force] — ПОЛНАЯ чистка слота персонажа на аккаунте:
+        // если бот в мире — выкидываем (логаут), затем удаляем все строки персонажа по guid
+        // во ВСЕХ таблицах characters-БД (включая сам characters) + запись из кэша имён.
+        // Аккаунт НЕ трогаем. Без force — только бот-аккаунты (QA/FreeAccounts/онлайн-ботов).
+        static bool HandleBotDeleteCommand(ChatHandler* handler, Tail args)
+        {
+            std::istringstream is{std::string(args)};
+            std::string botName, token;
+            bool force = false;
+            while (is >> token)
+            {
+                if (token == "force" && botName.empty())
+                    force = true;
+                else if (botName.empty())
+                    botName = token;
+                else
+                {
+                    handler->SendSysMessage("Использование: .playerbots delete <имя> [force]");
+                    handler->SetSentErrorMessage(true);
+                    return false;
+                }
+            }
+            if (botName.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots delete <имя> [force] — удалить персонажа-бота и полностью вычистить его слот (все таблицы по guid). force — если персонаж вне бот-диапазонов.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName);
+            if (guid.IsEmpty())
+            {
+                handler->SendSysMessage(fmt::format("Персонаж '{}' не найден в кэше имён (нет в characters?) — нечего удалять.", botName));
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            uint32 const accountId = sCharacterCache->GetCharacterAccountIdByGuid(guid);
+            uint32 const guidLow = guid.GetCounter();
+
+            bool const inWorld = sPlayerbotMgr.GetBotAI(botName) != nullptr;
+            bool const isBot = inWorld || sPlayerbotMgr.IsBotAccount(accountId);
+            if (!isBot && !force)
+            {
+                handler->SendSysMessage(fmt::format(
+                    "Аккаунт {} вне бот-диапазонов (QA/FreeAccounts) и персонаж не добавлен как бот — это может быть живой игрок. Если уверен: .playerbots delete {} force",
+                    accountId, botName));
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            if (inWorld && sPlayerbotMgr.RemoveBot(botName) != PlayerbotMgr::Status::OK)
+            {
+                handler->SendSysMessage("Бот в мире, но RemoveBot отказал — прерываю (смотри Server.log).");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            // Полная чистка: все таблицы текущей (characters) БД с колонкой guid,
+            // затем сам characters, затем повторный проход — на случай FK-ребёнка,
+            // не давшего удалить characters с первого раза.
+            std::string const g = std::to_string(guidLow);
+            auto wipeTables = [&g]()
+            {
+                uint32 n = 0;
+                if (QueryResult tabs = CharacterDatabase.Query(
+                    "SELECT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()"
+                    " AND COLUMN_NAME = 'guid' AND TABLE_NAME <> 'characters'"))
+                {
+                    do
+                    {
+                        if (Field* tf = tabs->Fetch())
+                        {
+                            std::string const t = tf[0].GetString();
+                            CharacterDatabase.DirectExecute(("DELETE FROM `" + t + "` WHERE guid = " + g).c_str());
+                            ++n;
+                        }
+                    } while (tabs->NextRow());
+                }
+                return n;
+            };
+            uint32 const tables = wipeTables();
+            CharacterDatabase.DirectExecute(("DELETE FROM characters WHERE guid = " + g).c_str());
+            wipeTables();   // страховка от FK-хвостов
+
+            uint64 left = 1;
+            if (QueryResult chk = CharacterDatabase.Query(("SELECT COUNT(*) FROM characters WHERE guid = " + g).c_str()))
+                if (Field* f = chk->Fetch())
+                    left = f->GetUInt64();
+
+            sCharacterCache->DeleteCharacterCacheEntry(guid, botName);
+
+            if (left == 0)
+            {
+                handler->SendSysMessage(fmt::format(
+                    "Персонаж {} (guid {}, аккаунт {}) удалён: таблиц очищено {}, в characters остаток 0 — СЛОТ СВОБОДЕН. Аккаунт {} оставлен.{}",
+                    botName, guidLow, accountId, tables, accountId,
+                    inWorld ? " Бот был в мире — выкинут перед чисткой." : ""));
+                TC_LOG_INFO("playerbots", "DeleteCharacter: {} (guid {}, account {}) — слот очищён (tables {})",
+                    botName, guidLow, accountId, tables);
+                return true;
+            }
+            handler->SendSysMessage(fmt::format(
+                "Удаление НЕ завершено: guid {} всё ещё в characters (строк: {}). Смотри Server.log (Unhandled errno → FK).",
+                guidLow, left));
+            handler->SetSentErrorMessage(true);
+            return false;
         }
 
         // .playerbots roster start
