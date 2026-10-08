@@ -5,6 +5,7 @@
 #include "Chat.h"
 #include "ChatCommand.h"
 #include "ChatCommandTags.h"
+#include "CharacterCache.h"   // sCharacterCache — .playerbots delete (кэш имён)
 #include "Config.h"
 #include "Creature.h"
 #include "DatabaseEnv.h"
