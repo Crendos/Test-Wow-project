@@ -719,7 +719,9 @@ bool PlayerbotAI::ItemFitsClass(Item const* item, int slot) const
 void PlayerbotAI::EquipBestItems()
 {
     // Слоты, которые попробуем закрыть из сумки rucksack-bag0
-    static int const armorSlots[] = { 0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16 };
+    // 15 = MAINHAND (оружие, включая двуручки) — без него equip не экипирует оружие вовсе;
+    // 16 = OFFHAND (щит/вторая рука)
+    static int const armorSlots[] = { 0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16 };
 
     for (int trial = 0; trial < 8; ++trial)       // до 8 замещений за раз — безопасно
     {

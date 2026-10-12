@@ -318,22 +318,38 @@ namespace
                 return false;
             }
 
-            bot->ApplyTraitConfig(cfgId, true);     // LearnSpell каждой ноды (HasSpell-идемпотентно)
+            bot->ApplyTraitConfig(cfgId, true);     // LearnSpell по entries ПАМЯТИ (HasSpell-идемпотентно)
+
+            // ЛЕЧЕНИЕ «применил, но талантов нет»: при входе бота _LoadTraits мог снести
+            // записи конфига из памяти (ValidateConfig != Ok → Entries.clear) — тогда
+            // ApplyTraitConfig обучил только остатки. Проходим ВСЕ записи
+            // character_trait_entry напрямую: ApplyTraitEntry (public) → LearnSpell
+            // каждой ноды МИМО валидатора памяти (hero-ветки и каскад-ноды тоже).
+            uint32 direct = 0;
+            if (QueryResult all = CharacterDatabase.Query(
+                ("SELECT traitNodeEntryId, rank FROM character_trait_entry WHERE guid = " + guidStr
+                 + " AND traitConfigId = " + std::to_string(cfgId)).c_str()))
+            {
+                do
+                {
+                    Field* f = all->Fetch();
+                    bot->ApplyTraitEntry(f[0].GetInt32(), f[1].GetInt32(), 0, true);
+                    ++direct;
+                } while (all->NextRow());
+            }
+
             bot->SaveToDB(false);                   // сохранить флаги талант-спеллов (паттерн RemoveBot)
             ai->RebuildKnowledge();                 // новые спеллы → знания AI/sweep
 
-            // Диагностика «применил, но талантов нет»: при входе бота _LoadTraits мог снести
-            // записи конфига (ValidateConfig != Ok → Entries.clear) — тогда Apply идёт по
-            // усечённому списку памяти, а не по 142 нодам из БД.
             uint32 const memEntries = bot->GetTraitConfig(cfgId)->Entries.size();
             handler->SendSysMessage(fmt::format(
-                "ApplyTraitConfig {} применён: нод в character_trait_entry (БД) = {}, entries в ПАМЯТИ персонажа = {}{}",
-                cfgId, nodes, memEntries,
+                "Таланты применены: ApplyTraitConfig {} (нод в БД = {}, entries в ПАМЯТИ = {}), прямой проход по БД — {} нод → LearnSpell; знание AI пересобрано.{}",
+                cfgId, nodes, memEntries, direct,
                 memEntries + 3 < nodes
-                    ? " — валидатор _LoadTraits снёс битые ноды при входе (каскад prerequisites/conditions); спеллы Apply учатся только по оставшимся → пересоздай бота свежим create"
+                    ? " [примечание: валидатор _LoadTraits снёс записи из памяти при входе — UI талантов может показывать усечённый конфиг, но спеллы выучены прямым проходом]"
                     : ""));
             handler->SendSysMessage("Проверка: .playerbots book " + botName
-                + " ; SQL character_spell по guid вырастет; UI талантов показывает записи конфига.");
+                + " ; спеллбук должен пополниться; SQL character_spell по guid вырастет.");
             return true;
         }
 
