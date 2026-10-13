@@ -1,17 +1,19 @@
--- Playerbots v3 «классовое знание»: ручные правила применения спелов (per-class).
--- Если таблицы для класса НЕТ — бот сам построит ротацию из своего спелбукка
--- (авто-классификация эффектов SpellInfo: Damage/Heal/SelfBuff/Defensive/Interrupt).
+-- Playerbots v3 «классовое знание»: правила применения спеллов (per-class).
+-- Если таблицы для класса НЕТ — бот сам строит ротацию из своего спеллбука.
+-- После проверки класса можно материализовать это знание: .playerbots spells class <бот>.
+-- Команда заполняет только полностью отсутствующий class_id и не перезаписывает ручные строки.
 
 CREATE TABLE IF NOT EXISTS `playerbots_class_knowledge` (
   `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `class_id`      TINYINT UNSIGNED NOT NULL,               -- 1 Warrior, 2 Paladin, 3 Hunter, ... (Enum Classes)
   `spellid`       INT UNSIGNED NOT NULL,
-  `kind`          TINYINT UNSIGNED NOT NULL DEFAULT 0,     -- 0=Damage, 1=Heal, 2=SelfBuff, 4=Defensive, 5=Interrupt
+  `kind`          TINYINT UNSIGNED NOT NULL DEFAULT 0,     -- 0=Damage, 1=Heal, 2=SelfBuff, 3=Debuff, 4=Defensive, 5=Interrupt, 6=DoT, 7=Dispel
   `priority`      SMALLINT UNSIGNED NOT NULL DEFAULT 100,  -- больше = раньше в цикле
   `self_hp_max`   TINYINT UNSIGNED NOT NULL DEFAULT 100,   -- % HP бота, ниже которого спел доступен (для Defensive/Heal)
   `target_hp_min` TINYINT UNSIGNED NOT NULL DEFAULT 0,     -- % HP цели (для execute-подобных)
   `target_hp_max` TINYINT UNSIGNED NOT NULL DEFAULT 100,
-  `maintain_aura` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,  -- self-buff: кастуем, пока ауры нет у бота
+  `maintain_aura` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,  -- поддерживать ауру, пока её нет
+  `burst`         TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,  -- окно бурста для долгого КД
   PRIMARY KEY (`id`),
   KEY `class_id` (`class_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

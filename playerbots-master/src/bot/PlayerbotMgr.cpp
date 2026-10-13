@@ -32,6 +32,159 @@
 #include <cctype>
 #include <chrono>
 #include <thread>
+#include <fmt/format.h>
+
+namespace
+{
+    struct KnowledgeSchemaColumn
+    {
+        char const* name;
+        char const* definition;
+    };
+
+    bool EnsureKnowledgeColumns(char const* table, KnowledgeSchemaColumn const* columns, size_t count)
+    {
+        for (size_t i = 0; i < count; ++i)
+        {
+            std::string const checkSql = "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '"
+                + std::string(table) + "' AND COLUMN_NAME = '" + columns[i].name + "'";
+            QueryResult check = WorldDatabase.Query(checkSql.c_str());
+            if (!check)
+            {
+                TC_LOG_WARN("playerbots", "Не удалось проверить схему {}.{} через information_schema", table, columns[i].name);
+                return false;
+            }
+
+            Field* field = check->Fetch();
+            if (!field)
+                return false;
+            if (field->GetUInt64() != 0)
+                continue;
+
+            std::string const alterSql = "ALTER TABLE `" + std::string(table) + "` ADD COLUMN `"
+                + columns[i].name + "` " + columns[i].definition;
+            WorldDatabase.DirectExecute(alterSql.c_str());
+
+            QueryResult verify = WorldDatabase.Query(checkSql.c_str());
+            Field* verified = verify ? verify->Fetch() : nullptr;
+            if (!verified || verified->GetUInt64() == 0)
+            {
+                TC_LOG_WARN("playerbots", "Не удалось добавить колонку {}.{}; авто-материализация знаний отключена", table, columns[i].name);
+                return false;
+            }
+
+            TC_LOG_INFO("playerbots", "Автомиграция playerbots: добавлена колонка {}.{}", table, columns[i].name);
+        }
+        return true;
+    }
+
+    bool EnsureKnowledgeTableExists(char const* table)
+    {
+        std::string const checkSql = "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '"
+            + std::string(table) + "'";
+        QueryResult check = WorldDatabase.Query(checkSql.c_str());
+        Field* field = check ? check->Fetch() : nullptr;
+        if (!field || field->GetUInt64() == 0)
+        {
+            TC_LOG_WARN("playerbots", "Таблица world.{} отсутствует и не создана; проверь права world-БД", table);
+            return false;
+        }
+        return true;
+    }
+
+    bool EnsurePlayerbotKnowledgeSchema()
+    {
+        static bool schemaReady = false;
+        if (schemaReady)
+            return true;
+
+        WorldDatabase.DirectExecute(
+            "CREATE TABLE IF NOT EXISTS `playerbots_combat_spells` ("
+            "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT,"
+            "`name` VARCHAR(12) NOT NULL,"
+            "`spellid` INT UNSIGNED NOT NULL,"
+            "`priority` SMALLINT UNSIGNED NOT NULL DEFAULT 100,"
+            "`kind` TINYINT UNSIGNED NOT NULL DEFAULT 0,"
+            "`self_hp_max` TINYINT UNSIGNED NOT NULL DEFAULT 100,"
+            "`target_hp_min` TINYINT UNSIGNED NOT NULL DEFAULT 0,"
+            "`target_hp_max` TINYINT UNSIGNED NOT NULL DEFAULT 100,"
+            "`maintain_aura` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,"
+            "`burst` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,"
+            "PRIMARY KEY (`id`), KEY `name` (`name`)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        WorldDatabase.DirectExecute(
+            "CREATE TABLE IF NOT EXISTS `playerbots_class_knowledge` ("
+            "`id` INT UNSIGNED NOT NULL AUTO_INCREMENT,"
+            "`class_id` TINYINT UNSIGNED NOT NULL,"
+            "`spellid` INT UNSIGNED NOT NULL,"
+            "`kind` TINYINT UNSIGNED NOT NULL DEFAULT 0,"
+            "`priority` SMALLINT UNSIGNED NOT NULL DEFAULT 100,"
+            "`self_hp_max` TINYINT UNSIGNED NOT NULL DEFAULT 100,"
+            "`target_hp_min` TINYINT UNSIGNED NOT NULL DEFAULT 0,"
+            "`target_hp_max` TINYINT UNSIGNED NOT NULL DEFAULT 100,"
+            "`maintain_aura` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,"
+            "`burst` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,"
+            "PRIMARY KEY (`id`), KEY `class_id` (`class_id`)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        static KnowledgeSchemaColumn const combatColumns[] =
+        {
+            { "kind", "TINYINT UNSIGNED NOT NULL DEFAULT 0" },
+            { "self_hp_max", "TINYINT UNSIGNED NOT NULL DEFAULT 100" },
+            { "target_hp_min", "TINYINT UNSIGNED NOT NULL DEFAULT 0" },
+            { "target_hp_max", "TINYINT UNSIGNED NOT NULL DEFAULT 100" },
+            { "maintain_aura", "TINYINT(1) UNSIGNED NOT NULL DEFAULT 0" },
+            { "burst", "TINYINT(1) UNSIGNED NOT NULL DEFAULT 0" }
+        };
+        static KnowledgeSchemaColumn const classColumns[] =
+        {
+            { "burst", "TINYINT(1) UNSIGNED NOT NULL DEFAULT 0" }
+        };
+
+        if (!EnsureKnowledgeTableExists("playerbots_combat_spells")
+            || !EnsureKnowledgeTableExists("playerbots_class_knowledge")
+            || !EnsureKnowledgeColumns("playerbots_combat_spells", combatColumns,
+            sizeof(combatColumns) / sizeof(combatColumns[0]))
+            || !EnsureKnowledgeColumns("playerbots_class_knowledge", classColumns,
+                sizeof(classColumns) / sizeof(classColumns[0])))
+            return false;
+
+        schemaReady = true;
+        TC_LOG_INFO("playerbots", "Схемы playerbots_combat_spells/playerbots_class_knowledge готовы (включая автомиграции)");
+        return true;
+    }
+
+    bool CommitWorldKnowledgeTransaction(WorldDatabaseTransaction& transaction, std::string& err)
+    {
+        TransactionCallback commit = WorldDatabase.AsyncCommitTransaction(transaction);
+        bool completed = false;
+        bool success = false;
+        commit.AfterComplete([&completed, &success](bool result)
+        {
+            success = result;
+            completed = true;
+        });
+
+        std::chrono::steady_clock::time_point const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (!completed && std::chrono::steady_clock::now() < deadline)
+        {
+            if (!commit.InvokeIfReady())
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        if (!completed)
+        {
+            err = "коммит world-БД не завершился за 3 с; проверь Server.log и таблицу перед повтором";
+            return false;
+        }
+        if (!success)
+        {
+            err = "коммит world-БД завершился ошибкой; подробности в Server.log";
+            return false;
+        }
+        return true;
+    }
+}
 
 /* static */ PlayerbotMgr& PlayerbotMgr::Instance()
 {
@@ -240,11 +393,13 @@ void PlayerbotMgr::HandlePlayerBotLoggedIn(Player* player)
 
 void PlayerbotMgr::AttachAI(PlayerBotEntry& entry, Player* player)
 {
-    // заклинания этого бота (ленивая загрузка из world.playerbots_combat_spells)
-    if (m_combatSpells.empty())
+    // Заклинания этого бота (ленивая загрузка из world.playerbots_combat_spells).
+    // Загружаем и мигрируем ровно один раз, даже если таблица пока пустая.
+    if (!m_combatSpellsLoaded)
+    {
         LoadPlayerBotCombatSpells(m_combatSpells);
-    if (m_combatSpells.empty())
-        LoadPlayerBotCombatSpells(m_combatSpells);
+        m_combatSpellsLoaded = true;
+    }
 
     if (entry.ai)
     {
@@ -618,8 +773,12 @@ void PlayerbotMgr::LoadPlayerBots()
 /* static */ std::unordered_map<uint8, std::vector<BotKnowledge>> PlayerbotMgr::LoadClassKnowledgeTable()
 {
     std::unordered_map<uint8, std::vector<BotKnowledge>> out;
+    if (!EnsurePlayerbotKnowledgeSchema())
+        return out;
+
     if (QueryResult result = WorldDatabase.Query(
-        "SELECT class_id, spellid, kind, priority, self_hp_max, target_hp_min, target_hp_max, maintain_aura FROM playerbots_class_knowledge ORDER BY class_id, priority DESC"))
+        "SELECT class_id, spellid, kind, priority, self_hp_max, target_hp_min, target_hp_max, maintain_aura, burst "
+        "FROM playerbots_class_knowledge ORDER BY class_id, priority DESC"))
     {
         do
         {
@@ -632,6 +791,7 @@ void PlayerbotMgr::LoadPlayerBots()
             k.targetHpMin  = f[5].GetUInt8();
             k.targetHpMax  = f[6].GetUInt8();
             k.maintainAura = f[7].GetBool();
+            k.burst        = f[8].GetBool();
             out[f[0].GetUInt8()].push_back(k);
         } while (result->NextRow());
         TC_LOG_INFO("playerbots", "LoadClassKnowledgeTable: загружено {} классовых групп", out.size());
@@ -641,26 +801,23 @@ void PlayerbotMgr::LoadPlayerBots()
 
 std::vector<BotKnowledge> PlayerbotMgr::ResolveKnowledge(std::string const& botName, uint8 classId)
 {
-    // 1) legacy per-name (world.playerbots_combat_spells) — обратная совместимость с v0/v2
+    // 1) legacy per-name (world.playerbots_combat_spells), теперь со всеми полями BotKnowledge.
     auto const& legacy = m_combatSpells.find(botName);
     if (legacy != m_combatSpells.end() && !legacy->second.empty())
+        return legacy->second;
+
+    // 2) per-class таблица. Пустую таблицу тоже кэшируем — не делаем запрос на каждый бот-логин.
+    if (!m_classKnowledgeLoaded)
     {
-        std::vector<BotKnowledge> out;
-        for (uint32 sid : legacy->second)
-            out.push_back(BotKnowledge{ sid, BotKnowledge::Kind::Damage, 100, 100, 0, 100, false });
-        return out;
+        m_classKnowledge = LoadClassKnowledgeTable();
+        m_classKnowledgeLoaded = true;
     }
 
-    // 2) пер-class таблица (world.playerbots_class_knowledge)
-    auto& table = m_classKnowledge;
-    if (table.empty())
-        table = LoadClassKnowledgeTable();
-
-    auto itr = table.find(classId);
-    if (itr != table.end())
+    auto itr = m_classKnowledge.find(classId);
+    if (itr != m_classKnowledge.end())
         return itr->second;
 
-    // 3) пусто — AI сам построит из спелбукка персонажа
+    // 3) пусто — AI сам построит из спеллбука персонажа
     return {};
 }
 
@@ -728,22 +885,158 @@ std::vector<BossRule> const* PlayerbotMgr::GetBossRules(uint32 bossEntry)
     return itr == m_bossRules.end() ? nullptr : &itr->second;
 }
 
-/* static */ void PlayerbotMgr::LoadPlayerBotCombatSpells(std::unordered_map<std::string, std::vector<uint32>>& spells)
+/* static */ void PlayerbotMgr::LoadPlayerBotCombatSpells(std::unordered_map<std::string, std::vector<BotKnowledge>>& spells)
 {
     spells.clear();
-    // Опциональная БД-таблица world.playerbots_combat_spells (name, spellid)
+    if (!EnsurePlayerbotKnowledgeSchema())
+        return;
+
     if (QueryResult result = WorldDatabase.Query(
-        "SELECT name, spellid FROM playerbots_combat_spells ORDER BY name, priority"))
+        "SELECT name, spellid, priority, kind, self_hp_max, target_hp_min, target_hp_max, maintain_aura, burst "
+        "FROM playerbots_combat_spells ORDER BY name, priority, id"))
     {
+        uint32 rows = 0;
         do
         {
             Field* f = result->Fetch();
-            std::string name = f[0].GetString();
-            uint32 spell = f[1].GetUInt32();
-            spells[name].push_back(spell);
+            BotKnowledge k;
+            k.spellId      = f[1].GetUInt32();
+            // В старой таблице меньшее priority шло первым (ORDER BY priority).
+            // В runtime большее значение значит выше приоритет, поэтому храним инверсию;
+            // снимки, создаваемые командой, декодируются обратно без потери значения.
+            k.priority     = uint16(65535u - f[2].GetUInt16());
+            k.kind         = BotKnowledge::Kind(f[3].GetUInt8());
+            k.selfHpMax    = f[4].GetUInt8();
+            k.targetHpMin  = f[5].GetUInt8();
+            k.targetHpMax  = f[6].GetUInt8();
+            k.maintainAura = f[7].GetBool();
+            k.burst        = f[8].GetBool();
+            spells[f[0].GetString()].push_back(k);
+            ++rows;
         } while (result->NextRow());
-        TC_LOG_INFO("playerbots", "LoadPlayerBotCombatSpells: загружено {} групп спелов", spells.size());
+        TC_LOG_INFO("playerbots", "LoadPlayerBotCombatSpells: загружено {} правил для {} имён", rows, spells.size());
     }
+}
+
+uint32 PlayerbotMgr::SaveCombatSpellSnapshot(PlayerbotAI* ai, std::string& err)
+{
+    err.clear();
+    if (!EnsurePlayerbotKnowledgeSchema())
+    {
+        err = "не удалось подготовить схему knowledge-таблиц; смотри Server.log/права world-БД";
+        return 0;
+    }
+    if (!ai || !ai->GetBot() || !IsBot(ai->GetBot()))
+    {
+        err = "нужен онлайн-бот playerbots";
+        return 0;
+    }
+
+    std::vector<BotKnowledge> const& knowledge = ai->GetKnowledge();
+    if (knowledge.empty())
+    {
+        err = "у бота пустое знание (спеллбук не дал правил); ничего не записано";
+        return 0;
+    }
+
+    std::string const botName = ai->GetBot()->GetName();
+    std::string escapedName = botName;
+    WorldDatabase.EscapeString(escapedName);
+
+    WorldDatabaseTransaction transaction = WorldDatabase.BeginTransaction();
+    transaction->Append(fmt::format("DELETE FROM playerbots_combat_spells WHERE name = '{}'", escapedName).c_str());
+    for (BotKnowledge const& k : knowledge)
+    {
+        uint32 const storedPriority = 65535u - k.priority;
+        transaction->Append(fmt::format(
+            "INSERT INTO playerbots_combat_spells "
+            "(name, spellid, priority, kind, self_hp_max, target_hp_min, target_hp_max, maintain_aura, burst) "
+            "VALUES ('{}', {}, {}, {}, {}, {}, {}, {}, {})",
+            escapedName, k.spellId, storedPriority, static_cast<uint32>(k.kind),
+            static_cast<uint32>(k.selfHpMax), static_cast<uint32>(k.targetHpMin),
+            static_cast<uint32>(k.targetHpMax), k.maintainAura ? 1 : 0, k.burst ? 1 : 0).c_str());
+    }
+
+    if (!CommitWorldKnowledgeTransaction(transaction, err))
+        return 0;
+
+    m_combatSpells[botName] = knowledge;
+    m_combatSpellsLoaded = true;
+    TC_LOG_INFO("playerbots", "SaveCombatSpellSnapshot: {} — записано {} полных правил из текущего AI",
+        botName, knowledge.size());
+    return uint32(knowledge.size());
+}
+
+uint32 PlayerbotMgr::SeedClassKnowledgeFromBot(PlayerbotAI* ai, bool& alreadyCovered, std::string& err)
+{
+    alreadyCovered = false;
+    err.clear();
+    if (!EnsurePlayerbotKnowledgeSchema())
+    {
+        err = "не удалось подготовить схему knowledge-таблиц; смотри Server.log/права world-БД";
+        return 0;
+    }
+    if (!ai || !ai->GetBot() || !IsBot(ai->GetBot()))
+    {
+        err = "нужен онлайн-бот playerbots";
+        return 0;
+    }
+
+    uint8 const classId = ai->GetBot()->GetClass();
+    if (!classId)
+    {
+        err = "у бота некорректный class_id=0";
+        return 0;
+    }
+
+    std::string const countSql = "SELECT COUNT(*) FROM playerbots_class_knowledge WHERE class_id = "
+        + std::to_string(uint32(classId));
+    QueryResult coverage = WorldDatabase.Query(countSql.c_str());
+    Field* coveredRows = coverage ? coverage->Fetch() : nullptr;
+    if (!coveredRows)
+    {
+        err = "не удалось прочитать playerbots_class_knowledge; смотри Server.log";
+        return 0;
+    }
+    if (coveredRows->GetUInt64() != 0)
+    {
+        alreadyCovered = true;
+        return 0;
+    }
+
+    if (ai->HasManualOverride())
+    {
+        err = "бот использует ручной per-name override; для class_knowledge нужен представитель класса с авто-знанием из спеллбука";
+        return 0;
+    }
+
+    std::vector<BotKnowledge> const& knowledge = ai->GetKnowledge();
+    if (knowledge.empty())
+    {
+        err = "у бота нет правил в спеллбуке — класс не записан";
+        return 0;
+    }
+
+    WorldDatabaseTransaction transaction = WorldDatabase.BeginTransaction();
+    for (BotKnowledge const& k : knowledge)
+        transaction->Append(fmt::format(
+            "INSERT INTO playerbots_class_knowledge "
+            "(class_id, spellid, kind, priority, self_hp_max, target_hp_min, target_hp_max, maintain_aura, burst) "
+            "VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {})",
+            static_cast<uint32>(classId), k.spellId, static_cast<uint32>(k.kind),
+            static_cast<uint32>(k.priority), static_cast<uint32>(k.selfHpMax),
+            static_cast<uint32>(k.targetHpMin), static_cast<uint32>(k.targetHpMax),
+            k.maintainAura ? 1 : 0, k.burst ? 1 : 0).c_str());
+
+    if (!CommitWorldKnowledgeTransaction(transaction, err))
+        return 0;
+
+    // Инвалидируем кэш: последующие логины увидят только что записанные правила.
+    m_classKnowledge.clear();
+    m_classKnowledgeLoaded = false;
+    TC_LOG_INFO("playerbots", "SeedClassKnowledgeFromBot: class {} — записано {} правил",
+        uint32(classId), knowledge.size());
+    return uint32(knowledge.size());
 }
 
 // ---------------------------------------------------------------- v6: создание персонажа

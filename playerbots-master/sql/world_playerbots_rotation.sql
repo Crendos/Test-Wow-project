@@ -12,13 +12,22 @@ CREATE TABLE IF NOT EXISTS `playerbots_rotation` (
   UNIQUE KEY `guid` (`guid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Боевые спелы ботов: приоритетная очередь (первый по priority кастуется первым).
--- spellid обязан существовать в spell DBC текущего клиента.
+-- Персональная полная ротация бота. Старые три колонки сохранены для совместимости.
+-- `priority` в этой legacy-таблице хранится обратно: меньшее DB-значение шло первым;
+-- runtime декодирует его в BotKnowledge.priority (больше = выше). Автоснимок через
+-- .playerbots spells sync сохраняет kind/приоритет/HP-условия/aura/burst без потерь.
+-- Старые INSERT только с (name,spellid,priority) остаются допустимы и читаются как Damage.
 CREATE TABLE IF NOT EXISTS `playerbots_combat_spells` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name` VARCHAR(12) NOT NULL,
   `spellid` INT UNSIGNED NOT NULL,
   `priority` SMALLINT UNSIGNED NOT NULL DEFAULT 100,
+  `kind` TINYINT UNSIGNED NOT NULL DEFAULT 0,             -- BotKnowledge::Kind (0..7)
+  `self_hp_max` TINYINT UNSIGNED NOT NULL DEFAULT 100,
+  `target_hp_min` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `target_hp_max` TINYINT UNSIGNED NOT NULL DEFAULT 100,
+  `maintain_aura` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+  `burst` TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `name` (`name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

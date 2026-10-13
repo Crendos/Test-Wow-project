@@ -72,6 +72,12 @@ namespace
                 { "stop",        HandleBotDummyStopCommand,      static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
             };
 
+            static ChatCommandTable playerbotsSpellsCommandTable =
+            {
+                { "sync",        HandleBotSpellsSyncCommand,     static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "class",       HandleBotSpellsClassCommand,    static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+            };
+
             static ChatCommandTable playerbotsCommandTable =
             {
                 { "add",         HandleBotAddCommand,            static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
@@ -101,6 +107,7 @@ namespace
                 { "learn",       HandleBotLearnCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "dummy",       playerbotsDummyCommandTable },
                 { "roster",      playerbotsRosterCommandTable },
+                { "spells",      playerbotsSpellsCommandTable },
             };
 
             static ChatCommandTable commandTable =
@@ -1334,6 +1341,80 @@ namespace
             }
             for (uint32 sid : ai->ListKnownSpelIDs())
                 handler->SendSysMessage(fmt::format("spell {}", sid));
+            return true;
+        }
+
+        // .playerbots spells sync <имя> — материализовать текущее полное знание AI per-name
+        static bool HandleBotSpellsSyncCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            if (botName.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots spells sync <бот> — записать текущую полную ротацию бота в playerbots_combat_spells.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("spells sync: бот не онлайн; сначала .playerbots add <имя>.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            std::string err;
+            uint32 const saved = sPlayerbotMgr.SaveCombatSpellSnapshot(ai, err);
+            if (!err.empty())
+            {
+                handler->PSendSysMessage("spells sync %s: %s", botName.c_str(), err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            handler->PSendSysMessage("%s: записано %u полных правил в playerbots_combat_spells (тип, приоритет и условия сохранены).",
+                botName.c_str(), saved);
+            return true;
+        }
+
+        // .playerbots spells class <имя> — заполнить class_knowledge только если класс пуст
+        static bool HandleBotSpellsClassCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            if (botName.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots spells class <бот> — создать class_knowledge из авто-знания его текущего спеллбука, только если класс ещё не покрыт.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            PlayerbotAI* ai = sPlayerbotMgr.GetBotAI(botName);
+            if (!ai)
+            {
+                handler->SendSysMessage("spells class: бот не онлайн; сначала .playerbots add <имя>.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+
+            std::string err;
+            bool alreadyCovered = false;
+            uint32 const saved = sPlayerbotMgr.SeedClassKnowledgeFromBot(ai, alreadyCovered, err);
+            if (!err.empty())
+            {
+                handler->PSendSysMessage("spells class %s: %s", botName.c_str(), err.c_str());
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            if (alreadyCovered)
+            {
+                handler->PSendSysMessage("class %u уже есть в playerbots_class_knowledge — существующие строки сохранены без изменений.",
+                    uint32(ai->GetBot()->GetClass()));
+                return true;
+            }
+
+            handler->PSendSysMessage("class %u: автоматически записано %u правил из спеллбука %s.",
+                uint32(ai->GetBot()->GetClass()), saved, botName.c_str());
+            handler->SendSysMessage("Проверь представительный билд перед использованием всеми спеками этого класса; уже активным ботам нужен remove/add для перечитывания таблицы.");
             return true;
         }
 

@@ -110,7 +110,9 @@ public:
     std::vector<std::string> RosterList();
     bool   IsRosterAutoAdd() const { return m_rosterAutoAdd; }
 
-    static void LoadPlayerBotCombatSpells(std::unordered_map<std::string, std::vector<uint32>>& spells);
+    static void LoadPlayerBotCombatSpells(std::unordered_map<std::string, std::vector<BotKnowledge>>& spells);
+    uint32 SaveCombatSpellSnapshot(PlayerbotAI* ai, std::string& err);
+    uint32 SeedClassKnowledgeFromBot(PlayerbotAI* ai, bool& alreadyCovered, std::string& err);
     void LoadPlayerBots();
 
     // v3: знание бота. Возвращает вектор правил (сперва legacy-таблица по имени,
@@ -145,8 +147,10 @@ private:
     void PlayerbotLogin(std::string const& botName);
 
     std::unordered_map<uint32 /*accountId*/, PlayerBotEntry> m_bots;
-    std::unordered_map<std::string, std::vector<uint32>> m_combatSpells;
+    std::unordered_map<std::string, std::vector<BotKnowledge>> m_combatSpells;
     std::unordered_map<uint8 /*classId*/, std::vector<BotKnowledge>> m_classKnowledge;
+    bool m_combatSpellsLoaded = false;
+    bool m_classKnowledgeLoaded = false;
     std::unordered_map<uint32 /*bossEntry*/, std::vector<BossRule>> m_bossRules;
     bool m_bossRulesLoaded = false;
 

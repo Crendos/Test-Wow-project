@@ -76,8 +76,11 @@ cmake --build %BUILD% --config RelWithDebInfo --target worldserver -- /m
    см. docs/08_CREATE_DUMMY_LOG.md).
 3. Завести 1..N бот-аккаунтов в auth.account (обычные, как игроков) и персонажей
    на них (classes командами .create/.level из консоли). Имена — латиница, до 12 знаков.
-4. Заполнить `world.playerbots_rotation` строками с guid/name/classId этих персонажей
-   и опционально `world.playerbots_combat_spells` (примеры — внизу SQL-файла).
+4. Состав ротации можно заполнить автоматически: `.playerbots roster sync` подтянет
+   персонажей с аккаунтов ботов, а `.playerbots create` сам добавляет новых. Таблица
+   `playerbots_combat_spells` необязательна: для online-бота полная ротация снимается
+   командой `.playerbots spells sync <имя>`; для нового класса после его починки
+   `.playerbots spells class <имя>` может материализовать знания из спеллбука.
 
 ## Проверка в игре
 
