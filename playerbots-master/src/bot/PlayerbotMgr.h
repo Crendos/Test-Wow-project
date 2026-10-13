@@ -92,6 +92,24 @@ public:
     void SetRosterRotationMinutes(uint32 minutes);
     void RotateNow();
 
+    // ---- состав (world.playerbots_rotation) заполняется сам -----------------
+    // Раньше таблицу нужно было править руками SQL-ом, поэтому roster start
+    // всегда упирался в «таблица пуста». Теперь:
+    //   RosterAdd    — добавить/обновить строку (ON DUPLICATE KEY: порядок rotation_id
+    //                  сохраняется, обновляются только name/classId);
+    //   RosterRemove — убрать (delete-поток зовёт сам: таблица в world-БД и под
+    //                  чистку characters-БД не попадает);
+    //   RosterSyncFromCharacters — наполнить из characters по бот-аккаунтам
+    //                  (диапазоны FreeAccounts и QAAccounts) — для ботов, созданных
+    //                  до включения автозаполнения;
+    //   RosterList   — состав для чата.
+    // Автодобавление при create включается Playerbots.Roster.AutoAdd (default 1).
+    bool   RosterAdd(uint32 guid, std::string const& name, uint8 classId, std::string& err);
+    bool   RosterRemove(uint32 guid, std::string& err);
+    uint32 RosterSyncFromCharacters(std::string& err);
+    std::vector<std::string> RosterList();
+    bool   IsRosterAutoAdd() const { return m_rosterAutoAdd; }
+
     static void LoadPlayerBotCombatSpells(std::unordered_map<std::string, std::vector<uint32>>& spells);
     void LoadPlayerBots();
 
@@ -146,6 +164,7 @@ private:
     uint32   m_rosterRotationMin = 5;   // минуты между ротациями
     static constexpr uint32 ROSTER_SIZE = 3;
     bool     m_rosterRunning = false;
+    bool     m_rosterAutoAdd = true;   // Playerbots.Roster.AutoAdd — create сам пишет в состав
     uint32   m_nextRotateSyncSec = 0;   // мировое время следующей ротации (сек)
 };
 

@@ -27,10 +27,17 @@ Playerbots.FreeAccountsEnd   = 9599
 Playerbots.QAAccountsStart = 9500
 Playerbots.QAAccountsEnd   = 9599
 
-# Интервал ротации состава (world.playerbots_rotation), в минутах. MVP:
-# смена окна производится только по команде `.playerbots roster start` + ручная
-# ротация через `.playerbots roster rotation <мин>` (планировщик — в фазе 1).
+# Интервал ротации состава (world.playerbots_rotation), в минутах.
+# Состав больше НЕ правится руками: `.playerbots create` сам пишет строку в
+# playerbots_rotation, `.playerbots delete` её убирает, а существующих ботов
+# наполняет `.playerbots roster sync`. Окно онлайн-ротации поднимает первых по
+# rotation_id; смена окна — `.playerbots roster rotation <мин>`.
 Playerbots.Rotation.Minutes = 5
+
+# Автозаполнение состава при создании бота:
+#   1 = каждый новый бот попадает в world.playerbots_rotation (в конец очереди)
+#   0 = состав правится только вручную (.playerbots roster add / roster sync)
+Playerbots.Roster.AutoAdd = 1
 
 # Автоматически поднимать состав при старте worldserver
 # (хук WorldScript::OnStartup в cs_playerbots.cpp):

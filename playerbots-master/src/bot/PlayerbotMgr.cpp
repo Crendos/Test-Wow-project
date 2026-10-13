@@ -48,6 +48,7 @@ PlayerbotMgr::PlayerbotMgr()
     m_qaAccountEnd     = sConfigMgr->GetIntDefault("Playerbots.QAAccountsEnd", 9599);
     m_maxBots          = sConfigMgr->GetIntDefault("Playerbots.MaxCount", 100);
     m_rosterRotationMin= sConfigMgr->GetIntDefault("Playerbots.Rotation.Minutes", 5);
+    m_rosterAutoAdd    = sConfigMgr->GetBoolDefault("Playerbots.Roster.AutoAdd", true);
 }
 
 // ---------------------------------------------------------------- naming
@@ -426,6 +427,108 @@ uint32 PlayerbotMgr::GetRosterRotationMinutes() const { return m_rosterRotationM
 void PlayerbotMgr::SetRosterRotationMinutes(uint32 minutes)
 {
     m_rosterRotationMin = std::max(1u, minutes);
+}
+
+// ---- автозаполнение состава (world.playerbots_rotation) -------------------
+
+bool PlayerbotMgr::RosterAdd(uint32 guid, std::string const& name, uint8 classId, std::string& err)
+{
+    if (!guid || name.empty())
+    {
+        err = "нужны guid и имя персонажа";
+        return false;
+    }
+    std::string safe = name;
+    WorldDatabase.EscapeString(safe);
+
+    // ON DUPLICATE KEY (в таблице UNIQUE guid): порядок rotation_id сохраняется.
+    // REPLACE INTO пересоздал бы строку с новым rotation_id и бот уехал бы в
+    // конец очереди ротации при каждом повторном добавлении.
+    std::string const sql =
+        "INSERT INTO playerbots_rotation (guid, name, classId) VALUES ("
+        + std::to_string(guid) + ", '" + safe + "', " + std::to_string(uint32(classId)) + ") "
+        "ON DUPLICATE KEY UPDATE name = VALUES(name), classId = VALUES(classId)";
+    WorldDatabase.DirectExecute(sql.c_str());
+    TC_LOG_INFO("playerbots", "RosterAdd: {} (guid {}, class {}) — в составе playerbots_rotation",
+        name, guid, uint32(classId));
+    err.clear();
+    return true;
+}
+
+bool PlayerbotMgr::RosterRemove(uint32 guid, std::string& err)
+{
+    if (!guid)
+    {
+        err = "нужен guid";
+        return false;
+    }
+    // обязательно при удалении персонажа: playerbots_rotation живёт в WORLD-БД,
+    // поэтому под чистку characters-БД (wipeTables по колонке guid) не попадает —
+    // без этого LoadRoster вечно пытался бы поднять уже удалённого бота.
+    WorldDatabase.DirectExecute(("DELETE FROM playerbots_rotation WHERE guid = " + std::to_string(guid)).c_str());
+    TC_LOG_INFO("playerbots", "RosterRemove: guid {} убран из playerbots_rotation", guid);
+    err.clear();
+    return true;
+}
+
+uint32 PlayerbotMgr::RosterSyncFromCharacters(std::string& err)
+{
+    // Персонажи бот-аккаунтов → состав. Cross-database JOIN characters с auth
+    // невозможен, поэтому фильтруем по колонке account диапазоном конфигов.
+    struct Range { uint32 lo, hi; char const* tag; };
+    std::vector<Range> ranges;
+    if (m_freeAccountStart && m_freeAccountEnd >= m_freeAccountStart)
+        ranges.push_back({ m_freeAccountStart, m_freeAccountEnd, "FreeAccounts" });
+    if (m_qaAccountStart && m_qaAccountEnd >= m_qaAccountStart)
+        ranges.push_back({ m_qaAccountStart, m_qaAccountEnd, "QAAccounts" });
+    if (ranges.empty())
+    {
+        err = "диапазоны бот-аккаунтов не заданы (Playerbots.FreeAccountsStart/End или QAAccountsStart/End)";
+        return 0;
+    }
+
+    uint32 added = 0, failed = 0;
+    for (Range const& r : ranges)
+    {
+        std::string const sql = "SELECT guid, name, class FROM characters WHERE account BETWEEN "
+            + std::to_string(r.lo) + " AND " + std::to_string(r.hi);
+        QueryResult qr = CharacterDatabase.Query(sql.c_str());
+        if (!qr)
+        {
+            TC_LOG_INFO("playerbots", "RosterSync: в диапазоне {} {}..{} персонажей нет", r.tag, r.lo, r.hi);
+            continue;
+        }
+        do
+        {
+            Field* f = qr->Fetch();
+            std::string one;
+            if (RosterAdd(uint32(f[0].GetUInt64()), f[1].GetString(), f[2].GetUInt8(), one))
+                ++added;
+            else
+            {
+                ++failed;
+                TC_LOG_WARN("playerbots", "RosterSync: guid {} не добавлен — {}", f[0].GetUInt64(), one);
+            }
+        } while (qr->NextRow());
+    }
+    err = failed ? "не добавлено " + std::to_string(failed) + " (смотри Server.log)" : std::string();
+    TC_LOG_INFO("playerbots", "RosterSyncFromCharacters: добавлено/обновлено {} строк в playerbots_rotation", added);
+    return added;
+}
+
+std::vector<std::string> PlayerbotMgr::RosterList()
+{
+    std::vector<std::string> out;
+    if (QueryResult result = QueryRoster())
+    {
+        do
+        {
+            Field* f = result->Fetch();
+            out.push_back("guid " + std::to_string(f[0].GetUInt64()) + "  " + f[1].GetString()
+                + "  (class " + std::to_string(f[2].GetUInt32()) + ")");
+        } while (result->NextRow());
+    }
+    return out;
 }
 
 void PlayerbotMgr::LoadRoster()
@@ -1314,6 +1417,16 @@ BotCreateResult PlayerbotMgr::CreateCharacter(uint32 accountId, BotCreateCriteri
     res.guid = uint32(newChar->GetGUID().GetCounter());
     res.name = name;
     res.ok = true;
+
+    // --- 11b. автозаполнение состава (world.playerbots_rotation) -------------
+    // Без этого `.playerbots roster start` всегда упирался в «таблица пуста» —
+    // состав приходилось править руками SQL-ом. Порядок rotation_id = очередь ротации.
+    if (m_rosterAutoAdd)
+    {
+        std::string rosterErr;
+        if (!RosterAdd(res.guid, res.name, uint8(c.classId), rosterErr))
+            res.error += "состав: не добавлен в playerbots_rotation (" + rosterErr + "); ";
+    }
 
     newChar.reset();    // CleanupsBeforeDelete + delete (сессия ещё нужна — ниже)
     delete session;

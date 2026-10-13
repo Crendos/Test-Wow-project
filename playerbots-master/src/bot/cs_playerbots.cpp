@@ -60,6 +60,10 @@ namespace
                 { "start",       HandleRosterStartCommand,       static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "stop",        HandleRosterStopCommand,        static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
                 { "rotation",    HandleRosterRotationCommand,    static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "add",         HandleRosterAddCommand,         static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "remove",      HandleRosterRemoveCommand,      static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "sync",        HandleRosterSyncCommand,        static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
+                { "show",        HandleRosterShowCommand,        static_cast<TrinityStrings>(0), rbac::RBAC_PERM_COMMAND_RESET_TALENTS, Console::Yes },
             };
 
             static ChatCommandTable playerbotsDummyCommandTable =
@@ -1470,6 +1474,14 @@ namespace
             CharacterDatabase.DirectExecute(("DELETE FROM characters WHERE guid = " + g).c_str());
             wipeTables();   // страховка от FK-хвостов
 
+            // playerbots_rotation живёт в WORLD-БД, поэтому под wipeTables
+            // (чистит только текущую characters-БД) не попадает — убираем явно,
+            // иначе LoadRoster/RotateRoster вечно пытались бы поднять удалённого бота.
+            {
+                std::string rosterErr;
+                sPlayerbotMgr.RosterRemove(guidLow, rosterErr);
+            }
+
             uint64 left = 1;
             if (QueryResult chk = CharacterDatabase.Query(("SELECT COUNT(*) FROM characters WHERE guid = " + g).c_str()))
                 if (Field* f = chk->Fetch())
@@ -1497,13 +1509,24 @@ namespace
         // .playerbots roster start
         static bool HandleRosterStartCommand(ChatHandler* handler)
         {
+            // состав пуст → StartRoster «пройдёт», но никого не поднимет: говорим сразу,
+            // чем наполнить (раньше это выяснялось только по ERROR в Server.log)
+            std::vector<std::string> const rows = sPlayerbotMgr.RosterList();
+            if (rows.empty())
+            {
+                handler->SendSysMessage("playerbots_rotation пуста: сначала .playerbots roster sync (наполнит из characters по бот-аккаунтам) или создай ботов — create пишет в состав сам.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
             sPlayerbotMgr.StartRoster();
             if (sPlayerbotMgr.IsRosterRunning())
             {
-                handler->SendSysMessage("Состав запущен.");
+                handler->SendSysMessage(fmt::format(
+                    "Состав запущен: в playerbots_rotation {} строк — поднимаются первые по rotation_id, дальше ротация каждые {} мин.",
+                    rows.size(), sPlayerbotMgr.GetRosterRotationMinutes()));
                 return true;
             }
-            handler->SendSysMessage("Состав не запустился: проверь таблицу world.playerbots_rotation.");
+            handler->SendSysMessage("Состав не запустился: Playerbots.Enabled=0 или смотри Server.log.");
             handler->SetSentErrorMessage(true);
             return false;
         }
@@ -1524,12 +1547,105 @@ namespace
                 minutes = sPlayerbotMgr.GetRosterRotationMinutes();
 
             sPlayerbotMgr.SetRosterRotationMinutes(minutes);
-            if (handler->GetPlayer())
+            // раньше печаталось «Ротация состава: каждые минут.» — без числа
+            handler->SendSysMessage(fmt::format("Ротация состава: каждые {} мин (действует до рестарта — в конфиг не пишется).",
+                sPlayerbotMgr.GetRosterRotationMinutes()));
+            return true;
+        }
+
+        // .playerbots roster add <имя> — добавить персонажа в состав вручную
+        static bool HandleRosterAddCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            if (botName.empty())
             {
-                // сообщение через конфиг-менедажер, т.к. доступно и из world-console
-                // sConfigMgr-геттеров для записи нет — отложим до v1
+                handler->SendSysMessage("Использование: .playerbots roster add <имя> — добавить персонажа в состав ротации.");
+                handler->SetSentErrorMessage(true);
+                return false;
             }
-            handler->SendSysMessage("Ротация состава: каждые минут.");
+            ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName);
+            if (!guid)
+            {
+                handler->SendSysMessage("Персонаж '" + botName + "' не найден в characters (или кэш имён ещё не поднят).");
+                handler->SetSysMessage(sPlayerbotMgr.DiagnoseBot(botName));
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            uint8 classId = 0;
+            uint32 accountId = 0;
+            if (QueryResult qr = CharacterDatabase.Query(
+                ("SELECT class, account FROM characters WHERE guid = " + std::to_string(guid.GetCounter())).c_str()))
+            {
+                Field* f = qr->Fetch();
+                classId = f[0].GetUInt8();
+                accountId = f[1].GetUInt32();
+            }
+            std::string err;
+            if (!sPlayerbotMgr.RosterAdd(uint32(guid.GetCounter()), botName, classId, err))
+            {
+                handler->SendSysMessage("Не добавил в состав: " + err);
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            handler->SendSysMessage(fmt::format("В составе: {} (guid {}, class {}, аккаунт {}). Очередь ротации = порядок rotation_id.",
+                botName, guid.GetCounter(), uint32(classId), accountId));
+            return true;
+        }
+
+        // .playerbots roster remove <имя> — убрать из состава (бот в мире остаётся)
+        static bool HandleRosterRemoveCommand(ChatHandler* handler, Tail name)
+        {
+            std::string const botName{name};
+            if (botName.empty())
+            {
+                handler->SendSysMessage("Использование: .playerbots roster remove <имя>");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            ObjectGuid guid = sCharacterCache->GetCharacterGuidByName(botName);
+            if (!guid)
+            {
+                handler->SendSysMessage("Персонаж '" + botName + "' не найден в characters.");
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            std::string err;
+            if (!sPlayerbotMgr.RosterRemove(uint32(guid.GetCounter()), err))
+            {
+                handler->SendSysMessage("Не убрал из состава: " + err);
+                handler->SetSentErrorMessage(true);
+                return false;
+            }
+            handler->SendSysMessage(botName + " убран из состава ротации (если бот в мире — останется; выход: .playerbots remove " + botName + ").");
+            return true;
+        }
+
+        // .playerbots roster sync — наполнить состав из characters (бот-аккаунты)
+        static bool HandleRosterSyncCommand(ChatHandler* handler)
+        {
+            std::string err;
+            uint32 const added = sPlayerbotMgr.RosterSyncFromCharacters(err);
+            std::vector<std::string> const now = sPlayerbotMgr.RosterList();
+            handler->SendSysMessage(fmt::format(
+                "Состав синхронизирован из characters: добавлено/обновлено {} строк, всего в playerbots_rotation {}.{}",
+                added, now.size(), err.empty() ? "" : " " + err));
+            if (now.empty())
+                handler->SendSysMessage("Состав пуст: создай ботов (.playerbots create ... — пишет в состав сам) или проверь диапазоны Playerbots.FreeAccountsStart/End и QAAccountsStart/End.");
+            return true;
+        }
+
+        // .playerbots roster show — что сейчас в составе
+        static bool HandleRosterShowCommand(ChatHandler* handler)
+        {
+            std::vector<std::string> const rows = sPlayerbotMgr.RosterList();
+            if (rows.empty())
+            {
+                handler->SendSysMessage("playerbots_rotation пуста — заполни: .playerbots roster sync (или создай бота: create пишет в состав сам).");
+                return true;
+            }
+            handler->SendSysMessage(fmt::format("Состав ротации ({} строк):", rows.size()));
+            for (std::string const& r : rows)
+                handler->SendSysMessage("  " + r);
             return true;
         }
     };

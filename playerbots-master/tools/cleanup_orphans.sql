@@ -65,3 +65,30 @@ DELETE b FROM battlenet_accounts b
 LEFT JOIN account a ON a.id = b.id
 WHERE a.id IS NULL
   AND b.email LIKE '%@playerbots.local';
+
+-- ------------------------------------------------------------
+-- БД world. Сироты состава ротации: playerbots_rotation хранит guid
+-- персонажей, но живёт в WORLD-БД, поэтому под генераторы выше (они чистят
+-- только текущую characters-БД) не попадает. С 84dbd2c `.playerbots delete`
+-- убирает строку сам; этот блок — для хвостов, оставшихся до этого.
+-- Имя characters-схемы подставь своё (из CharacterDatabaseInfo в worldserver.conf).
+-- ------------------------------------------------------------
+
+-- Что сейчас в составе:
+-- SELECT rotation_id, guid, name, classId FROM playerbots_rotation ORDER BY rotation_id;
+
+-- Вариант 1 (тот же MySQL-инстанс, есть права на обе схемы):
+DELETE r FROM playerbots_rotation r
+LEFT JOIN `characters`.`characters` c ON c.guid = r.guid
+WHERE c.guid IS NULL;
+
+-- Вариант 2 (если cross-schema JOIN недоступен):
+--   шаг 1, в characters-БД — список живых guid ботов:
+--     SELECT GROUP_CONCAT(guid) FROM characters WHERE account BETWEEN 9000 AND 9599;
+--   шаг 2, в world-БД — подставь результат:
+--     DELETE FROM playerbots_rotation WHERE guid NOT IN (<список из шага 1>);
+--   если живых ботов нет вовсе:
+--     TRUNCATE TABLE playerbots_rotation;
+
+-- Перенаполнить состав заново (после чистки): в игре/консоли
+--   .playerbots roster sync
