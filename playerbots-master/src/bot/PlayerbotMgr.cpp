@@ -121,10 +121,14 @@ PlayerbotMgr::Status PlayerbotMgr::AddBot(std::string const& botName, Player* ca
 
     if (Player* p = ObjectAccessor::FindPlayer(guid))
     {
-        // уже в мире: если это и есть бот того же имени — OK
+        // уже в мире: наш бот → AlreadyOnline (норма); живой игрок с тем же именем →
+        // NotABot: раньше обе ветки возвращали AlreadyOnline, и команда add молча
+        // «не добавляла» без объяснения, что имя занято обычным персонажем.
         if (IsBot(p))
             return Status::AlreadyOnline;
-        return Status::AlreadyOnline;
+        TC_LOG_WARN("playerbots", "AddBot: '{}' уже в мире, но это НЕ бот (аккаунт {}) — добавление отклонено",
+            botName, p->GetSession() ? p->GetSession()->GetAccountId() : 0);
+        return Status::NotABot;
     }
 
     if (m_bots.size() >= m_maxBots)
@@ -565,7 +569,11 @@ static BossRule::Trigger ParseBossTrigger(std::string_view s)
     if (s == "bot_aura")     return BossRule::Trigger::BotAura;
     if (s == "hp_below")     return BossRule::Trigger::BossHpBelow;
     if (s == "always")       return BossRule::Trigger::Always;
-    return BossRule::Trigger::BossCast;   // "boss_cast" и любой мусор → каст босса
+    if (s == "boss_cast")    return BossRule::Trigger::BossCast;
+    // опечатка в playerbots_boss_rules.trigger_type больше не молчит: раньше любой
+    // мусор тихо становился boss_cast, и правило срабатывало «не так, но срабатывало»
+    TC_LOG_WARN("playerbots", "playerbots_boss_rules: неизвестный trigger_type '{}' — принят как boss_cast", std::string(s));
+    return BossRule::Trigger::BossCast;
 }
 
 static BossRule::Action ParseBossAction(std::string_view s)
@@ -577,7 +585,9 @@ static BossRule::Action ParseBossAction(std::string_view s)
     if (s == "use_defensive") return BossRule::Action::UseDefensive;
     if (s == "dispel_self")   return BossRule::Action::DispelSelf;
     if (s == "use_burst")     return BossRule::Action::UseBurst;
-    return BossRule::Action::Interrupt;   // "interrupt" и мусор → interrupt
+    if (s == "interrupt")     return BossRule::Action::Interrupt;
+    TC_LOG_WARN("playerbots", "playerbots_boss_rules: неизвестный action_type '{}' — принят как interrupt", std::string(s));
+    return BossRule::Action::Interrupt;
 }
 
 std::vector<BossRule> const* PlayerbotMgr::GetBossRules(uint32 bossEntry)

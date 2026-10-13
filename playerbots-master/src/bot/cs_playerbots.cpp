@@ -117,9 +117,32 @@ namespace
                 return false;
             }
             std::string const botName{name};
-            if (sPlayerbotMgr.AddBot(botName, handler->GetPlayer(), SEC_PLAYER) != PlayerbotMgr::Status::OK)
+            PlayerbotMgr::Status const st = sPlayerbotMgr.AddBot(botName, handler->GetPlayer(), SEC_PLAYER);
+            if (st != PlayerbotMgr::Status::OK)
             {
-                handler->SendSysMessage("Не удалось добавить бота.");
+                // раньше на любой отказ печаталось «Не удалось добавить бота.» без причины
+                switch (st)
+                {
+                    case PlayerbotMgr::Status::UnknownName:
+                        handler->SendSysMessage("Персонаж '" + botName + "' не найден в characters (или кэш имён ещё не поднят — подожди/перезайди).");
+                        break;
+                    case PlayerbotMgr::Status::AlreadyOnline:
+                        handler->SendSysMessage("Бот '" + botName + "' уже онлайн — ничего не делаю.");
+                        break;
+                    case PlayerbotMgr::Status::NotABot:
+                        handler->SendSysMessage("'" + botName + "' уже в мире, но это ОБЫЧНЫЙ игрок, не бот — добавление отклонено (имя занято).");
+                        break;
+                    case PlayerbotMgr::Status::NoFreeAccount:
+                        handler->SendSysMessage("Нет свободного аккаунта в резервном диапазоне Playerbots.FreeAccountsStart..FreeAccountsEnd.");
+                        break;
+                    case PlayerbotMgr::Status::ServerError:
+                        handler->SendSysMessage("Отказ сервера: Playerbots.Enabled=0, достигнут Playerbots.MaxCount или не создалась фейковая сессия — смотри Server.log.");
+                        break;
+                    default:
+                        handler->SendSysMessage("Не удалось добавить бота (неизвестная причина).");
+                        break;
+                }
+                handler->SendSysMessage(sPlayerbotMgr.DiagnoseBot(botName));
                 handler->SetSentErrorMessage(true);
                 return false;
             }

@@ -56,7 +56,8 @@ public:
 
     enum class Status : uint8
     {
-        OK = 0, AlreadyOnline, UnknownName, NoFreeAccount, NoPlayer, ServerError
+        OK = 0, AlreadyOnline, UnknownName, NoFreeAccount, NoPlayer, ServerError,
+        NotABot      // персонаж уже в мире, но это обычный игрок, не бот
     };
 
     Status AddBot(std::string const& botName, Player* caller, uint32 sec);

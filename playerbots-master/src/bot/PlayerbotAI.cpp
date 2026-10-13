@@ -669,26 +669,37 @@ void PlayerbotAI::RandomChat(uint32 diff)
 
 int PlayerbotAI::SlotForInventoryType(int32 invType)
 {
+    // InventoryType (ItemTemplate.h) → слот экипировки (Player.h InventorySlots).
+    // ИСПРАВЛЕНО: прежняя таблица была сдвинута — одноручное оружие (13) и щит (14)
+    // попадали в TRINKET, плащ (16) в MAINHAND, лук (15) в BACK, сумка (18) в OFFHAND,
+    // тринкет (12) в FINGER, а роба (20) и оффхенд-оружие (22) не экипировались вовсе.
     switch (invType)
     {
-        case 1:  return 0;   // HEAD
-        case 2:  return 1;   // NECK
-        case 3:  return 2;   // SHOULDER
-        case 4:  return 3;   // BODY (рубашка)
-        case 5:  return 4;   // CHEST
-        case 6:  return 5;   // WAIST
-        case 7:  return 6;   // LEGS
-        case 8:  return 7;   // FEET
-        case 9:  return 8;   // WRIST
-        case 10: return 9;   // HANDS
-        case 11: case 12: return 10; // FINGER → первый палец
-        case 13: case 14: return 12; // TRINKET
-        case 15: return 14;  // BACK
-        case 16: case 17: case 21: case 22: return 15; // 1H/2H/MAINHAND/WEAPONMAINHAND → MAINHAND
-        case 18: case 23: return 16;  // OFFHAND → OFFHAND
-        case 26: return 17;  // RANGED → RANGED
-        case 19: return 18;  // TABARD
-        default: return -1;
+        case INVTYPE_HEAD:           return EQUIPMENT_SLOT_HEAD;       // 1  → 0
+        case INVTYPE_NECK:           return EQUIPMENT_SLOT_NECK;       // 2  → 1
+        case INVTYPE_SHOULDERS:      return EQUIPMENT_SLOT_SHOULDERS;  // 3  → 2
+        case INVTYPE_BODY:           return EQUIPMENT_SLOT_BODY;       // 4  → 3
+        case INVTYPE_CHEST:          return EQUIPMENT_SLOT_CHEST;      // 5  → 4
+        case INVTYPE_ROBE:           return EQUIPMENT_SLOT_CHEST;      // 20 → 4 (роба = нагрудник)
+        case INVTYPE_WAIST:          return EQUIPMENT_SLOT_WAIST;      // 6  → 5
+        case INVTYPE_LEGS:           return EQUIPMENT_SLOT_LEGS;       // 7  → 6
+        case INVTYPE_FEET:           return EQUIPMENT_SLOT_FEET;       // 8  → 7
+        case INVTYPE_WRISTS:         return EQUIPMENT_SLOT_WRISTS;     // 9  → 8
+        case INVTYPE_HANDS:          return EQUIPMENT_SLOT_HANDS;      // 10 → 9
+        case INVTYPE_FINGER:         return EQUIPMENT_SLOT_FINGER1;    // 11 → 10
+        case INVTYPE_TRINKET:        return EQUIPMENT_SLOT_TRINKET1;   // 12 → 12
+        case INVTYPE_CLOAK:          return EQUIPMENT_SLOT_BACK;       // 16 → 14
+        case INVTYPE_WEAPON:         return EQUIPMENT_SLOT_MAINHAND;   // 13 → 15 (одноручное)
+        case INVTYPE_2HWEAPON:       return EQUIPMENT_SLOT_MAINHAND;   // 17 → 15 (двуручное)
+        case INVTYPE_WEAPONMAINHAND: return EQUIPMENT_SLOT_MAINHAND;   // 21 → 15
+        case INVTYPE_SHIELD:         return EQUIPMENT_SLOT_OFFHAND;    // 14 → 16
+        case INVTYPE_WEAPONOFFHAND:  return EQUIPMENT_SLOT_OFFHAND;    // 22 → 16
+        case INVTYPE_HOLDABLE:       return EQUIPMENT_SLOT_OFFHAND;    // 23 → 16 (книга/орб)
+        case INVTYPE_TABARD:         return EQUIPMENT_SLOT_TABARD;     // 19 → 18
+        // 15 RANGED / 26 RANGEDRIGHT / 18 BAG / 24 AMMO / 25 THROWN / 27 QUIVER /
+        // 28 RELIC / 29-30 PROFESSION — в retail-слоты не экипируются (или это сумки/
+        // расходники/проф-инструменты) → не трогаем.
+        default:                     return -1;
     }
 }
 
@@ -705,11 +716,27 @@ bool PlayerbotAI::ItemFitsClass(Item const* item, int slot) const
     if (!item)
         return false;
     auto* t = item->GetTemplate();
-    // Фильтр брони: допустиммо по классу (plate→4, mail→3, leather→2, cloth→1)
-    bool isArmorSlot = (slot == 0 || slot == 2 || slot == 4 || slot == 5 || slot == 6 || slot == 7 || slot == 8 || slot == 9 || slot == 14);
+
+    // 1) Ограничение по классу (AllowableClass — битовая маска; -1 = любой класс):
+    //    бит нашего класса обязан быть выставлен. Без этого бот надевает предметы
+    //    чужих классов (в т.ч. оружие, которое ему недоступно).
+    int32 const allow = t->GetAllowableClass();
+    if (allow != -1 && !(allow & (1 << int(_bot->GetClass()))))
+        return false;
+
+    // 2) Фильтр брони: допустимо по классу (plate→4, mail→3, leather→2, cloth→1)
+    bool const isArmorSlot = (slot == EQUIPMENT_SLOT_HEAD
+        || slot == EQUIPMENT_SLOT_SHOULDERS
+        || slot == EQUIPMENT_SLOT_CHEST
+        || slot == EQUIPMENT_SLOT_WAIST
+        || slot == EQUIPMENT_SLOT_LEGS
+        || slot == EQUIPMENT_SLOT_FEET
+        || slot == EQUIPMENT_SLOT_WRISTS
+        || slot == EQUIPMENT_SLOT_HANDS
+        || slot == EQUIPMENT_SLOT_BACK);
     if (isArmorSlot && t->GetSubClass() > 0)   // 0 = misc/без брони (кольца, тринкеты и т.п.)
     {
-        int pref = ClassArmorSubClass(_bot->GetClass());
+        int const pref = ClassArmorSubClass(_bot->GetClass());
         if (int(t->GetSubClass()) > pref)
             return false;
     }
@@ -718,16 +745,55 @@ bool PlayerbotAI::ItemFitsClass(Item const* item, int slot) const
 
 void PlayerbotAI::EquipBestItems()
 {
-    // Слоты, которые попробуем закрыть из сумки rucksack-bag0
-    // 15 = MAINHAND (оружие, включая двуручки) — без него equip не экипирует оружие вовсе;
-    // 16 = OFFHAND (щит/вторая рука)
-    static int const armorSlots[] = { 0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 12, 14, 15, 16 };
+    // Слоты экипировки (Player.h InventorySlots), которые пробуем закрыть из сумки bag0.
+    // MAINHAND(15) добавлен фиксом — без него оружие (в т.ч. двуручки) не экипировалось вовсе.
+    static int const armorSlots[] = {
+        EQUIPMENT_SLOT_HEAD, EQUIPMENT_SLOT_NECK, EQUIPMENT_SLOT_SHOULDERS, EQUIPMENT_SLOT_CHEST,
+        EQUIPMENT_SLOT_WAIST, EQUIPMENT_SLOT_LEGS, EQUIPMENT_SLOT_FEET, EQUIPMENT_SLOT_WRISTS,
+        EQUIPMENT_SLOT_HANDS, EQUIPMENT_SLOT_FINGER1, EQUIPMENT_SLOT_TRINKET1, EQUIPMENT_SLOT_BACK,
+        EQUIPMENT_SLOT_MAINHAND, EQUIPMENT_SLOT_OFFHAND };
+
+    auto freeBagSlot = [&]() -> int
+    {
+        for (uint8 i = INVENTORY_SLOT_ITEM_START; i < INVENTORY_SLOT_ITEM_END; ++i)
+            if (!_bot->GetItemByPos(INVENTORY_SLOT_BAG_0, i))
+                return int(i);
+        return -1;
+    };
+    auto mainhandIs2H = [&]() -> bool
+    {
+        Item* mh = _bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+        return mh && mh->GetTemplate()->GetInventoryType() == INVTYPE_2HWEAPON;
+    };
+    // Двуручка и OFFHAND несовместимы: снимаем OFFHAND в сумку, иначе ядро откажет в swap
+    // и останется невалидная пара «2H + щит». Вернуть true = OFFHAND свободен.
+    auto clearOffhand = [&](bool& didSomething) -> bool
+    {
+        if (!_bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
+            return true;
+        int const free = freeBagSlot();
+        if (free < 0)
+            return false;                     // некуда снять — двуручку пока не надеваем
+        _bot->SwapItem(uint16(INVENTORY_SLOT_BAG_0 << 8 | EQUIPMENT_SLOT_OFFHAND),
+                       uint16(INVENTORY_SLOT_BAG_0 << 8 | free));
+        didSomething = true;
+        return !_bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+    };
 
     for (int trial = 0; trial < 8; ++trial)       // до 8 замещений за раз — безопасно
     {
         bool swapped = false;
+
+        // наследие прежнего бага: 2H в MAINHAND при занятом OFFHAND → чистим пару
+        if (mainhandIs2H())
+            clearOffhand(swapped);
+
         for (int slot : armorSlots)
         {
+            // при надетой двуручке OFFHAND не трогаем (щит/книга с 2H несовместимы)
+            if (slot == EQUIPMENT_SLOT_OFFHAND && mainhandIs2H())
+                continue;
+
             Item* bestItem = nullptr;
             int  bestScore = -1;
             for (uint8 i = INVENTORY_SLOT_ITEM_START; i < INVENTORY_SLOT_ITEM_END; ++i)
@@ -736,12 +802,11 @@ void PlayerbotAI::EquipBestItems()
                 if (!item)
                     continue;
                 auto* t = item->GetTemplate();
-                int candSlot = SlotForInventoryType(int32(t->GetInventoryType()));
-                if (candSlot != slot)
+                if (SlotForInventoryType(int32(t->GetInventoryType())) != slot)
                     continue;
                 if (!ItemFitsClass(item, slot))
                     continue;
-                int score = ScoreItem(item);
+                int const score = ScoreItem(item);
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -755,7 +820,12 @@ void PlayerbotAI::EquipBestItems()
             if (bestScore <= ScoreItem(current) + 5)
                 continue;
 
-            // 2H в MAINHAND — не рушим, если занят OFFHAND (sanity с swap)
+            // кандидат-двуручка: сначала освобождаем OFFHAND
+            if (slot == EQUIPMENT_SLOT_MAINHAND
+                && bestItem->GetTemplate()->GetInventoryType() == INVTYPE_2HWEAPON
+                && !clearOffhand(swapped))
+                continue;
+
             _bot->SwapItem(bestItem->GetPos(), uint16(INVENTORY_SLOT_BAG_0 << 8 | slot));
             swapped = true;
         }
